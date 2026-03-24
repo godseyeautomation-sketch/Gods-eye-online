@@ -1,0 +1,18 @@
+# Dependencies
+node_modules/
+
+# Environment variables (API keys & secrets)
+.env
+.env.local
+.env.production
+
+# Build output
+dist/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary/test files
+tmp_*.js
+test_*.js

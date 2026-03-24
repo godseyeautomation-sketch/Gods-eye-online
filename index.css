@@ -1,0 +1,272 @@
+@import "tailwindcss";
+
+:root {
+    /* Light Mode - Monochrome Only */
+    --bg: #ffffff;
+    --surface: #f4f4f5;
+    --panel: #ffffff;
+    --border: #e4e4e7;
+    --brand: #000000;
+    /* Black Brand */
+    --brand-hover: #333333;
+    --text-primary: #000000;
+    --text-secondary: #52525b;
+    --dot-color: #e4e4e7;
+}
+
+.dark {
+    /* Dark Mode - Highfield Green Brand */
+    --bg: #030303;
+    --surface: #0f0f0f;
+    --panel: #141414;
+    --border: #27272a;
+    --brand: #CCFF00;
+    /* Highfield Green */
+    --brand-hover: #B2DF00;
+    --text-primary: #ffffff;
+    --text-secondary: #a1a1aa;
+    --dot-color: #1a1a1a;
+}
+
+body {
+    background-color: var(--bg);
+    color: var(--text-primary);
+    font-family: 'Inter', sans-serif;
+    background-image: radial-gradient(var(--dot-color) 1px, transparent 1px);
+    background-size: 24px 24px;
+    transition: background-color 0.4s cubic-bezier(0.16, 1, 0.3, 1), color 0.4s ease;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    -webkit-app-region: no-drag;
+}
+
+/* Grain Texture — GPU-composited layer for performance */
+body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    opacity: 0.025;
+    pointer-events: none !important;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+    z-index: 1;
+    mix-blend-mode: overlay;
+    will-change: opacity;
+    transform: translateZ(0);
+}
+
+/* Sleek Scrollbar */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 3px;
+    transition: background 0.2s;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--brand);
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+    display: none;
+}
+
+.scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+
+::selection {
+    background-color: var(--brand);
+    color: var(--bg);
+}
+
+/* =============================================
+   ReactFlow / Spaces Canvas Theme Overrides
+   ============================================= */
+
+/* Canvas background */
+.spaces-canvas {
+  background-color: var(--bg) !important;
+}
+
+/* ReactFlow edges */
+.react-flow__edge-path {
+  stroke: var(--border) !important;
+  stroke-width: 2;
+}
+
+.react-flow__edge.selected .react-flow__edge-path,
+.react-flow__edge:hover .react-flow__edge-path {
+  stroke: var(--brand) !important;
+}
+
+/* Connection line while dragging */
+.react-flow__connection-path {
+  stroke: var(--brand) !important;
+  stroke-dasharray: 5 5;
+}
+
+/* Controls */
+.spaces-controls.react-flow__controls {
+  background: var(--panel) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 12px !important;
+  overflow: hidden;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2);
+}
+
+.spaces-controls .react-flow__controls-button {
+  background: var(--panel) !important;
+  border-bottom: 1px solid var(--border) !important;
+  color: var(--text-secondary) !important;
+  fill: var(--text-secondary) !important;
+}
+
+.spaces-controls .react-flow__controls-button:hover {
+  background: var(--surface) !important;
+  fill: var(--brand) !important;
+}
+
+/* MiniMap */
+.spaces-minimap.react-flow__minimap {
+  background: var(--panel) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 12px !important;
+  overflow: hidden;
+}
+
+.react-flow__minimap-mask {
+  fill: rgba(0, 0, 0, 0.5) !important;
+}
+
+/* Node cards shared styles */
+.space-node {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
+  transition: box-shadow 0.2s, border-color 0.2s;
+}
+
+.space-node:hover {
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+}
+
+.space-node-selected {
+  border-color: var(--brand) !important;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand) 20%, transparent), 0 8px 32px rgba(0, 0, 0, 0.25) !important;
+}
+
+/* Override ReactFlow default node selection ring */
+.react-flow__node.selected > div {
+  border-color: var(--brand) !important;
+}
+
+.space-node-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 12px 8px;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: 0.02em;
+}
+
+.space-node-body {
+  padding: 10px 12px 12px;
+}
+
+.space-label {
+  display: block;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 4px;
+}
+
+.space-textarea {
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+  font-size: 12px;
+  color: var(--text-primary);
+  resize: none;
+  outline: none;
+  line-height: 1.5;
+  transition: border-color 0.2s;
+  font-family: inherit;
+}
+
+.space-textarea:focus {
+  border-color: var(--brand);
+}
+
+.space-input {
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 12px;
+  color: var(--text-primary);
+  outline: none;
+  transition: border-color 0.2s;
+  font-family: inherit;
+}
+
+.space-input:focus {
+  border-color: var(--brand);
+}
+
+.space-select {
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 11px;
+  color: var(--text-primary);
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.2s;
+  font-family: inherit;
+}
+
+.space-select:focus {
+  border-color: var(--brand);
+}
+
+/* Handles */
+.space-handle.react-flow__handle {
+  width: 10px !important;
+  height: 10px !important;
+  background: var(--panel) !important;
+  border: 2px solid var(--border) !important;
+  border-radius: 50% !important;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.space-handle.react-flow__handle:hover,
+.react-flow__handle-connecting .space-handle.react-flow__handle {
+  border-color: var(--brand) !important;
+  background: color-mix(in srgb, var(--brand) 20%, transparent) !important;
+}
+
+.react-flow__handle-valid.space-handle.react-flow__handle {
+  border-color: var(--brand) !important;
+  background: var(--brand) !important;
+}

@@ -1,0 +1,11 @@
+<svg width="32" height="32" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+  <rect width="32" height="32" rx="6" fill="#CCFF00"/>
+  <g fill="#000000">
+    <!-- Eye shape -->
+    <path d="M16 10C10.5 10 6 16 6 16s4.5 6 10 6 10-6 10-6-4.5-6-10-6z" fill="none" stroke="#000" stroke-width="2.5"/>
+    <!-- Iris -->
+    <circle cx="16" cy="16" r="3.5"/>
+    <!-- Pupil highlight -->
+    <circle cx="17.2" cy="14.8" r="1" fill="#CCFF00"/>
+  </g>
+</svg>

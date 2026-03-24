@@ -1,0 +1,55 @@
+# Multi-stage build for optimized image size
+FROM node:18-alpine AS builder
+
+WORKDIR /app
+
+# Build args for Vite compile-time variables
+ARG VITE_GEMINI_API_KEY
+ARG VITE_SUPABASE_URL
+ARG VITE_SUPABASE_ANON_KEY
+
+ENV VITE_GEMINI_API_KEY=$VITE_GEMINI_API_KEY
+ENV VITE_SUPABASE_URL=$VITE_SUPABASE_URL
+ENV VITE_SUPABASE_ANON_KEY=$VITE_SUPABASE_ANON_KEY
+
+# Copy package files
+COPY package*.json ./
+
+# Install dependencies
+RUN npm ci
+
+# Copy source files
+COPY . .
+
+# Build the application
+RUN npm run build
+
+# Production stage
+FROM node:18-alpine
+
+WORKDIR /app
+
+# Copy built files from builder
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/package*.json ./
+COPY --from=builder /app/server.js ./
+COPY --from=builder /app/services ./services
+
+# Install only production dependencies
+RUN npm ci --only=production
+
+# Set environment variables
+ENV PORT=8080
+ENV NODE_ENV=production
+
+# Expose port
+EXPOSE 8080
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD node -e "require('http').get('http://localhost:8080', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})"
+
+# Start the application using server.js
+CMD ["node", "server.js"]
+
+

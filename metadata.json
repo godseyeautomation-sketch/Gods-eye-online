@@ -1,0 +1,8 @@
+{
+  "name": "Gods Eye Studio",
+  "description": "Advanced AI visual creation suite with image generation, video effects, sketch-to-image, and admin controls.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}

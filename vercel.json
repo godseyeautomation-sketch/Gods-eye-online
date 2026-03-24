@@ -1,0 +1,15 @@
+{
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "framework": "vite",
+  "rewrites": [
+    {
+      "source": "/api/gemini/:path*",
+      "destination": "/api/gemini/[...path]"
+    },
+    {
+      "source": "/api/fal/:path*",
+      "destination": "/api/fal/[...path]"
+    }
+  ]
+}

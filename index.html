@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <title>Gods Eye Studio</title>
+  
+  <!-- Favicon -->
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="alternate icon" href="/favicon.svg">
+  <link rel="apple-touch-icon" href="/logo.svg">
+  
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              DEFAULT: 'var(--brand)',
+              hover: 'var(--brand-hover)',
+              surface: 'var(--surface)',
+              panel: 'var(--panel)',
+              border: 'var(--border)',
+            },
+            bg: 'var(--bg)',
+            surface: 'var(--surface)',
+            panel: 'var(--panel)',
+            'border-base': 'var(--border)',
+            'text-primary': 'var(--text-primary)',
+            'text-secondary': 'var(--text-secondary)',
+          },
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          letterSpacing: {
+            tightest: '-0.04em',
+            tighter: '-0.02em',
+            widest: '0.15em',
+          },
+          animation: {
+            'fade-in': 'fadeIn 0.8s cubic-bezier(0.16, 1, 0.3, 1)',
+            'slide-up': 'slideUp 0.8s cubic-bezier(0.16, 1, 0.3, 1)',
+            'scale-in': 'scaleIn 0.6s cubic-bezier(0.16, 1, 0.3, 1)',
+            'soft-pulse': 'softPulse 4s infinite ease-in-out',
+          },
+          keyframes: {
+            fadeIn: {
+              '0%': { opacity: '0' },
+              '100%': { opacity: '1' },
+            },
+            slideUp: {
+              '0%': { transform: 'translateY(15px)', opacity: '0' },
+              '100%': { transform: 'translateY(0)', opacity: '1' },
+            },
+            scaleIn: {
+              '0%': { transform: 'scale(0.98)', opacity: '0' },
+              '100%': { transform: 'scale(1)', opacity: '1' },
+            },
+            softPulse: {
+              '0%, 100%': { opacity: '0.4' },
+              '50%': { opacity: '0.8' },
+            }
+          }
+        },
+      },
+    };
+  </script>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet">
+  <style>
+    :root {
+      --bg: #ffffff;
+      --surface: #fafafa;
+      --panel: rgba(255, 255, 255, 0.7);
+      --border: rgba(0, 0, 0, 0.05);
+      --brand: #000000;
+      --brand-hover: #1a1a1a;
+      --text-primary: #000000;
+      --text-secondary: #71717a;
+      --dot-color: rgba(0, 0, 0, 0.03);
+    }
+
+    .dark {
+      --bg: #050505;
+      --surface: #0a0a0a;
+      --panel: rgba(8, 8, 8, 0.85);
+      --border: rgba(255, 255, 255, 0.04);
+      --brand: #CCFF00;
+      --brand-hover: #E6FF66;
+      --text-primary: #ffffff;
+      --text-secondary: #8a8a8e;
+      --dot-color: rgba(255, 255, 255, 0.15);
+    }
+
+    * {
+      cursor: default;
+    }
+
+    html {
+      scroll-behavior: smooth;
+      font-size: 13.5px;
+      /* Global 10% reduction from 15px */
+    }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text-primary);
+      font-family: 'Inter', sans-serif;
+      background-image: radial-gradient(var(--dot-color) 1px, transparent 1px);
+      background-size: 32px 32px;
+      transition: background-color 0.8s cubic-bezier(0.16, 1, 0.3, 1), color 0.8s ease;
+      -webkit-font-smoothing: antialiased;
+      letter-spacing: -0.01em;
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      opacity: 0.02;
+      pointer-events: none;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+      z-index: 0;
+    }
+
+    ::-webkit-scrollbar {
+      width: 4px;
+      height: 4px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 10px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: var(--text-secondary);
+    }
+
+    .glass {
+      backdrop-filter: blur(20px) saturate(180%);
+      -webkit-backdrop-filter: blur(20px) saturate(180%);
+    }
+
+    ::selection {
+      background-color: var(--brand);
+      color: #000;
+    }
+  </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+    "lucide-react": "https://esm.sh/lucide-react@^0.561.0",
+    "@google/genai": "https://esm.sh/@google/genai@^1.33.0",
+    "recharts": "https://esm.sh/recharts@^3.6.0",
+    "react/": "https://esm.sh/react@^19.2.3/",
+    "react": "https://esm.sh/react@^19.2.3"
+  }
+}
+</script>
+  <link rel="stylesheet" href="/index.css">
+  <!-- RUNTIME_CONFIG -->
+</head>
+
+<body>
+  <div id="root"></div>
+  <script type="module" src="/index.tsx"></script>
+</body>
+
+</html>

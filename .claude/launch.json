@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "klint-dev",
+      "runtimeExecutable": "/usr/local/bin/node",
+      "runtimeArgs": ["./node_modules/.bin/concurrently", "node dev-server.js", "./node_modules/.bin/vite --port 3001"],
+      "port": 3001
+    }
+  ]
+}

@@ -1,0 +1,202 @@
+[
+  {
+    "id": "pdf-1",
+    "prompt": "Create a hyper-realistic, ultra-sharp, full-color large-format image featuring a massive group of celebrities from different eras, all standing together in a single wide cinematic frame. The image must look like a perfectly photographed editorial cover with impeccable lighting, lifelike skin texture, micro-details of hair, pores, reflections, and fabric fibers. GENERAL STYLE & MOOD: Photorealistic, 8k, shallow depth of field, soft natural fill light + strong golden rim light. High dynamic range,...",
+    "imageUrl": "/data/images/page_001.png",
+    "model": "Nano Banana Pro",
+    "aspectRatio": "16:9",
+    "author": "pdf_import"
+  },
+  {
+    "id": "pdf-2",
+    "prompt": "center-weighted. All celebrities interacting naturally, smiling, posing, or conversing. Minimal background noise, but with enough world-building to feel THE ENVIRONMENT: A luxurious open-air rooftop terrace at sunset overlooking a modern city skyline. Elements include: Warm golden light wrapping around",
+    "imageUrl": "/data/images/page_002.png",
+    "model": "Nano Banana Pro",
+    "aspectRatio": "16:9",
+    "author": "pdf_import"
+  },
+  {
+    "id": "pdf-3",
+    "prompt": "Without changing her original face, create a portrait of a beautiful young woman with porcelain-white skin, captured with a 1990s-style camera using a direct front flash. Her messy dark brown hair is tied up, posing with a calm yet playful smile. She wears a modern oversized cream sweater. The background is a dark white wall covered with aesthetic magazine posters and stickers, evoking a cozy bedroom or personal room atmosphere under dim lighting. The 35mm lens flash creates a nostalgic glow.",
+    "imageUrl": "/data/images/page_003.png",
+    "model": "Nano Banana Pro",
+    "aspectRatio": "16:9",
+    "author": "pdf_import"
+  },
+  {
+    "id": "pdf-4",
+    "prompt": "Keep the facial features of the person in the uploaded image exactly consistent . Style : A cinematic, emotional portrait shot on Kodak Portra 400 film . Setting : An urban street coffee shop window at Golden Hour (sunset) . Warm, nostalgic lighting hitting the side of the face. Atmosphere : Apply a subtle film grain and soft focus to create a dreamy, storytelling vibe. Action : The subject is looking slightly away from the camera, holding a coffee cup, with a relaxed, candid expression. Details...",
+    "imageUrl": "/data/images/page_004.png",
+    "model": "Nano Banana Pro",
+    "aspectRatio": "16:9",
+    "author": "pdf_import"
+  },
+  {
+    "id": "pdf-6",
+    "prompt": "\"A professional, high-resolution profile photo, maintaining the exact facial structure, identity, and key features of the person in the input image. The subject is framed from the chest up, with ample headroom. The person looks directly at the camera. They are styled for a professional photo studio shoot, wearing a premium smart casual blazer in a subtle charcoal gray. The background is a solid '#562226' neutral studio color. Shot from a high angle with bright and airy soft, diffused studio ligh...",
+    "imageUrl": "/data/images/page_006.png",
+    "model": "Nano Banana Pro",
+    "aspectRatio": "16:9",
+    "author": "pdf_import"
+  },
+  {
+    "id": "pdf-7",
+    "prompt": "approachability. Clean and bright cinematic color grading with subtle warmth and balanced tones, ensuring a polished and contemporary feel.\" A film-like fisheye wide-angle 360-degree selfie without any camera or phone visible in the subject's hands. A real and exaggerated selfie of [person from uploaded image] with [CHARACTERS]. They are making faces at the camera.",
+    "imageUrl": "/data/images/page_007.png",
+    "model": "Nano Banana Pro",
+    "aspectRatio": "16:9",
+    "author": "pdf_import"
+  },
+  {
+    "id": "pdf-8",
+    "prompt": "A hyper-realistic fisheye wide-angle selfie, captured with a vintage 35mm fisheye lens creating heavy barrel distortion. without any camera or phone visible in the subject's hands. Subject & Action: A close-up, distorted group photo featuring [Person From Uploaded Image] taking selfie with [CHARACTERS]. Everyone is making wild, exaggerated faces, squinting slightly from the flash. Lighting & Texture: Harsh, direct on-camera flash lighting that creates hard shadows behind the subjects. Authentic ...",
+    "imageUrl": "/data/images/page_008.png",
+    "model": "Nano Banana Pro",
+    "aspectRatio": "16:9",
+    "author": "pdf_import"
+  },
+  {
+    "id": "pdf-10",
+    "prompt": "A creative and visually striking image showcasing artistic composition and design",
+    "imageUrl": "/data/images/page_010.png",
+    "model": "Nano Banana Pro",
+    "aspectRatio": "16:9",
+    "author": "pdf_import"
+  },
+  {
+    "id": "pdf-12",
+    "prompt": "Use facial feature of attached photo. A close-up shot of a young woman displayed on the screen of a compact Canon digital camera. The camera body surrounds the image with its buttons, dials, and textured surface visible,",
+    "imageUrl": "/data/images/page_012.png",
+    "model": "Nano Banana Pro",
+    "aspectRatio": "16:9",
+    "author": "pdf_import"
+  },
+  {
+    "id": "pdf-13",
+    "prompt": "including the FUNC/SET wheel, DISP button, and the \"IMAGE STABILIZER\" label along the side. The photo on the screen shows the woman indoors at night, illuminated by a bright built-in flash that creates sharp highlights on her face and hair. She has long dark hair falling across part of her face in loose strands, with a soft, slightly open-lip expression. The flash accentuates her features against a dim, cluttered kitchen background with appliances, shelves, and metallic surfaces softly blurred. ...",
+    "imageUrl": "/data/images/page_013.png",
+    "model": "Nano Banana Pro",
+    "aspectRatio": "16:9",
+    "author": "pdf_import"
+  },
+  {
+    "id": "pdf-14",
+    "prompt": "An engaging visual scene with dynamic elements and compelling aesthetics",
+    "imageUrl": "/data/images/page_014.png",
+    "model": "Nano Banana Pro",
+    "aspectRatio": "16:9",
+    "author": "pdf_import"
+  },
+  {
+    "id": "pdf-15",
+    "prompt": "\"Generate the holiday photo of this person through the ages up to 80 years old\" recursive image of an orange cat sitting in an office chair holding up an iPad. On the iPad is the same cat in the same scene holding up the same iPad.",
+    "imageUrl": "/data/images/page_015.png",
+    "model": "Nano Banana Pro",
+    "aspectRatio": "16:9",
+    "author": "pdf_import"
+  },
+  {
+    "id": "pdf-16",
+    "prompt": "35.6586\u00b0 N, 139.7454\u00b0 E at 19:00",
+    "imageUrl": "/data/images/page_016.png",
+    "model": "Nano Banana Pro",
+    "aspectRatio": "16:9",
+    "author": "pdf_import"
+  },
+  {
+    "id": "pdf-17",
+    "prompt": "How engineers see the San Francisco Bridge",
+    "imageUrl": "/data/images/page_017.png",
+    "model": "Nano Banana Pro",
+    "aspectRatio": "16:9",
+    "author": "pdf_import"
+  },
+  {
+    "id": "pdf-18",
+    "prompt": "Create a photo of vagabonds musashi praying drawn on a glass whiteboard in a",
+    "imageUrl": "/data/images/page_018.png",
+    "model": "Nano Banana Pro",
+    "aspectRatio": "16:9",
+    "author": "pdf_import"
+  },
+  {
+    "id": "pdf-19",
+    "prompt": "Create a high-quality, realistic 3D render of exactly one instance of the object: [Orange iPhone 17 Pro]. The object must float freely in mid-air and be gently tilted and rotated in 3D Use a soft, minimalist dark background in a clean 1080\u00d71080 composition. The left half of the object should appear exactly as it looks in real life \u2014 accurate materials, colors, textures, reflections, and proportions. This half must be completely opaque with no transparency and no wireframe No soft transition, no ...",
+    "imageUrl": "/data/images/page_019.png",
+    "model": "Nano Banana Pro",
+    "aspectRatio": "16:9",
+    "author": "pdf_import"
+  },
+  {
+    "id": "pdf-21",
+    "prompt": "Based on you know about me, generate a 3D isometric colored illustration of me working from home, filled with various interior details. The visual style should be rounded, polished, and playful. --ar 1:1 [Additional details: a bichon frise and 3 monitors]",
+    "imageUrl": "/data/images/page_021.png",
+    "model": "Nano Banana Pro",
+    "aspectRatio": "16:9",
+    "author": "pdf_import"
+  },
+  {
+    "id": "pdf-22",
+    "prompt": "A beautifully composed image featuring elegant design and visual storytelling",
+    "imageUrl": "/data/images/page_022.png",
+    "model": "Nano Banana Pro",
+    "aspectRatio": "16:9",
+    "author": "pdf_import"
+  },
+  {
+    "id": "pdf-23",
+    "prompt": "Create a beautiful, photo book style magazine cover that fully utilizes the 9:16 aspect ratio. Place the attached person at the precise coordinates of [latitude/longitude coordinate], seamlessly blending them into the scene as if they are sightseeing. Approach this task with the understanding that this is a critical page that will significantly influence visitor numbers. NEGATIVE:",
+    "imageUrl": "/data/images/page_023.png",
+    "model": "Nano Banana Pro",
+    "aspectRatio": "16:9",
+    "author": "pdf_import"
+  },
+  {
+    "id": "pdf-25",
+    "prompt": "A captivating visual with rich details and artistic expression",
+    "imageUrl": "/data/images/page_025.png",
+    "model": "Nano Banana Pro",
+    "aspectRatio": "16:9",
+    "author": "pdf_import"
+  },
+  {
+    "id": "pdf-27",
+    "prompt": "An enormous L-shaped glasses-free 3D LED screen situated prominently at a bustling urban intersection, designed in an iconic architectural style reminiscent of Shinjuku in Tokyo or Taikoo Li in Chengdu. The screen displays a captivating glasses-free 3D animation featuring [scene description]. The characters and objects possess striking depth and appear to break through the screen's boundaries, extending outward or floating vividly in mid-air. Under realistic daylight conditions, these elements c...",
+    "imageUrl": "/data/images/page_027.png",
+    "model": "Nano Banana Pro",
+    "aspectRatio": "16:9",
+    "author": "pdf_import"
+  },
+  {
+    "id": "pdf-28",
+    "prompt": "An impressive image showcasing creative vision and technical excellence",
+    "imageUrl": "/data/images/page_028.png",
+    "model": "Nano Banana Pro",
+    "aspectRatio": "16:9",
+    "author": "pdf_import"
+  },
+  {
+    "id": "pdf-32",
+    "prompt": "A stunning visual composition with artistic flair and visual impact",
+    "imageUrl": "/data/images/page_032.png",
+    "model": "Nano Banana Pro",
+    "aspectRatio": "16:9",
+    "author": "pdf_import"
+  },
+  {
+    "id": "pdf-34",
+    "prompt": "An elegant image featuring sophisticated design and visual appeal",
+    "imageUrl": "/data/images/page_034.png",
+    "model": "Nano Banana Pro",
+    "aspectRatio": "16:9",
+    "author": "pdf_import"
+  },
+  {
+    "id": "pdf-36",
+    "prompt": "A compelling visual scene with artistic composition and creative expression",
+    "imageUrl": "/data/images/page_036.png",
+    "model": "Nano Banana Pro",
+    "aspectRatio": "16:9",
+    "author": "pdf_import"
+  }
+]
