@@ -20,6 +20,7 @@
     "@ffmpeg/ffmpeg": "^0.12.15",
     "@ffmpeg/util": "^0.12.2",
     "@google/genai": "^1.33.0",
+    "@modelcontextprotocol/sdk": "^1.27.1",
     "@supabase/supabase-js": "^2.99.3",
     "@xyflow/react": "^12.10.1",
     "dotenv": "^17.2.3",

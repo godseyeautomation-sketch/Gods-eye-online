@@ -89,7 +89,7 @@ export const ChatArea: React.FC<Props> = ({
     <div className="flex-1 flex flex-col min-w-0">
       {/* Messages */}
       <div className="flex-1 overflow-y-auto">
-        <div className="max-w-3xl mx-auto px-4 pt-32 pb-4">
+        <div className="max-w-3xl mx-auto px-4 pt-32 pb-4" data-chat-messages>
           {messages.map((msg) => (
             <MessageBubble key={msg.id} message={msg} />
           ))}
@@ -133,7 +133,7 @@ export const ChatArea: React.FC<Props> = ({
                   </div>
                 )}
 
-                {streamingText ? (
+                {streamingText !== null && streamingText.length > 0 ? (
                   <p className="text-[15px] text-text-primary/90 leading-[1.7] whitespace-pre-wrap">{streamingText}</p>
                 ) : streamingToolCalls.length === 0 && isLoading ? (
                   <div className="flex items-center gap-1.5 py-1">

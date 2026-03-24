@@ -14,6 +14,7 @@ import { AssistPage } from './components/AssistPage';
 import { ProfilePage } from './components/ProfilePage';
 import { CronJobsPage } from './components/CronJobsPage';
 import { AgenticPage } from './components/AgenticPage';
+import { ConnectorsPage } from './components/ConnectorsPage';
 import { SpacesPage } from './components/spaces/SpacesPage';
 import { BrandPage } from './components/brand/BrandPage';
 import { FalVideoPage } from './components/fal-video/FalVideoPage';
@@ -689,6 +690,8 @@ const App: React.FC = () => {
           <CronJobsPage />
         ) : mode === AppMode.AGENTIC || mode === 'agentic' ? (
           <AgenticPage />
+        ) : mode === AppMode.CONNECTORS || mode === 'connectors' ? (
+          <ConnectorsPage />
         ) : (
           <div className="h-full overflow-y-auto">
             <ImageGallery

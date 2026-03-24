@@ -1,11 +1,12 @@
 import React, { useRef, useEffect, useState } from 'react';
 
 export const CHAT_MODELS = [
-  { id: 'gemini-3.1-pro-preview', name: 'Gemini 3.1 Pro', badge: 'NEW' },
-  { id: 'gemini-3-flash-preview', name: 'Gemini 3.0 Flash', badge: 'NEW' },
-  { id: 'gemini-3.1-flash-lite-preview', name: 'Gemini 3.1 Flash Lite', badge: '' },
-  { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', badge: '' },
-  { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', badge: 'PRO' },
+  { id: 'gemini-3.1-pro-preview', name: 'Gemini 3.1 Pro', badge: 'NEW', isLocal: false },
+  { id: 'gemini-3-flash-preview', name: 'Gemini 3.0 Flash', badge: 'NEW', isLocal: false },
+  { id: 'gemini-3.1-flash-lite-preview', name: 'Gemini 3.1 Flash Lite', badge: '', isLocal: false },
+  { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', badge: '', isLocal: false },
+  { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', badge: 'PRO', isLocal: false },
+  { id: 'claude-local', name: 'Claude Code', badge: 'LOCAL', isLocal: true },
 ] as const;
 
 export type ChatModelId = typeof CHAT_MODELS[number]['id'];
@@ -325,7 +326,7 @@ export const ChatInput: React.FC<Props> = ({
                       <p className="text-[10px] text-text-secondary/50 font-medium uppercase tracking-widest">Chat Model</p>
                     </div>
                     <div className="py-1">
-                      {CHAT_MODELS.map((model) => (
+                      {CHAT_MODELS.filter(m => !m.isLocal).map((model) => (
                         <button
                           key={model.id}
                           onClick={() => {
@@ -353,6 +354,36 @@ export const ChatInput: React.FC<Props> = ({
                               {model.badge}
                             </span>
                           )}
+                        </button>
+                      ))}
+                      {/* Separator + Local models */}
+                      <div className="border-t border-white/5 my-1" />
+                      <div className="px-3 py-1">
+                        <p className="text-[9px] text-text-secondary/40 font-medium uppercase tracking-widest">Local AI</p>
+                      </div>
+                      {CHAT_MODELS.filter(m => m.isLocal).map((model) => (
+                        <button
+                          key={model.id}
+                          onClick={() => {
+                            onModelChange?.(model.id);
+                            setShowModelPicker(false);
+                          }}
+                          className={`w-full flex items-center justify-between px-3 py-2 text-left hover:bg-white/5 transition-colors ${
+                            selectedModel === model.id ? 'bg-brand/10' : ''
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            {selectedModel === model.id && (
+                              <div className="w-1.5 h-1.5 rounded-full bg-blue-400 flex-shrink-0" />
+                            )}
+                            <span className="text-sm mr-1">🖥</span>
+                            <span className={`text-sm ${selectedModel === model.id ? 'text-blue-400 font-medium' : 'text-text-primary'}`}>
+                              {model.name}
+                            </span>
+                          </div>
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-blue-500/20 text-blue-400">
+                            LOCAL
+                          </span>
                         </button>
                       ))}
                     </div>
