@@ -143,7 +143,7 @@ export const HomePage: React.FC<Props> = ({ onNavigate }) => {
     return new Promise((resolve) => {
       const folder = localFolder || '/Users/bitanpurkayastha/Desktop';
       const context = buildLocalContext();
-      const ws = new WebSocket(`ws://${window.location.host}/bridge`);
+      const ws = new WebSocket(localBridge.bridgeWsUrl);
 
       ws.onopen = () => {
         ws.send(JSON.stringify({ type: 'start', model: 'claude', folder, context }));
@@ -200,11 +200,9 @@ export const HomePage: React.FC<Props> = ({ onNavigate }) => {
   // Handle model change
   const handleModelChange = useCallback(async (modelId: ChatModelId) => {
     if (modelId === 'claude-local') {
-      // Check bridge availability
-      try {
-        const res = await fetch('/bridge/health');
-        if (!res.ok) throw new Error();
-      } catch {
+      // Check bridge availability (tries server proxy, then direct localhost)
+      const { running } = await localBridge.checkAvailability();
+      if (!running) {
         setMessages(prev => [...prev, {
           id: Date.now().toString(), role: 'assistant' as const, timestamp: Date.now(),
           text: '⚠️ **Local bridge server not running.** Run `node local-bridge-server.cjs` in your terminal.',

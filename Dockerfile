@@ -41,6 +41,11 @@ RUN npm ci --only=production
 # Set environment variables
 ENV PORT=8080
 ENV NODE_ENV=production
+# Bridge proxy: points to host machine where local-bridge-server.cjs runs
+# host.docker.internal resolves to the Docker host on Docker Desktop (Mac/Win)
+# Override with BRIDGE_HOST for Linux Docker or custom setups
+ENV BRIDGE_HOST=host.docker.internal
+ENV BRIDGE_PORT=3456
 
 # Expose port
 EXPOSE 8080

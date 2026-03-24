@@ -2,6 +2,8 @@ import fs from 'fs';
 import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { createServer } from 'http';
+import { createProxyMiddleware } from 'http-proxy-middleware';
 import dotenv from 'dotenv';
 import { registerCronRoutes, loadAndScheduleAll } from './services/cronEngine.js';
 
@@ -12,6 +14,14 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 8080;
+
+// ── Local Bridge Proxy ───────────────────────────────────────────────────────
+// The local bridge server (local-bridge-server.cjs) runs on the HOST machine
+// (not inside Docker) because it spawns local CLI processes (claude, codex).
+// This proxy forwards /bridge requests from the container to the host bridge.
+const BRIDGE_HOST = process.env.BRIDGE_HOST || 'host.docker.internal';
+const BRIDGE_PORT = process.env.BRIDGE_PORT || '3456';
+const BRIDGE_TARGET = `http://${BRIDGE_HOST}:${BRIDGE_PORT}`;
 
 const apiKey = process.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
 const uploadPostApiKey = process.env.UPLOAD_POST_API_KEY;
@@ -580,6 +590,24 @@ app.post('/api/sync/all', (req, res) => {
   }
 });
 
+// ── Local Bridge HTTP Proxy ───────────────────────────────────────────────────
+// Forward /bridge/* HTTP requests (health, available-models, mcp/*) to bridge
+app.use('/bridge', createProxyMiddleware({
+  target: BRIDGE_TARGET,
+  changeOrigin: true,
+  pathRewrite: { '^/bridge': '' },
+  logLevel: 'warn',
+  on: {
+    error: (err, req, res) => {
+      console.warn('[Bridge Proxy] Bridge server unreachable:', err.message);
+      if (res.writeHead) {
+        res.writeHead(502, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Local bridge server not running. Run: node local-bridge-server.cjs' }));
+      }
+    },
+  },
+}));
+
 // ── Native Cron Scheduler ────────────────────────────────────────────────────
 // Register cron API routes and load scheduled jobs from Supabase
 registerCronRoutes(app);
@@ -630,8 +658,29 @@ app.get('*', (req, res) => {
   res.send(html);
 });
 
-app.listen(PORT, () => {
+// ── Create HTTP server with WebSocket upgrade for bridge ──────────────────────
+const server = createServer(app);
+
+// WebSocket upgrade proxy for /bridge path
+const bridgeWsProxy = createProxyMiddleware({
+  target: BRIDGE_TARGET,
+  ws: true,
+  changeOrigin: true,
+  pathRewrite: { '^/bridge': '' },
+  logLevel: 'warn',
+});
+
+server.on('upgrade', (req, socket, head) => {
+  if (req.url === '/bridge' || req.url?.startsWith('/bridge')) {
+    bridgeWsProxy.upgrade(req, socket, head);
+  } else {
+    socket.destroy();
+  }
+});
+
+server.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
   console.log(`Gemini API key configured: ${!!apiKey}`);
+  console.log(`Bridge proxy target: ${BRIDGE_TARGET}`);
 });
 

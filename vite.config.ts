@@ -248,6 +248,13 @@ export default defineConfig(({ mode }) => {
           target: 'http://localhost:3002',
           changeOrigin: true,
         },
+        // Local bridge server proxy (WebSocket + HTTP)
+        '/bridge': {
+          target: 'http://localhost:3456',
+          changeOrigin: true,
+          ws: true,
+          rewrite: (path: string) => path.replace(/^\/bridge/, ''),
+        },
       },
     },
     plugins: [

@@ -3,12 +3,21 @@
  *
  * Browser-side WebSocket client that connects to local-bridge-server.js
  * Handles: connection, message routing, transcript capture, folder picker
+ *
+ * Connection strategy (tried in order):
+ * 1. Same-origin /bridge proxy — works when server.js or Vite proxies to bridge
+ * 2. Direct ws://localhost:3456 — works when user runs bridge on their own machine
+ *    and accesses the app from a remote/cloud deployment
  */
 
-// Use Vite proxy to avoid cross-origin WebSocket issues
-const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-const BRIDGE_URL = isLocal ? `ws://${window.location.host}/bridge` : 'ws://localhost:3456';
-const BRIDGE_HEALTH_URL = isLocal ? '/bridge' : 'http://localhost:3456';
+// Direct local bridge (user's own machine)
+const LOCAL_BRIDGE_WS = 'ws://localhost:3456';
+const LOCAL_BRIDGE_HTTP = 'http://localhost:3456';
+
+// Same-origin proxy (works in dev via Vite, in Docker via server.js proxy)
+const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+const PROXY_BRIDGE_WS = `${wsProtocol}//${window.location.host}/bridge`;
+const PROXY_BRIDGE_HTTP = '/bridge';
 
 export type BridgeStatus = 'disconnected' | 'connecting' | 'ready' | 'running' | 'error' | 'starting' | 'stopped';
 
@@ -29,21 +38,44 @@ class LocalBridgeClient {
   private callbacks: BridgeCallbacks | null = null;
   private _status: BridgeStatus = 'disconnected';
   private outputBuffer = '';
+  // Which bridge endpoint is reachable — detected by checkAvailability()
+  private _bridgeWsUrl: string = PROXY_BRIDGE_WS;
+  private _bridgeHttpUrl: string = PROXY_BRIDGE_HTTP;
 
   get status() { return this._status; }
+  /** The resolved WebSocket URL after checkAvailability() */
+  get bridgeWsUrl() { return this._bridgeWsUrl; }
+  /** The resolved HTTP base URL after checkAvailability() */
+  get bridgeHttpUrl() { return this._bridgeHttpUrl; }
 
   /**
-   * Check if the bridge server is running and which models are available
+   * Check if the bridge server is running and which models are available.
+   * Tries same-origin proxy first, then falls back to direct localhost.
    */
   async checkAvailability(): Promise<{ running: boolean; models: LocalModel[] }> {
+    // Strategy 1: same-origin proxy (/bridge → server proxies to bridge)
     try {
-      const res = await fetch(`${BRIDGE_HEALTH_URL}/available-models`);
-      if (!res.ok) return { running: false, models: [] };
-      const models = await res.json();
-      return { running: true, models };
-    } catch {
-      return { running: false, models: [] };
-    }
+      const res = await fetch(`${PROXY_BRIDGE_HTTP}/available-models`, { signal: AbortSignal.timeout(3000) });
+      if (res.ok) {
+        const models = await res.json();
+        this._bridgeWsUrl = PROXY_BRIDGE_WS;
+        this._bridgeHttpUrl = PROXY_BRIDGE_HTTP;
+        return { running: true, models };
+      }
+    } catch { /* proxy not available, try direct */ }
+
+    // Strategy 2: direct connection to user's local bridge server
+    try {
+      const res = await fetch(`${LOCAL_BRIDGE_HTTP}/available-models`, { signal: AbortSignal.timeout(3000) });
+      if (res.ok) {
+        const models = await res.json();
+        this._bridgeWsUrl = LOCAL_BRIDGE_WS;
+        this._bridgeHttpUrl = LOCAL_BRIDGE_HTTP;
+        return { running: true, models };
+      }
+    } catch { /* direct not available either */ }
+
+    return { running: false, models: [] };
   }
 
   /**
@@ -92,7 +124,7 @@ class LocalBridgeClient {
 
     return new Promise((resolve) => {
       try {
-        this.ws = new WebSocket(BRIDGE_URL);
+        this.ws = new WebSocket(this._bridgeWsUrl);
         this._setStatus('connecting');
 
         this.ws.onopen = () => {
