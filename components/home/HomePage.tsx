@@ -190,8 +190,8 @@ export const HomePage: React.FC<Props> = ({ onNavigate }) => {
         } catch {}
       };
 
-      ws.onerror = () => { wsReadyRef.current = false; setBridgeStatus('error'); resolve(false); };
-      ws.onclose = () => { wsReadyRef.current = false; setBridgeStatus('disconnected'); wsRef.current = null; };
+      ws.onerror = () => { wsReadyRef.current = false; setBridgeStatus('error'); setIsLoading(false); setStreamingText(null); resolve(false); };
+      ws.onclose = () => { wsReadyRef.current = false; setBridgeStatus('disconnected'); setIsLoading(false); setStreamingText(null); wsRef.current = null; };
       wsRef.current = ws;
       setTimeout(() => resolve(false), 10000); // 10s timeout
     });
@@ -363,7 +363,9 @@ export const HomePage: React.FC<Props> = ({ onNavigate }) => {
           wsRef.current.send(JSON.stringify({ type: 'message', text }));
           return;
         }
-        // Fall through to Gemini if bridge isn't available
+        // Bridge unavailable — reset loading and fall through to Gemini
+        setIsLoading(false);
+        setStreamingText(null);
       }
 
       // Collect streaming state for final message
