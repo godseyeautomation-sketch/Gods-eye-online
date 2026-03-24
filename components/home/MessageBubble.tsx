@@ -85,7 +85,7 @@ const HtmlPreviewBlock: React.FC<{ html: string }> = ({ html }) => {
           srcDoc={fullHtml}
           className="w-full bg-white rounded-b-xl"
           style={{ minHeight: 300, maxHeight: 600, border: 'none' }}
-          sandbox="allow-same-origin"
+          sandbox="allow-same-origin allow-scripts"
           title="Document preview"
           onLoad={() => {
             // Auto-resize iframe to content
