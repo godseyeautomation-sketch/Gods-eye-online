@@ -130,6 +130,26 @@ export const HomePage: React.FC<Props> = ({ onNavigate }) => {
     return parts.join('\n');
   }, [messages, profile, activeBrand]);
 
+  // Response timeout ref — clears isLoading if bridge never sends done
+  const localResponseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearLocalResponseTimeout = useCallback(() => {
+    if (localResponseTimeoutRef.current) {
+      clearTimeout(localResponseTimeoutRef.current);
+      localResponseTimeoutRef.current = null;
+    }
+  }, []);
+
+  const startLocalResponseTimeout = useCallback(() => {
+    clearLocalResponseTimeout();
+    localResponseTimeoutRef.current = setTimeout(() => {
+      console.warn('[Local] Response timeout — bridge did not send done within 120s');
+      setIsLoading(false);
+      setStreamingText(null);
+      setBridgeStatus('error');
+    }, 120000); // 120s max wait for a response
+  }, [clearLocalResponseTimeout]);
+
   // Setup raw WebSocket with DOM event listeners (not React closures)
   const ensureLocalWs = useCallback((): Promise<boolean> => {
     // Reuse existing connection if open and ready
@@ -143,6 +163,9 @@ export const HomePage: React.FC<Props> = ({ onNavigate }) => {
     return new Promise((resolve) => {
       const folder = localFolder || '/Users/bitanpurkayastha/Desktop';
       const context = buildLocalContext();
+      let resolved = false;
+      const safeResolve = (val: boolean) => { if (!resolved) { resolved = true; resolve(val); } };
+
       const ws = new WebSocket(localBridge.bridgeWsUrl);
 
       ws.onopen = () => {
@@ -153,20 +176,26 @@ export const HomePage: React.FC<Props> = ({ onNavigate }) => {
         try {
           const m = JSON.parse(event.data);
           if (m.type === 'status') {
-            if (m.status === 'ready') { wsReadyRef.current = true; setBridgeStatus('ready'); resolve(true); }
+            if (m.status === 'ready') { wsReadyRef.current = true; setBridgeStatus('ready'); safeResolve(true); }
             if (m.status === 'running') { setBridgeStatus('connecting'); }
-            if (m.status === 'error') { setBridgeStatus('error'); }
+            if (m.status === 'error') {
+              setBridgeStatus('error');
+              setIsLoading(false);
+              setStreamingText(null);
+              clearLocalResponseTimeout();
+            }
           }
           if (m.type === 'output' && !m.done && m.text) {
             localBufferRef.current += m.text;
-            // Use streamingText state — same as Gemini streaming
             setStreamingText(localBufferRef.current);
+            // Reset timeout on each chunk — bridge is still alive
+            startLocalResponseTimeout();
           }
           if (m.type === 'output' && m.done) {
+            clearLocalResponseTimeout();
             const finalText = localBufferRef.current.trim();
             localBufferRef.current = '';
             if (finalText) {
-              // Save to conversation DB so it survives reloads
               const convId = activeConvIdRef.current || '';
               const newMsg: ChatMessage = {
                 id: crypto.randomUUID(),
@@ -175,27 +204,37 @@ export const HomePage: React.FC<Props> = ({ onNavigate }) => {
                 content: finalText,
                 timestamp: Date.now(),
               };
-              // Save to DB — this prevents autoTitle/loadMessages from wiping the response
               if (convId) {
                 addMessage(newMsg).catch(e => console.warn('[Local] Save failed:', e));
               }
               setMessages(prev => [...prev, newMsg]);
-              setStreamingText(null);
-              setIsLoading(false);
-            } else {
-              setStreamingText(null);
-              setIsLoading(false);
             }
+            setStreamingText(null);
+            setIsLoading(false);
           }
         } catch {}
       };
 
-      ws.onerror = () => { wsReadyRef.current = false; setBridgeStatus('error'); setIsLoading(false); setStreamingText(null); resolve(false); };
-      ws.onclose = () => { wsReadyRef.current = false; setBridgeStatus('disconnected'); setIsLoading(false); setStreamingText(null); wsRef.current = null; };
+      ws.onerror = () => {
+        wsReadyRef.current = false;
+        setBridgeStatus('error');
+        setIsLoading(false);
+        setStreamingText(null);
+        clearLocalResponseTimeout();
+        safeResolve(false);
+      };
+      ws.onclose = () => {
+        wsReadyRef.current = false;
+        setBridgeStatus('disconnected');
+        setIsLoading(false);
+        setStreamingText(null);
+        clearLocalResponseTimeout();
+        wsRef.current = null;
+      };
       wsRef.current = ws;
-      setTimeout(() => resolve(false), 10000); // 10s timeout
+      setTimeout(() => safeResolve(false), 10000); // 10s connection timeout
     });
-  }, [localFolder]);
+  }, [localFolder, buildLocalContext, clearLocalResponseTimeout, startLocalResponseTimeout]);
 
   // Handle model change
   const handleModelChange = useCallback(async (modelId: ChatModelId) => {
@@ -360,6 +399,7 @@ export const HomePage: React.FC<Props> = ({ onNavigate }) => {
           setIsLoading(true);
           localBufferRef.current = '';
           setStreamingText('');
+          startLocalResponseTimeout(); // Safety net — force-unblock after 120s
           wsRef.current.send(JSON.stringify({ type: 'message', text }));
           return;
         }
@@ -633,6 +673,16 @@ export const HomePage: React.FC<Props> = ({ onNavigate }) => {
             setActiveSkillContent(skill.content);
             setInputValue(`[Using ${skill.name}] `);
           }
+        }}
+        bridgeStatus={bridgeStatus}
+        onBridgeConnect={async () => {
+          setBridgeStatus('connecting');
+          const { running } = await localBridge.checkAvailability();
+          if (running) {
+            const connected = await ensureLocalWs();
+            if (connected) return;
+          }
+          setBridgeStatus('error');
         }}
       />
     </div>

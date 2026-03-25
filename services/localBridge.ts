@@ -10,14 +10,15 @@
  *    and accesses the app from a remote/cloud deployment
  */
 
-// Direct local bridge (user's own machine)
-const LOCAL_BRIDGE_WS = 'ws://localhost:3456';
-const LOCAL_BRIDGE_HTTP = 'http://localhost:3456';
-
 // Same-origin proxy (works in dev via Vite, in Docker via server.js proxy)
 const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
 const PROXY_BRIDGE_WS = `${wsProtocol}//${window.location.host}/bridge`;
 const PROXY_BRIDGE_HTTP = '/bridge';
+
+// Direct local bridge (user's own machine) — only works on HTTP (mixed content blocks ws:// from https://)
+const isSecure = typeof window !== 'undefined' && window.location.protocol === 'https:';
+const LOCAL_BRIDGE_WS = isSecure ? null : 'ws://localhost:3456';
+const LOCAL_BRIDGE_HTTP = isSecure ? null : 'http://localhost:3456';
 
 export type BridgeStatus = 'disconnected' | 'connecting' | 'ready' | 'running' | 'error' | 'starting' | 'stopped';
 
@@ -64,16 +65,18 @@ class LocalBridgeClient {
       }
     } catch { /* proxy not available, try direct */ }
 
-    // Strategy 2: direct connection to user's local bridge server
-    try {
-      const res = await fetch(`${LOCAL_BRIDGE_HTTP}/available-models`, { signal: AbortSignal.timeout(3000) });
-      if (res.ok) {
-        const models = await res.json();
-        this._bridgeWsUrl = LOCAL_BRIDGE_WS;
-        this._bridgeHttpUrl = LOCAL_BRIDGE_HTTP;
-        return { running: true, models };
-      }
-    } catch { /* direct not available either */ }
+    // Strategy 2: direct connection to user's local bridge server (HTTP only — HTTPS blocks mixed content)
+    if (LOCAL_BRIDGE_HTTP && LOCAL_BRIDGE_WS) {
+      try {
+        const res = await fetch(`${LOCAL_BRIDGE_HTTP}/available-models`, { signal: AbortSignal.timeout(3000) });
+        if (res.ok) {
+          const models = await res.json();
+          this._bridgeWsUrl = LOCAL_BRIDGE_WS;
+          this._bridgeHttpUrl = LOCAL_BRIDGE_HTTP;
+          return { running: true, models };
+        }
+      } catch { /* direct not available either */ }
+    }
 
     return { running: false, models: [] };
   }

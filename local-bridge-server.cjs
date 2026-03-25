@@ -124,7 +124,7 @@ class LocalSession {
         shellCmd = `cat "${tmpFile}" | ${mc.cmd}`;
       }
 
-      console.log(`[Bridge] Running ${this.model} (msg #${messageCount})${hasContinue ? ` [resume ${this.sessionId}]` : ' [new session]'}`);
+      console.log(`[Bridge] Running ${this.model} (msg #${messageCount})${shouldContinue ? ` [resume ${this.sessionId}]` : ' [new session]'}`);
 
       const proc = spawn('sh', ['-c', shellCmd], {
         cwd: this.folder,

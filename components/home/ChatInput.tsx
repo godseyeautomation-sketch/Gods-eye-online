@@ -32,6 +32,8 @@ interface Props {
   brands?: BrandOption[];
   selectedBrand?: string | null;
   onBrandChange?: (brandId: string | null) => void;
+  bridgeStatus?: 'disconnected' | 'connecting' | 'ready' | 'running' | 'error' | 'starting' | 'stopped';
+  onBridgeConnect?: () => void;
 }
 
 export const ChatInput: React.FC<Props> = ({
@@ -52,6 +54,8 @@ export const ChatInput: React.FC<Props> = ({
   brands = [],
   selectedBrand = null,
   onBrandChange,
+  bridgeStatus = 'disconnected',
+  onBridgeConnect,
 }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [showModelPicker, setShowModelPicker] = useState(false);
@@ -390,6 +394,31 @@ export const ChatInput: React.FC<Props> = ({
                   </div>
                 )}
               </div>
+
+              {/* Bridge connect button — shown when Claude Local is selected */}
+              {selectedModel === 'claude-local' && (
+                <button
+                  onClick={onBridgeConnect}
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all ${
+                    bridgeStatus === 'ready' ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20' :
+                    bridgeStatus === 'connecting' || bridgeStatus === 'starting' ? 'bg-yellow-500/15 text-yellow-400 border border-yellow-500/20 animate-pulse' :
+                    bridgeStatus === 'error' ? 'bg-red-500/15 text-red-400 border border-red-500/20 hover:bg-red-500/25' :
+                    'bg-blue-500/15 text-blue-400 border border-blue-500/20 hover:bg-blue-500/25'
+                  }`}
+                  title={bridgeStatus === 'ready' ? 'Bridge connected' : 'Click to connect to local bridge'}
+                >
+                  <div className={`w-1.5 h-1.5 rounded-full ${
+                    bridgeStatus === 'ready' ? 'bg-emerald-400' :
+                    bridgeStatus === 'connecting' || bridgeStatus === 'starting' ? 'bg-yellow-400' :
+                    bridgeStatus === 'error' ? 'bg-red-400' :
+                    'bg-blue-400'
+                  }`} />
+                  {bridgeStatus === 'ready' ? 'Connected' :
+                   bridgeStatus === 'connecting' || bridgeStatus === 'starting' ? 'Connecting...' :
+                   bridgeStatus === 'error' ? 'Retry' :
+                   'Connect'}
+                </button>
+              )}
 
               {value.trim() && (
                 <button
