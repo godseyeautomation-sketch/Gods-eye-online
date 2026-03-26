@@ -902,7 +902,7 @@ export async function sendMessage(
         body: JSON.stringify({
           model: 'kimi-k2.5',
           messages: kimiMessages,
-          temperature: 0.7,
+          temperature: 1,
           max_tokens: 8192,
         }),
       });
