@@ -7,6 +7,7 @@ import { localBridge, type BridgeStatus, type LocalModel } from '../services/loc
 const PLATFORM_ICONS: Record<string, string> = {
   gmail: '📧', google_drive: '📂', slack: '💬', github: '🐙',
   notion: '📝', brave_search: '🔍', google_maps: '🗺️',
+  google_ads: '📢', meta_ads: '📱',
 };
 
 interface SearchResult {
@@ -74,12 +75,16 @@ export const ConnectorsPage: React.FC = () => {
   const loadData = useCallback(async () => {
     if (!user?.id) return;
     setLoading(true);
-    const [plats, conns] = await Promise.all([
-      connectorService.getPlatforms(),
-      connectorService.getUserConnectors(user.id),
-    ]);
-    setPlatforms(plats);
-    setConnectors(conns);
+    try {
+      const [plats, conns] = await Promise.allSettled([
+        connectorService.getPlatforms(),
+        connectorService.getUserConnectors(user.id),
+      ]);
+      setPlatforms(plats.status === 'fulfilled' ? plats.value : []);
+      setConnectors(conns.status === 'fulfilled' ? conns.value : []);
+    } catch (err) {
+      console.warn('[Connectors] loadData error:', err);
+    }
     setLoading(false);
   }, [user?.id]);
 

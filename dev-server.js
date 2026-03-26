@@ -1909,6 +1909,26 @@ const CONNECTOR_PLATFORMS = {
     name: 'Google Maps', auth_type: 'api_key', icon: 'map-pin',
     description: 'Places, directions, geocoding',
   },
+  google_ads: {
+    name: 'Google Ads', auth_type: 'oauth', icon: 'megaphone',
+    description: 'Manage campaigns, view analytics, push ad creatives',
+    scopes: ['https://www.googleapis.com/auth/adwords'],
+    authUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
+    tokenUrl: 'https://oauth2.googleapis.com/token',
+    profileUrl: 'https://www.googleapis.com/oauth2/v2/userinfo',
+    clientIdEnv: 'GOOGLE_ADS_CLIENT_ID', clientSecretEnv: 'GOOGLE_ADS_CLIENT_SECRET',
+    extraAuthParams: { access_type: 'offline', prompt: 'consent' },
+  },
+  meta_ads: {
+    name: 'Meta Ads', auth_type: 'oauth', icon: 'target',
+    description: 'Manage Facebook & Instagram ad campaigns',
+    scopes: ['ads_management', 'ads_read', 'business_management'],
+    authUrl: 'https://www.facebook.com/v19.0/dialog/oauth',
+    tokenUrl: 'https://graph.facebook.com/v19.0/oauth/access_token',
+    profileUrl: 'https://graph.facebook.com/v19.0/me',
+    clientIdEnv: 'META_ADS_APP_ID', clientSecretEnv: 'META_ADS_APP_SECRET',
+    extraAuthParams: {},
+  },
 };
 
 // Helper: get OAuth client credentials from env
@@ -2119,6 +2139,29 @@ app.get('/api/connectors/auth/callback', async (req, res) => {
       } else if (platform === 'notion') {
         const owner = tokenData.owner;
         accountInfo = { workspace_name: tokenData.workspace_name, workspace_id: tokenData.workspace_id, owner };
+      } else if (platform === 'google_ads') {
+        // Fetch profile + accessible customer IDs
+        const profileRes = await fetch(cfg.profileUrl, {
+          headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' },
+        });
+        accountInfo = await profileRes.json();
+        try {
+          const devToken = process.env.GOOGLE_ADS_DEVELOPER_TOKEN || '';
+          const custRes = await fetch('https://googleads.googleapis.com/v17/customers:listAccessibleCustomers', {
+            headers: { Authorization: `Bearer ${accessToken}`, 'developer-token': devToken },
+          });
+          const custData = await custRes.json();
+          accountInfo.customer_ids = (custData.resourceNames || []).map(n => n.replace('customers/', ''));
+        } catch (e) { console.warn('[Connectors] Google Ads customer fetch failed:', e.message); }
+      } else if (platform === 'meta_ads') {
+        // Fetch profile + ad accounts
+        const profileRes = await fetch(`${cfg.profileUrl}?fields=id,name,email&access_token=${accessToken}`);
+        accountInfo = await profileRes.json();
+        try {
+          const acctRes = await fetch(`https://graph.facebook.com/v19.0/me/adaccounts?fields=id,name,account_status&access_token=${accessToken}`);
+          const acctData = await acctRes.json();
+          accountInfo.ad_accounts = (acctData.data || []).map(a => ({ id: a.id, name: a.name, status: a.account_status }));
+        } catch (e) { console.warn('[Connectors] Meta ad accounts fetch failed:', e.message); }
       } else if (cfg.profileUrl) {
         const profileRes = await fetch(cfg.profileUrl, {
           headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json', 'User-Agent': 'GodsEye/1.0' },
@@ -2272,6 +2315,24 @@ const CONNECTOR_TOOL_DEFS = {
   google_maps: [
     { name: 'connector_maps_search', description: 'Search for places on Google Maps', parameters: { type: 'object', properties: { query: { type: 'string', description: 'Place search query' } }, required: ['query'] } },
     { name: 'connector_maps_directions', description: 'Get directions between two locations', parameters: { type: 'object', properties: { origin: { type: 'string', description: 'Starting location' }, destination: { type: 'string', description: 'Destination location' }, mode: { type: 'string', description: 'driving, walking, bicycling, transit (default driving)' } }, required: ['origin', 'destination'] } },
+  ],
+  google_ads: [
+    { name: 'connector_google_ads_list_campaigns', description: 'List all Google Ads campaigns with status and budget', parameters: { type: 'object', properties: { customer_id: { type: 'string', description: 'Google Ads customer ID (optional, uses default)' } } } },
+    { name: 'connector_google_ads_campaign_metrics', description: 'Get performance metrics for a Google Ads campaign (impressions, clicks, CTR, CPC, spend, conversions, ROAS)', parameters: { type: 'object', properties: { customer_id: { type: 'string', description: 'Google Ads customer ID' }, campaign_id: { type: 'string', description: 'Campaign ID' }, date_range: { type: 'string', description: 'LAST_7_DAYS, LAST_30_DAYS, THIS_MONTH, LAST_MONTH (default LAST_30_DAYS)' } }, required: ['campaign_id'] } },
+    { name: 'connector_google_ads_account_metrics', description: 'Get account-level aggregate metrics for Google Ads', parameters: { type: 'object', properties: { customer_id: { type: 'string', description: 'Google Ads customer ID' }, date_range: { type: 'string', description: 'LAST_7_DAYS, LAST_30_DAYS, THIS_MONTH (default LAST_30_DAYS)' } } } },
+    { name: 'connector_google_ads_create_campaign', description: 'Create a new Google Ads campaign', parameters: { type: 'object', properties: { customer_id: { type: 'string', description: 'Google Ads customer ID' }, name: { type: 'string', description: 'Campaign name' }, budget_micros: { type: 'number', description: 'Daily budget in micros (1 dollar = 1000000 micros)' }, campaign_type: { type: 'string', description: 'SEARCH, DISPLAY, VIDEO, SHOPPING (default SEARCH)' } }, required: ['name', 'budget_micros'] } },
+    { name: 'connector_google_ads_update_campaign', description: 'Update a Google Ads campaign (pause, resume, change budget)', parameters: { type: 'object', properties: { customer_id: { type: 'string', description: 'Google Ads customer ID' }, campaign_id: { type: 'string', description: 'Campaign ID' }, status: { type: 'string', description: 'ENABLED or PAUSED' }, budget_micros: { type: 'number', description: 'New daily budget in micros' } }, required: ['campaign_id'] } },
+    { name: 'connector_google_ads_upload_asset', description: 'Upload an image asset to Google Ads for use in ad creatives', parameters: { type: 'object', properties: { customer_id: { type: 'string', description: 'Google Ads customer ID' }, image_url: { type: 'string', description: 'URL of the image to upload' }, asset_name: { type: 'string', description: 'Name for the asset' } }, required: ['image_url', 'asset_name'] } },
+    { name: 'connector_google_ads_keyword_ideas', description: 'Get keyword suggestions with search volume and competition data', parameters: { type: 'object', properties: { customer_id: { type: 'string', description: 'Google Ads customer ID' }, keywords: { type: 'string', description: 'Seed keywords (comma-separated)' }, language: { type: 'string', description: 'Language code (default en)' } }, required: ['keywords'] } },
+  ],
+  meta_ads: [
+    { name: 'connector_meta_ads_list_campaigns', description: 'List all Meta (Facebook/Instagram) ad campaigns', parameters: { type: 'object', properties: { ad_account_id: { type: 'string', description: 'Ad account ID (optional, uses default)' } } } },
+    { name: 'connector_meta_ads_campaign_insights', description: 'Get performance insights for a Meta Ads campaign (impressions, reach, clicks, spend, CTR, CPC, ROAS)', parameters: { type: 'object', properties: { campaign_id: { type: 'string', description: 'Campaign ID' }, date_preset: { type: 'string', description: 'last_7d, last_30d, this_month, last_month (default last_30d)' } }, required: ['campaign_id'] } },
+    { name: 'connector_meta_ads_account_insights', description: 'Get account-level aggregate insights for Meta Ads', parameters: { type: 'object', properties: { ad_account_id: { type: 'string', description: 'Ad account ID' }, date_preset: { type: 'string', description: 'last_7d, last_30d, this_month (default last_30d)' } } } },
+    { name: 'connector_meta_ads_create_campaign', description: 'Create a new Meta Ads campaign', parameters: { type: 'object', properties: { ad_account_id: { type: 'string', description: 'Ad account ID' }, name: { type: 'string', description: 'Campaign name' }, objective: { type: 'string', description: 'OUTCOME_AWARENESS, OUTCOME_TRAFFIC, OUTCOME_ENGAGEMENT, OUTCOME_SALES (default OUTCOME_TRAFFIC)' }, daily_budget: { type: 'number', description: 'Daily budget in cents' }, status: { type: 'string', description: 'ACTIVE or PAUSED (default PAUSED)' } }, required: ['name', 'daily_budget'] } },
+    { name: 'connector_meta_ads_update_campaign', description: 'Update a Meta Ads campaign', parameters: { type: 'object', properties: { campaign_id: { type: 'string', description: 'Campaign ID' }, name: { type: 'string', description: 'New name' }, status: { type: 'string', description: 'ACTIVE or PAUSED' }, daily_budget: { type: 'number', description: 'New daily budget in cents' } }, required: ['campaign_id'] } },
+    { name: 'connector_meta_ads_upload_creative', description: 'Upload an ad image to Meta Ads', parameters: { type: 'object', properties: { ad_account_id: { type: 'string', description: 'Ad account ID' }, image_url: { type: 'string', description: 'URL of the image to upload' }, name: { type: 'string', description: 'Creative name' } }, required: ['image_url', 'name'] } },
+    { name: 'connector_meta_ads_list_adsets', description: 'List ad sets under a Meta Ads campaign', parameters: { type: 'object', properties: { campaign_id: { type: 'string', description: 'Campaign ID' } }, required: ['campaign_id'] } },
   ],
 };
 
@@ -2554,6 +2615,311 @@ async function executeConnectorTool(userId, toolName, args) {
     return { distance: leg?.distance?.text, duration: leg?.duration?.text, start: leg?.start_address, end: leg?.end_address, steps: (leg?.steps || []).slice(0, 10).map(s => s.html_instructions?.replace(/<[^>]*>/g, '')) };
   }
 
+  // ── Google Ads tools ───────────────────────────────────────────────────
+
+  // Helper: get customer ID from args or account_info
+  async function getGoogleAdsCustomerId(userId, providedId) {
+    if (providedId) return providedId.replace(/-/g, '');
+    const rows = await supabaseRest(`user_connectors?user_id=eq.${userId}&platform=eq.google_ads&select=account_info`);
+    const info = rows?.[0]?.account_info;
+    if (info?.customer_ids?.length) return info.customer_ids[0].replace(/-/g, '');
+    throw new Error('No Google Ads customer ID found — please provide one or reconnect');
+  }
+
+  const GADS_DEV_TOKEN = process.env.GOOGLE_ADS_DEVELOPER_TOKEN || '';
+  const GADS_API = 'https://googleads.googleapis.com/v17';
+
+  async function gadsQuery(token, customerId, query) {
+    const res = await fetch(`${GADS_API}/customers/${customerId}/googleAds:searchStream`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'developer-token': GADS_DEV_TOKEN,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ query }),
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
+    // searchStream returns array of batches
+    const results = [];
+    for (const batch of (Array.isArray(data) ? data : [data])) {
+      if (batch.results) results.push(...batch.results);
+    }
+    return results;
+  }
+
+  if (toolName === 'connector_google_ads_list_campaigns') {
+    const { token } = await getValidToken(userId, 'google_ads');
+    const customerId = await getGoogleAdsCustomerId(userId, args.customer_id);
+    const results = await gadsQuery(token, customerId,
+      `SELECT campaign.id, campaign.name, campaign.status, campaign.advertising_channel_type,
+              campaign_budget.amount_micros, metrics.impressions, metrics.clicks, metrics.cost_micros
+       FROM campaign ORDER BY campaign.name`
+    );
+    return {
+      campaigns: results.map(r => ({
+        id: r.campaign?.id, name: r.campaign?.name, status: r.campaign?.status,
+        type: r.campaign?.advertisingChannelType,
+        budget_micros: r.campaignBudget?.amountMicros,
+        impressions: r.metrics?.impressions, clicks: r.metrics?.clicks,
+        cost_micros: r.metrics?.costMicros,
+      })),
+      count: results.length,
+    };
+  }
+
+  if (toolName === 'connector_google_ads_campaign_metrics') {
+    const { token } = await getValidToken(userId, 'google_ads');
+    const customerId = await getGoogleAdsCustomerId(userId, args.customer_id);
+    const dateRange = args.date_range || 'LAST_30_DAYS';
+    const results = await gadsQuery(token, customerId,
+      `SELECT campaign.id, campaign.name, metrics.impressions, metrics.clicks,
+              metrics.ctr, metrics.average_cpc, metrics.cost_micros, metrics.conversions,
+              metrics.conversions_value, segments.date
+       FROM campaign WHERE campaign.id = ${args.campaign_id}
+       AND segments.date DURING ${dateRange}
+       ORDER BY segments.date`
+    );
+    const daily = results.map(r => ({
+      date: r.segments?.date, impressions: r.metrics?.impressions, clicks: r.metrics?.clicks,
+      ctr: r.metrics?.ctr, cpc_micros: r.metrics?.averageCpc,
+      cost_micros: r.metrics?.costMicros, conversions: r.metrics?.conversions,
+    }));
+    const totals = daily.reduce((acc, d) => ({
+      impressions: (acc.impressions || 0) + Number(d.impressions || 0),
+      clicks: (acc.clicks || 0) + Number(d.clicks || 0),
+      cost_micros: (acc.cost_micros || 0) + Number(d.cost_micros || 0),
+      conversions: (acc.conversions || 0) + Number(d.conversions || 0),
+    }), {});
+    totals.ctr = totals.impressions ? (totals.clicks / totals.impressions) : 0;
+    totals.cpc_micros = totals.clicks ? Math.round(totals.cost_micros / totals.clicks) : 0;
+    return { campaign_id: args.campaign_id, date_range: dateRange, totals, daily };
+  }
+
+  if (toolName === 'connector_google_ads_account_metrics') {
+    const { token } = await getValidToken(userId, 'google_ads');
+    const customerId = await getGoogleAdsCustomerId(userId, args.customer_id);
+    const dateRange = args.date_range || 'LAST_30_DAYS';
+    const results = await gadsQuery(token, customerId,
+      `SELECT metrics.impressions, metrics.clicks, metrics.ctr, metrics.cost_micros,
+              metrics.conversions, metrics.average_cpc
+       FROM customer WHERE segments.date DURING ${dateRange}`
+    );
+    const m = results[0]?.metrics || {};
+    return {
+      date_range: dateRange,
+      impressions: m.impressions, clicks: m.clicks, ctr: m.ctr,
+      cost_micros: m.costMicros, conversions: m.conversions, average_cpc: m.averageCpc,
+    };
+  }
+
+  if (toolName === 'connector_google_ads_create_campaign') {
+    const { token } = await getValidToken(userId, 'google_ads');
+    const customerId = await getGoogleAdsCustomerId(userId, args.customer_id);
+    const campaignType = args.campaign_type || 'SEARCH';
+    // Create budget first
+    const budgetRes = await fetch(`${GADS_API}/customers/${customerId}/campaignBudgets:mutate`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'developer-token': GADS_DEV_TOKEN, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        operations: [{ create: { name: `${args.name} Budget`, amountMicros: String(args.budget_micros), deliveryMethod: 'STANDARD' } }],
+      }),
+    });
+    const budgetData = await budgetRes.json();
+    if (budgetData.error) return { error: budgetData.error.message };
+    const budgetResourceName = budgetData.results?.[0]?.resourceName;
+
+    // Create campaign
+    const campaignRes = await fetch(`${GADS_API}/customers/${customerId}/campaigns:mutate`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'developer-token': GADS_DEV_TOKEN, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        operations: [{
+          create: {
+            name: args.name,
+            advertisingChannelType: campaignType,
+            status: 'PAUSED',
+            campaignBudget: budgetResourceName,
+            manualCpc: {},
+          },
+        }],
+      }),
+    });
+    const campaignData = await campaignRes.json();
+    if (campaignData.error) return { error: campaignData.error.message };
+    return { success: true, campaign: campaignData.results?.[0]?.resourceName, name: args.name };
+  }
+
+  if (toolName === 'connector_google_ads_update_campaign') {
+    const { token } = await getValidToken(userId, 'google_ads');
+    const customerId = await getGoogleAdsCustomerId(userId, args.customer_id);
+    const update = { resourceName: `customers/${customerId}/campaigns/${args.campaign_id}` };
+    const updateMask = [];
+    if (args.status) { update.status = args.status; updateMask.push('status'); }
+    if (args.budget_micros) { updateMask.push('campaign_budget'); }
+    const res = await fetch(`${GADS_API}/customers/${customerId}/campaigns:mutate`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'developer-token': GADS_DEV_TOKEN, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ operations: [{ update, updateMask: updateMask.join(',') }] }),
+    });
+    const data = await res.json();
+    if (data.error) return { error: data.error.message };
+    return { success: true, updated: args.campaign_id };
+  }
+
+  if (toolName === 'connector_google_ads_upload_asset') {
+    const { token } = await getValidToken(userId, 'google_ads');
+    const customerId = await getGoogleAdsCustomerId(userId, args.customer_id);
+    // Download image and convert to base64
+    const imgRes = await fetch(args.image_url);
+    const imgBuffer = Buffer.from(await imgRes.arrayBuffer());
+    const imgBase64 = imgBuffer.toString('base64');
+    const res = await fetch(`${GADS_API}/customers/${customerId}/assets:mutate`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'developer-token': GADS_DEV_TOKEN, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        operations: [{ create: { name: args.asset_name, type: 'IMAGE', imageAsset: { data: imgBase64 } } }],
+      }),
+    });
+    const data = await res.json();
+    if (data.error) return { error: data.error.message };
+    return { success: true, asset: data.results?.[0]?.resourceName, name: args.asset_name };
+  }
+
+  if (toolName === 'connector_google_ads_keyword_ideas') {
+    const { token } = await getValidToken(userId, 'google_ads');
+    const customerId = await getGoogleAdsCustomerId(userId, args.customer_id);
+    const keywords = (args.keywords || '').split(',').map(k => k.trim()).filter(Boolean);
+    const res = await fetch(`${GADS_API}/customers/${customerId}:generateKeywordIdeas`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'developer-token': GADS_DEV_TOKEN, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        language: `languageConstants/${args.language === 'en' || !args.language ? '1000' : '1000'}`,
+        geoTargetConstants: ['geoTargetConstants/2840'], // US
+        keywordSeed: { keywords },
+      }),
+    });
+    const data = await res.json();
+    if (data.error) return { error: data.error.message };
+    return {
+      keywords: (data.results || []).slice(0, 20).map(r => ({
+        keyword: r.text, avg_monthly_searches: r.keywordIdeaMetrics?.avgMonthlySearches,
+        competition: r.keywordIdeaMetrics?.competition,
+        low_cpc_micros: r.keywordIdeaMetrics?.lowTopOfPageBidMicros,
+        high_cpc_micros: r.keywordIdeaMetrics?.highTopOfPageBidMicros,
+      })),
+    };
+  }
+
+  // ── Meta Ads tools ───────────────────────────────────────────────────
+
+  async function getMetaAdAccountId(userId, providedId) {
+    if (providedId) return providedId.startsWith('act_') ? providedId : `act_${providedId}`;
+    const rows = await supabaseRest(`user_connectors?user_id=eq.${userId}&platform=eq.meta_ads&select=account_info`);
+    const info = rows?.[0]?.account_info;
+    if (info?.ad_accounts?.length) {
+      const id = info.ad_accounts[0].id || info.ad_accounts[0];
+      return id.startsWith('act_') ? id : `act_${id}`;
+    }
+    throw new Error('No Meta Ad Account ID found — please provide one or reconnect');
+  }
+
+  const META_API = 'https://graph.facebook.com/v19.0';
+
+  if (toolName === 'connector_meta_ads_list_campaigns') {
+    const { token } = await getValidToken(userId, 'meta_ads');
+    const accountId = await getMetaAdAccountId(userId, args.ad_account_id);
+    const res = await fetch(`${META_API}/${accountId}/campaigns?fields=id,name,status,objective,daily_budget,lifetime_budget,created_time&limit=50&access_token=${token}`);
+    const data = await res.json();
+    if (data.error) return { error: data.error.message };
+    return { campaigns: data.data || [], count: (data.data || []).length };
+  }
+
+  if (toolName === 'connector_meta_ads_campaign_insights') {
+    const { token } = await getValidToken(userId, 'meta_ads');
+    const preset = args.date_preset || 'last_30d';
+    const res = await fetch(`${META_API}/${args.campaign_id}/insights?fields=impressions,reach,clicks,spend,ctr,cpc,actions,cost_per_action_type&date_preset=${preset}&access_token=${token}`);
+    const data = await res.json();
+    if (data.error) return { error: data.error.message };
+    const insights = data.data?.[0] || {};
+    return {
+      campaign_id: args.campaign_id, date_preset: preset,
+      impressions: insights.impressions, reach: insights.reach,
+      clicks: insights.clicks, spend: insights.spend,
+      ctr: insights.ctr, cpc: insights.cpc,
+      actions: insights.actions, cost_per_action: insights.cost_per_action_type,
+    };
+  }
+
+  if (toolName === 'connector_meta_ads_account_insights') {
+    const { token } = await getValidToken(userId, 'meta_ads');
+    const accountId = await getMetaAdAccountId(userId, args.ad_account_id);
+    const preset = args.date_preset || 'last_30d';
+    const res = await fetch(`${META_API}/${accountId}/insights?fields=impressions,reach,clicks,spend,ctr,cpc,actions&date_preset=${preset}&access_token=${token}`);
+    const data = await res.json();
+    if (data.error) return { error: data.error.message };
+    return { date_preset: preset, ...(data.data?.[0] || {}) };
+  }
+
+  if (toolName === 'connector_meta_ads_create_campaign') {
+    const { token } = await getValidToken(userId, 'meta_ads');
+    const accountId = await getMetaAdAccountId(userId, args.ad_account_id);
+    const objective = args.objective || 'OUTCOME_TRAFFIC';
+    const status = args.status || 'PAUSED';
+    const params = new URLSearchParams({
+      name: args.name, objective, status,
+      daily_budget: String(args.daily_budget),
+      special_ad_categories: '[]',
+      access_token: token,
+    });
+    const res = await fetch(`${META_API}/${accountId}/campaigns`, { method: 'POST', body: params });
+    const data = await res.json();
+    if (data.error) return { error: data.error.message };
+    return { success: true, campaign_id: data.id, name: args.name };
+  }
+
+  if (toolName === 'connector_meta_ads_update_campaign') {
+    const { token } = await getValidToken(userId, 'meta_ads');
+    const params = new URLSearchParams({ access_token: token });
+    if (args.name) params.set('name', args.name);
+    if (args.status) params.set('status', args.status);
+    if (args.daily_budget) params.set('daily_budget', String(args.daily_budget));
+    const res = await fetch(`${META_API}/${args.campaign_id}`, { method: 'POST', body: params });
+    const data = await res.json();
+    if (data.error) return { error: data.error.message };
+    return { success: data.success !== false, campaign_id: args.campaign_id };
+  }
+
+  if (toolName === 'connector_meta_ads_upload_creative') {
+    const { token } = await getValidToken(userId, 'meta_ads');
+    const accountId = await getMetaAdAccountId(userId, args.ad_account_id);
+    // Download image
+    const imgRes = await fetch(args.image_url);
+    const imgBuffer = Buffer.from(await imgRes.arrayBuffer());
+    const imgBase64 = imgBuffer.toString('base64');
+    // Upload as base64 bytes
+    const params = new URLSearchParams({
+      access_token: token,
+      bytes: imgBase64,
+      name: args.name || 'GodsEye Creative',
+    });
+    const res = await fetch(`${META_API}/${accountId}/adimages`, { method: 'POST', body: params });
+    const data = await res.json();
+    if (data.error) return { error: data.error.message };
+    const images = data.images || {};
+    const firstKey = Object.keys(images)[0];
+    return { success: true, hash: images[firstKey]?.hash, url: images[firstKey]?.url, name: args.name };
+  }
+
+  if (toolName === 'connector_meta_ads_list_adsets') {
+    const { token } = await getValidToken(userId, 'meta_ads');
+    const res = await fetch(`${META_API}/${args.campaign_id}/adsets?fields=id,name,status,daily_budget,targeting,optimization_goal&limit=50&access_token=${token}`);
+    const data = await res.json();
+    if (data.error) return { error: data.error.message };
+    return { adsets: data.data || [], count: (data.data || []).length };
+  }
+
   throw new Error(`Unknown connector tool: ${toolName}`);
 }
 
@@ -2598,6 +2964,212 @@ app.get('/api/connectors/search', async (req, res) => {
   }
 });
 
+
+// ═══════════════════════════════════════════════════════════════════════
+// CAMPAIGN MANAGEMENT — CRUD + sync for ad campaigns & creatives
+// ═══════════════════════════════════════════════════════════════════════
+
+// List cached campaigns
+app.get('/api/campaigns/list', async (req, res) => {
+  const { user_id, brand_id, platform } = req.query;
+  if (!user_id) return res.status(400).json({ error: 'user_id required' });
+  try {
+    let filter = `ad_campaigns?user_id=eq.${user_id}&select=*&order=updated_at.desc`;
+    if (brand_id) filter += `&brand_id=eq.${brand_id}`;
+    if (platform) filter += `&platform=eq.${platform}`;
+    const rows = await supabaseRest(filter);
+    res.json(rows || []);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Sync campaigns from ad platform → local cache
+app.post('/api/campaigns/sync', async (req, res) => {
+  const { user_id, platform, brand_id } = req.body;
+  if (!user_id || !platform) return res.status(400).json({ error: 'user_id and platform required' });
+  try {
+    let campaigns = [];
+    if (platform === 'google_ads') {
+      const result = await executeConnectorTool(user_id, 'connector_google_ads_list_campaigns', {});
+      campaigns = (result.campaigns || []).map(c => ({
+        user_id, brand_id: brand_id || null, platform: 'google_ads',
+        external_campaign_id: String(c.id), name: c.name, status: c.status,
+        impressions: Number(c.impressions || 0), clicks: Number(c.clicks || 0),
+        spend_cents: Math.round(Number(c.cost_micros || 0) / 10000),
+        daily_budget_cents: Math.round(Number(c.budget_micros || 0) / 10000),
+        metrics_updated_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+      }));
+    } else if (platform === 'meta_ads') {
+      const result = await executeConnectorTool(user_id, 'connector_meta_ads_list_campaigns', {});
+      campaigns = (result.campaigns || []).map(c => ({
+        user_id, brand_id: brand_id || null, platform: 'meta_ads',
+        external_campaign_id: String(c.id), name: c.name, status: c.status,
+        objective: c.objective,
+        daily_budget_cents: Number(c.daily_budget || 0),
+        metrics_updated_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+      }));
+    }
+
+    // Upsert each campaign
+    for (const c of campaigns) {
+      const existing = await supabaseRest(
+        `ad_campaigns?user_id=eq.${user_id}&platform=eq.${platform}&external_campaign_id=eq.${c.external_campaign_id}&select=id`
+      );
+      if (existing?.length > 0) {
+        await supabaseRest(`ad_campaigns?id=eq.${existing[0].id}`, 'PATCH', c);
+      } else {
+        c.created_at = new Date().toISOString();
+        await supabaseRest('ad_campaigns', 'POST', c);
+      }
+    }
+
+    // Return updated list
+    const rows = await supabaseRest(`ad_campaigns?user_id=eq.${user_id}&platform=eq.${platform}&select=*&order=updated_at.desc`);
+    res.json({ campaigns: rows || [], synced: campaigns.length });
+  } catch (err) {
+    console.error('[Campaigns] Sync error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get campaign metrics (calls connector tool)
+app.get('/api/campaigns/:id/metrics', async (req, res) => {
+  const { user_id, date_range } = req.query;
+  if (!user_id) return res.status(400).json({ error: 'user_id required' });
+  try {
+    const campaign = (await supabaseRest(`ad_campaigns?id=eq.${req.params.id}&select=*`))?.[0];
+    if (!campaign) return res.status(404).json({ error: 'Campaign not found' });
+
+    let metrics;
+    if (campaign.platform === 'google_ads') {
+      metrics = await executeConnectorTool(user_id, 'connector_google_ads_campaign_metrics', {
+        campaign_id: campaign.external_campaign_id, date_range: date_range || 'LAST_30_DAYS',
+      });
+    } else {
+      metrics = await executeConnectorTool(user_id, 'connector_meta_ads_campaign_insights', {
+        campaign_id: campaign.external_campaign_id, date_preset: date_range || 'last_30d',
+      });
+    }
+    res.json(metrics);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Push creative to ad platform
+app.post('/api/campaigns/:id/push-creative', async (req, res) => {
+  const { user_id, image_url, asset_name, platform } = req.body;
+  if (!user_id || !image_url) return res.status(400).json({ error: 'user_id and image_url required' });
+  try {
+    const campaign = (await supabaseRest(`ad_campaigns?id=eq.${req.params.id}&select=*`))?.[0];
+    const p = platform || campaign?.platform;
+
+    let result;
+    if (p === 'google_ads') {
+      result = await executeConnectorTool(user_id, 'connector_google_ads_upload_asset', { image_url, asset_name: asset_name || 'GodsEye Creative' });
+    } else if (p === 'meta_ads') {
+      result = await executeConnectorTool(user_id, 'connector_meta_ads_upload_creative', { image_url, name: asset_name || 'GodsEye Creative' });
+    } else {
+      return res.status(400).json({ error: 'Unknown platform' });
+    }
+
+    if (result.error) return res.status(500).json({ error: result.error });
+
+    // Record in ad_creatives
+    await supabaseRest('ad_creatives', 'POST', {
+      user_id, campaign_id: req.params.id !== 'none' ? req.params.id : null,
+      platform: p, image_url, asset_name: asset_name || 'GodsEye Creative',
+      external_asset_id: result.asset || result.hash || null,
+      status: 'uploaded', created_at: new Date().toISOString(),
+    });
+
+    res.json({ success: true, ...result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Create campaign via platform
+app.post('/api/campaigns/create', async (req, res) => {
+  const { user_id, platform, name, budget, objective, brand_id } = req.body;
+  if (!user_id || !platform || !name) return res.status(400).json({ error: 'user_id, platform, name required' });
+  try {
+    let result;
+    if (platform === 'google_ads') {
+      result = await executeConnectorTool(user_id, 'connector_google_ads_create_campaign', {
+        name, budget_micros: (budget || 1000) * 10000, campaign_type: 'SEARCH',
+      });
+    } else if (platform === 'meta_ads') {
+      result = await executeConnectorTool(user_id, 'connector_meta_ads_create_campaign', {
+        name, daily_budget: budget || 1000, objective: objective || 'OUTCOME_TRAFFIC', status: 'PAUSED',
+      });
+    }
+
+    if (result?.error) return res.status(500).json({ error: result.error });
+
+    // Record locally
+    const campaignId = result.campaign_id || result.campaign?.split('/')?.pop();
+    if (campaignId) {
+      await supabaseRest('ad_campaigns', 'POST', {
+        user_id, brand_id: brand_id || null, platform,
+        external_campaign_id: String(campaignId), name, status: 'PAUSED',
+        daily_budget_cents: budget || 1000,
+        created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+      });
+    }
+
+    res.json({ success: true, campaign_id: campaignId, name });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Update campaign status (pause/resume)
+app.post('/api/campaigns/:id/update-status', async (req, res) => {
+  const { user_id, status } = req.body;
+  if (!user_id || !status) return res.status(400).json({ error: 'user_id and status required' });
+  try {
+    const campaign = (await supabaseRest(`ad_campaigns?id=eq.${req.params.id}&select=*`))?.[0];
+    if (!campaign) return res.status(404).json({ error: 'Campaign not found' });
+
+    // Update on platform
+    if (campaign.platform === 'google_ads') {
+      await executeConnectorTool(user_id, 'connector_google_ads_update_campaign', {
+        campaign_id: campaign.external_campaign_id, status,
+      });
+    } else if (campaign.platform === 'meta_ads') {
+      await executeConnectorTool(user_id, 'connector_meta_ads_update_campaign', {
+        campaign_id: campaign.external_campaign_id, status,
+      });
+    }
+
+    // Update local cache
+    await supabaseRest(`ad_campaigns?id=eq.${req.params.id}`, 'PATCH', {
+      status, updated_at: new Date().toISOString(),
+    });
+
+    res.json({ success: true, status });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// List creatives
+app.get('/api/campaigns/creatives', async (req, res) => {
+  const { user_id, campaign_id } = req.query;
+  if (!user_id) return res.status(400).json({ error: 'user_id required' });
+  try {
+    let filter = `ad_creatives?user_id=eq.${user_id}&select=*&order=created_at.desc`;
+    if (campaign_id) filter += `&campaign_id=eq.${campaign_id}`;
+    const rows = await supabaseRest(filter);
+    res.json(rows || []);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════
 
 app.listen(PORT, () => {
   console.log(`✅ Dev API server running on http://localhost:${PORT}`);

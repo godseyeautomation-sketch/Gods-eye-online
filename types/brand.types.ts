@@ -173,3 +173,54 @@ export interface PostAnalytics {
   shares?: number;
   [key: string]: any;
 }
+
+// ── Ad Campaign Types ──────────────────────────────────────────────────
+export type AdPlatform = 'google_ads' | 'meta_ads';
+export type AdCampaignStatus = 'ENABLED' | 'PAUSED' | 'REMOVED' | 'ACTIVE';
+
+export interface AdCampaign {
+  id: string;
+  user_id: string;
+  brand_id?: string;
+  platform: AdPlatform;
+  external_campaign_id: string;
+  name: string;
+  status: AdCampaignStatus;
+  objective?: string;
+  daily_budget_cents?: number;
+  lifetime_budget_cents?: number;
+  impressions: number;
+  clicks: number;
+  spend_cents: number;
+  conversions: number;
+  ctr: number;
+  cpc_cents: number;
+  roas: number;
+  metrics_updated_at?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AdCreative {
+  id: string;
+  user_id: string;
+  brand_id?: string;
+  campaign_id?: string;
+  content_slot_id?: string;
+  platform: AdPlatform;
+  external_asset_id?: string;
+  image_url: string;
+  asset_name?: string;
+  status: 'uploaded' | 'active' | 'rejected' | 'removed';
+  created_at: string;
+}
+
+export interface CampaignMetrics {
+  date: string;
+  impressions: number;
+  clicks: number;
+  spend_cents: number;
+  conversions: number;
+  ctr: number;
+  cpc_cents: number;
+}

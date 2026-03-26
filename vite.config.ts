@@ -311,6 +311,11 @@ export default defineConfig(({ mode }) => {
           target: 'http://localhost:3002',
           changeOrigin: true,
         },
+        // Campaign management proxy
+        '/api/campaigns': {
+          target: 'http://localhost:3002',
+          changeOrigin: true,
+        },
         // Local bridge server proxy (WebSocket + HTTP)
         '/bridge': {
           target: 'http://localhost:3456',

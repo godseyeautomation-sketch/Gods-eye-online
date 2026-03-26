@@ -18,6 +18,7 @@ import { BrandCampaignAgent, AgentAnswers } from './BrandCampaignAgent';
 import { BrandCampaignChat } from './BrandCampaignChat';
 import { BrainActions } from '../BrainActions';
 import { SocialAccountsPanel } from './SocialAccountsPanel';
+import { AdCampaignsDashboard } from './AdCampaignsDashboard';
 import { useAuth } from '../../context/AuthContext';
 
 // Nano Banana 2 model ID
@@ -351,7 +352,7 @@ export const BrandPage: React.FC = () => {
   const [brand, setBrand] = useState<BrandProfile | null | undefined>(undefined);
   const [showWizard, setShowWizard] = useState(false);
   const [showCampaignAgent, setShowCampaignAgent] = useState(false);
-  const [activeTab, setActiveTab] = useState<'campaigns' | 'calendar' | 'social'>('campaigns');
+  const [activeTab, setActiveTab] = useState<'campaigns' | 'calendar' | 'social' | 'ads'>('campaigns');
 
   // Add Product modal
   const [showAddProduct, setShowAddProduct] = useState(false);
@@ -985,6 +986,9 @@ export const BrandPage: React.FC = () => {
           <button onClick={() => setActiveTab('social')} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all duration-300 ${activeTab === 'social' ? 'bg-brand text-bg shadow-lg shadow-brand/20' : 'text-text-secondary hover:text-text-primary hover:bg-white/5'}`}>
             <Share2 size={12} /> Social
           </button>
+          <button onClick={() => setActiveTab('ads')} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all duration-300 ${activeTab === 'ads' ? 'bg-brand text-bg shadow-lg shadow-brand/20' : 'text-text-secondary hover:text-text-primary hover:bg-white/5'}`}>
+            <Megaphone size={12} /> Ad Campaigns
+          </button>
         </div>
 
         {activeTab === 'calendar' && (
@@ -1204,6 +1208,13 @@ export const BrandPage: React.FC = () => {
       {activeTab === 'social' && (
         <div className="flex-1 overflow-y-auto px-6">
           <SocialAccountsPanel brandName={brand.name} />
+        </div>
+      )}
+
+      {/* ── Ad Campaigns tab ───────────────────────────────────────────── */}
+      {activeTab === 'ads' && (
+        <div className="flex-1 overflow-y-auto">
+          <AdCampaignsDashboard brandId={brand?.id} />
         </div>
       )}
 
