@@ -650,70 +650,6 @@ app.use('/bridge', createProxyMiddleware({
 registerCronRoutes(app);
 loadAndScheduleAll().catch(err => console.error('[Cron] Startup error:', err.message));
 
-// Serve static files from the dist directory, but DON'T serve index.html automatically
-// This forces index.html requests to fall through to our custom injector below.
-app.use(express.static(path.join(__dirname, 'dist'), { index: false }));
-
-// Handle SPA routing: serve index.html with injected configuration
-app.get('*', (req, res) => {
-  const indexPath = path.join(__dirname, 'dist', 'index.html');
-
-  // If the file doesn't exist (e.g. during dev or partial build), just send 404
-  if (!fs.existsSync(indexPath)) {
-    return res.status(404).send('Not Found');
-  }
-
-  // Read index.html and inject the configuration
-  let html = fs.readFileSync(indexPath, 'utf8');
-
-  const config = {
-    VITE_GEMINI_API_KEY: process.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '',
-    VITE_SUPABASE_URL: process.env.VITE_SUPABASE_URL || '',
-    VITE_SUPABASE_ANON_KEY: process.env.VITE_SUPABASE_ANON_KEY || ''
-  };
-
-  console.log('[Server] Injected Config Summary:', {
-    hasGemini: !!config.VITE_GEMINI_API_KEY,
-    hasSupabase: !!config.VITE_SUPABASE_URL,
-    supabasePrefix: config.VITE_SUPABASE_URL?.substring(0, 10),
-    envKeys: Object.keys(process.env).filter(k => k.startsWith('VITE_') || k.includes('GEMINI'))
-  });
-
-  const configScript = `
-    <script>
-      window.__RUNTIME_CONFIG__ = ${JSON.stringify(config)};
-    </script>
-  `;
-
-  // Inject before the closing </head> or at the placeholder
-  if (html.includes('<!-- RUNTIME_CONFIG -->')) {
-    html = html.replace('<!-- RUNTIME_CONFIG -->', configScript);
-  } else {
-    html = html.replace('</head>', `${configScript}</head>`);
-  }
-
-  res.send(html);
-});
-
-// ── Create HTTP server with WebSocket upgrade for bridge ──────────────────────
-const server = createServer(app);
-
-// WebSocket upgrade proxy for /bridge path
-const bridgeWsProxy = createProxyMiddleware({
-  target: BRIDGE_TARGET,
-  ws: true,
-  changeOrigin: true,
-  pathRewrite: { '^/bridge': '' },
-  logLevel: 'warn',
-});
-
-server.on('upgrade', (req, socket, head) => {
-  if (req.url === '/bridge' || req.url?.startsWith('/bridge')) {
-    bridgeWsProxy.upgrade(req, socket, head);
-  } else {
-    socket.destroy();
-  }
-});
 
 
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL;
@@ -2072,6 +2008,73 @@ app.get('/api/campaigns/creatives', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// Serve static files from the dist directory, but DON'T serve index.html automatically
+// This forces index.html requests to fall through to our custom injector below.
+app.use(express.static(path.join(__dirname, 'dist'), { index: false }));
+
+// Handle SPA routing: serve index.html with injected configuration
+app.get('*', (req, res) => {
+  const indexPath = path.join(__dirname, 'dist', 'index.html');
+
+  // If the file doesn't exist (e.g. during dev or partial build), just send 404
+  if (!fs.existsSync(indexPath)) {
+    return res.status(404).send('Not Found');
+  }
+
+  // Read index.html and inject the configuration
+  let html = fs.readFileSync(indexPath, 'utf8');
+
+  const config = {
+    VITE_GEMINI_API_KEY: process.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '',
+    VITE_SUPABASE_URL: process.env.VITE_SUPABASE_URL || '',
+    VITE_SUPABASE_ANON_KEY: process.env.VITE_SUPABASE_ANON_KEY || ''
+  };
+
+  console.log('[Server] Injected Config Summary:', {
+    hasGemini: !!config.VITE_GEMINI_API_KEY,
+    hasSupabase: !!config.VITE_SUPABASE_URL,
+    supabasePrefix: config.VITE_SUPABASE_URL?.substring(0, 10),
+    envKeys: Object.keys(process.env).filter(k => k.startsWith('VITE_') || k.includes('GEMINI'))
+  });
+
+  const configScript = `
+    <script>
+      window.__RUNTIME_CONFIG__ = ${JSON.stringify(config)};
+    </script>
+  `;
+
+  // Inject before the closing </head> or at the placeholder
+  if (html.includes('<!-- RUNTIME_CONFIG -->')) {
+    html = html.replace('<!-- RUNTIME_CONFIG -->', configScript);
+  } else {
+    html = html.replace('</head>', `${configScript}</head>`);
+  }
+
+  res.send(html);
+});
+
+// ── Create HTTP server with WebSocket upgrade for bridge ──────────────────────
+const server = createServer(app);
+
+// WebSocket upgrade proxy for /bridge path
+const bridgeWsProxy = createProxyMiddleware({
+  target: BRIDGE_TARGET,
+  ws: true,
+  changeOrigin: true,
+  pathRewrite: { '^/bridge': '' },
+  logLevel: 'warn',
+});
+
+server.on('upgrade', (req, socket, head) => {
+  if (req.url === '/bridge' || req.url?.startsWith('/bridge')) {
+    bridgeWsProxy.upgrade(req, socket, head);
+  } else {
+    socket.destroy();
+  }
+});
+
+
 
 server.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
