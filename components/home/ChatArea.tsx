@@ -81,6 +81,10 @@ export const ChatArea: React.FC<Props> = ({
         brands={brands}
         activeBrandId={activeBrandId}
         onBrandChange={onBrandChange}
+        selectedModel={selectedModel}
+        onModelChange={onModelChange}
+        skills={skills}
+        onSkillSelect={onSkillSelect}
       />
     );
   }

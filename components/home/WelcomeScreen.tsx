@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useState, useMemo } from 'react';
+import { CHAT_MODELS, type ChatModelId, type SkillOption } from './ChatInput';
 
 const CATEGORY_CHIPS = [
   { label: 'Create', icon: '✦' },
@@ -7,6 +8,66 @@ const CATEGORY_CHIPS = [
   { label: 'Research', icon: '◈' },
   { label: 'Analyze', icon: '⬡' },
 ];
+
+// ── Time-based greetings ──
+const GREETINGS = {
+  morning: [
+    'Online and ready, {name}.',
+    'Campaign engines warmed up, {name}.',
+    'Marketing mode armed, {name}.',
+    'All systems sharp, {name}.',
+    'Your AI crew awaits orders, {name}.',
+  ],
+  afternoon: [
+    'Online and ready, {name}.',
+    'Campaign engines warmed up, {name}.',
+    'Marketing mode armed, {name}.',
+    'All systems sharp, {name}.',
+    'Your AI crew awaits orders, {name}.',
+  ],
+  evening: [
+    'Evening, {name}. Shall we make some noise?',
+    'Fresh ideas loaded, {name}.',
+    'After-hours, full power, {name}.',
+    'Ready to outwork the agencies, {name}.',
+    'Twilight\'s yours to command, {name}.',
+  ],
+  night: [
+    'Night shift engaged, {name}.',
+    'Algorithms are awake, {name}.',
+    'Perfect hour to experiment, {name}.',
+    'I\'ve got the grunt work, {name}.',
+    'Let\'s turn ideas into impact, {name}.',
+  ],
+  midnight: [
+    'Midnight builders win, {name}.',
+    'Retainers asleep, your AI isn\'t, {name}.',
+    'One prompt, big ripple, {name}.',
+    'I\'ve prepped the launchpad, {name}.',
+    'Midnight is our advantage, {name}.',
+  ],
+  lateNight: [
+    'You\'re early for tomorrow, {name}.',
+    'World offline, you online, {name}.',
+    'Late nights build empires, {name}.',
+    'Distribution is still running, {name}.',
+    'Sunrise will find you ahead, {name}.',
+  ],
+};
+
+const getGreeting = (name: string) => {
+  const hour = new Date().getHours();
+  let pool: string[];
+  if (hour >= 5 && hour < 12) pool = GREETINGS.morning;
+  else if (hour >= 12 && hour < 17) pool = GREETINGS.afternoon;
+  else if (hour >= 17 && hour < 21) pool = GREETINGS.evening;
+  else if (hour >= 21 && hour < 24) pool = GREETINGS.night;
+  else if (hour === 0) pool = GREETINGS.midnight;
+  else pool = GREETINGS.lateNight; // 1-4am
+
+  const idx = Math.floor(Math.random() * pool.length);
+  return pool[idx].replace('{name}', name);
+};
 
 // Contextual suggestions based on time of day
 const getSuggestions = () => {
@@ -55,6 +116,10 @@ interface Props {
   brands?: BrandProfile[];
   activeBrandId?: string | null;
   onBrandChange?: (id: string | null) => void;
+  selectedModel?: ChatModelId;
+  onModelChange?: (model: ChatModelId) => void;
+  skills?: SkillOption[];
+  onSkillSelect?: (slug: string) => void;
 }
 
 export const WelcomeScreen: React.FC<Props> = ({
@@ -72,24 +137,23 @@ export const WelcomeScreen: React.FC<Props> = ({
   brands = [],
   activeBrandId,
   onBrandChange,
+  selectedModel = 'gemini-3-flash-preview',
+  onModelChange,
+  skills = [],
+  onSkillSelect,
 }) => {
-  const displayName = userName && !userName.includes('@') ? userName.split(' ')[0] : undefined;
+  const displayName = userName && !userName.includes('@') ? userName.split(' ')[0] : 'Creator';
 
-  const getGreeting = () => {
-    const hour = new Date().getHours();
-    if (hour >= 5 && hour < 12) return 'Good morning';
-    if (hour >= 12 && hour < 17) return 'Good afternoon';
-    if (hour >= 17 && hour < 22) return 'Good evening';
-    return 'Hello, night owl';
-  };
-
-  const greetingText = getGreeting();
-  const isNightOwl = greetingText === 'Hello, night owl';
-  // "Hello, night owl" stands alone or becomes "Hello, Bitan" at night
-  const greeting = displayName
-    ? (isNightOwl ? `Hello, ${displayName}` : `${greetingText}, ${displayName}`)
-    : greetingText;
+  // Memoize greeting so it doesn't change on every render
+  const greeting = useMemo(() => getGreeting(displayName), [displayName]);
   const suggestions = getSuggestions();
+
+  const [showModelPicker, setShowModelPicker] = useState(false);
+  const [showBrandPicker, setShowBrandPicker] = useState(false);
+  const [showSkillPicker, setShowSkillPicker] = useState(false);
+
+  const currentModel = CHAT_MODELS.find(m => m.id === selectedModel);
+  const activeBrand = brands.find(b => b.id === activeBrandId);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -111,14 +175,12 @@ export const WelcomeScreen: React.FC<Props> = ({
 
   return (
     <div className="flex-1 flex flex-col items-center justify-center px-6">
-      {/* Greeting */}
-      <div className="mb-8 text-center">
-        <h1 className="text-4xl lg:text-5xl font-medium text-text-primary/80 tracking-tight flex items-center justify-center gap-3">
+      {/* Greeting — shifted slightly left with pr to appear centered with the sparkle icon */}
+      <div className="mb-8 w-full max-w-2xl">
+        <h1 className="text-4xl lg:text-5xl font-medium text-text-primary/80 tracking-tight flex items-center gap-3">
           <span className="text-brand text-3xl">✦</span>
           {greeting}
         </h1>
-
-        {/* Brand selector removed — handled conversationally inside chat */}
       </div>
 
       {/* Central input box */}
@@ -134,7 +196,7 @@ export const WelcomeScreen: React.FC<Props> = ({
                     onClick={() => onRemoveAttachment?.(i)}
                     className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-red-500 text-white text-[10px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
                   >
-                    ×
+                    x
                   </button>
                 </div>
               ))}
@@ -152,20 +214,147 @@ export const WelcomeScreen: React.FC<Props> = ({
             className="w-full resize-none bg-transparent px-5 pt-4 pb-2 text-[15px] text-text-primary placeholder:text-text-secondary/30 focus:outline-none disabled:opacity-50"
           />
 
-          {/* Bottom toolbar */}
+          {/* Bottom toolbar — brand, skills, model selector */}
           <div className="flex items-center justify-between px-3 pb-3">
-            <button
-              onClick={onFileUpload}
-              className="p-2 rounded-lg hover:bg-white/5 text-text-secondary hover:text-text-primary transition-colors"
-              title="Attach image"
-            >
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-              </svg>
-            </button>
+            <div className="flex items-center gap-1.5">
+              {/* File upload */}
+              <button
+                onClick={onFileUpload}
+                className="p-2 rounded-lg hover:bg-white/5 text-text-secondary hover:text-text-primary transition-colors"
+                title="Attach image"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                </svg>
+              </button>
+
+              {/* Brand selector */}
+              {brands.length > 0 && (
+                <div className="relative">
+                  <button
+                    onClick={() => setShowBrandPicker(!showBrandPicker)}
+                    className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all border ${
+                      activeBrand
+                        ? 'bg-brand/10 text-brand border-brand/20'
+                        : 'bg-white/5 text-text-secondary border-transparent hover:border-border-base'
+                    }`}
+                  >
+                    <span className="text-[10px]">◎</span>
+                    {activeBrand ? activeBrand.name : 'Brand'}
+                  </button>
+                  {showBrandPicker && (
+                    <div className="absolute bottom-full left-0 mb-2 w-48 bg-[#1a1a1a] border border-border-base rounded-xl shadow-2xl overflow-hidden z-50">
+                      <div className="p-1">
+                        <button
+                          onClick={() => { onBrandChange?.(null); setShowBrandPicker(false); }}
+                          className={`w-full text-left px-3 py-2 rounded-lg text-sm hover:bg-white/5 transition-colors ${!activeBrandId ? 'text-brand' : 'text-text-secondary'}`}
+                        >
+                          No brand
+                        </button>
+                        {brands.map(b => (
+                          <button
+                            key={b.id}
+                            onClick={() => { onBrandChange?.(b.id); setShowBrandPicker(false); }}
+                            className={`w-full text-left px-3 py-2 rounded-lg text-sm hover:bg-white/5 transition-colors ${activeBrandId === b.id ? 'text-brand' : 'text-text-primary'}`}
+                          >
+                            {b.name}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Skills selector */}
+              {skills.length > 0 && (
+                <div className="relative">
+                  <button
+                    onClick={() => setShowSkillPicker(!showSkillPicker)}
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white/5 text-text-secondary hover:text-text-primary border border-transparent hover:border-border-base transition-all"
+                  >
+                    <span className="text-[10px]">⬡</span>
+                    Skills
+                  </button>
+                  {showSkillPicker && (
+                    <div className="absolute bottom-full left-0 mb-2 w-56 bg-[#1a1a1a] border border-border-base rounded-xl shadow-2xl overflow-hidden z-50 max-h-64 overflow-y-auto">
+                      <div className="p-1">
+                        {skills.map(s => (
+                          <button
+                            key={s.slug}
+                            onClick={() => { onSkillSelect?.(s.slug); setShowSkillPicker(false); }}
+                            className="w-full text-left px-3 py-2 rounded-lg text-sm text-text-primary hover:bg-white/5 transition-colors flex items-center gap-2"
+                          >
+                            <span>{s.icon || '⬡'}</span>
+                            {s.name}
+                            {s.is_agent && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-purple-500/20 text-purple-400 font-bold">AGENT</span>}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
 
             <div className="flex items-center gap-2">
-              <span className="text-xs text-text-secondary/40 select-none">Gemini 3.0 Flash</span>
+              {/* Model selector */}
+              <div className="relative">
+                <button
+                  onClick={() => setShowModelPicker(!showModelPicker)}
+                  className="flex items-center gap-1.5 text-xs text-text-secondary/60 hover:text-text-secondary transition-colors"
+                >
+                  <span className="text-[10px]">✦</span>
+                  {currentModel?.name || 'Gemini 3.0 Flash'}
+                  {currentModel?.badge && (
+                    <span className={`text-[8px] font-bold px-1 py-0.5 rounded-full ${
+                      currentModel.badge === 'NEW' ? 'bg-brand/20 text-brand' :
+                      currentModel.badge === 'PRO' ? 'bg-purple-500/20 text-purple-400' :
+                      'bg-white/10 text-text-secondary'
+                    }`}>
+                      {currentModel.badge}
+                    </span>
+                  )}
+                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+                {showModelPicker && (
+                  <div className="absolute bottom-full right-0 mb-2 w-52 bg-[#1a1a1a] border border-border-base rounded-xl shadow-2xl overflow-hidden z-50">
+                    <div className="px-3 py-2 border-b border-white/5">
+                      <p className="text-[9px] text-text-secondary/40 font-medium uppercase tracking-widest">Chat Model</p>
+                    </div>
+                    <div className="p-1">
+                      {CHAT_MODELS.map(model => (
+                        <button
+                          key={model.id}
+                          onClick={() => { onModelChange?.(model.id); setShowModelPicker(false); }}
+                          className={`w-full flex items-center justify-between px-3 py-2 text-left hover:bg-white/5 rounded-lg transition-colors ${
+                            selectedModel === model.id ? 'bg-brand/10' : ''
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            {selectedModel === model.id && <div className="w-1.5 h-1.5 rounded-full bg-brand flex-shrink-0" />}
+                            <span className={`text-sm ${selectedModel === model.id ? 'text-brand font-medium' : 'text-text-primary'}`}>
+                              {model.name}
+                            </span>
+                          </div>
+                          {model.badge && (
+                            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
+                              model.badge === 'NEW' ? 'bg-brand/20 text-brand' :
+                              model.badge === 'PRO' ? 'bg-purple-500/20 text-purple-400' :
+                              'bg-white/10 text-text-secondary'
+                            }`}>
+                              {model.badge}
+                            </span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {inputValue.trim() && (
                 <button
                   onClick={onSend}
