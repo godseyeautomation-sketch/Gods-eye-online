@@ -83,7 +83,7 @@ export const ConversationSidebar: React.FC<Props> = ({
       <div className={`
         fixed lg:relative z-40 lg:z-0 top-0 left-0 h-full
         w-[260px] flex-shrink-0
-        bg-[#0a0a0a] border-r border-border-base
+        bg-panel border-r border-border-base
         flex flex-col
         transition-transform duration-300
         ${isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
@@ -93,7 +93,7 @@ export const ConversationSidebar: React.FC<Props> = ({
           {/* New chat */}
           <button
             onClick={onNew}
-            className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-white/5 text-text-secondary hover:text-text-primary transition-colors text-sm"
+            className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 text-text-secondary hover:text-text-primary transition-colors text-sm"
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
@@ -104,7 +104,7 @@ export const ConversationSidebar: React.FC<Props> = ({
           {/* Search */}
           <button
             onClick={() => setShowSearch(!showSearch)}
-            className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-white/5 text-text-secondary hover:text-text-primary transition-colors text-sm"
+            className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 text-text-secondary hover:text-text-primary transition-colors text-sm"
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -119,7 +119,7 @@ export const ConversationSidebar: React.FC<Props> = ({
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search chats..."
-              className="w-full h-8 rounded-lg bg-white/5 border border-border-base px-3 text-xs text-text-primary placeholder:text-text-secondary/40 focus:outline-none focus:border-brand/30 mt-1"
+              className="w-full h-8 rounded-lg bg-black/5 dark:bg-white/5 border border-border-base px-3 text-xs text-text-primary placeholder:text-text-secondary/40 focus:outline-none focus:border-brand/30 mt-1"
             />
           )}
         </div>
@@ -148,8 +148,8 @@ export const ConversationSidebar: React.FC<Props> = ({
                   key={c.id}
                   className={`group relative flex items-center rounded-lg px-3 py-2 cursor-pointer transition-all duration-100 ${
                     c.id === activeId
-                      ? 'bg-white/[0.07]'
-                      : 'hover:bg-white/[0.04]'
+                      ? 'bg-black/[0.07] dark:bg-white/[0.07]'
+                      : 'hover:bg-black/[0.04] dark:hover:bg-white/[0.04]'
                   }`}
                   onClick={() => { onSelect(c.id); if (window.innerWidth < 1024) onToggle(); }}
                 >
@@ -170,7 +170,7 @@ export const ConversationSidebar: React.FC<Props> = ({
                   {editingId !== c.id && (
                     <button
                       onClick={(e) => { e.stopPropagation(); setContextMenu(contextMenu === c.id ? null : c.id); }}
-                      className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-white/10 transition-all flex-shrink-0"
+                      className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-black/10 dark:hover:bg-white/10 transition-all flex-shrink-0"
                     >
                       <svg className="w-3.5 h-3.5 text-text-secondary" fill="currentColor" viewBox="0 0 20 20">
                         <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
@@ -179,10 +179,10 @@ export const ConversationSidebar: React.FC<Props> = ({
                   )}
 
                   {contextMenu === c.id && (
-                    <div className="absolute right-2 top-full mt-1 z-10 bg-[#1a1a1a] border border-border-base rounded-lg shadow-2xl py-1 min-w-[100px]">
+                    <div className="absolute right-2 top-full mt-1 z-10 bg-panel border border-border-base rounded-lg shadow-2xl py-1 min-w-[100px]">
                       <button
                         onClick={(e) => { e.stopPropagation(); setEditingId(c.id); setEditTitle(c.title); setContextMenu(null); }}
-                        className="w-full text-left px-3 py-1.5 text-xs text-text-primary hover:bg-white/5"
+                        className="w-full text-left px-3 py-1.5 text-xs text-text-primary hover:bg-black/5 dark:hover:bg-white/5"
                       >
                         Rename
                       </button>
@@ -204,7 +204,7 @@ export const ConversationSidebar: React.FC<Props> = ({
         <div className="border-t border-border-base">
           <button
             onClick={() => { if (onNavigate) onNavigate('agentic'); }}
-            className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-white/[0.03] transition-colors"
+            className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-black/[0.03] dark:hover:bg-white/[0.03] transition-colors"
           >
             <div className="flex items-center gap-2">
               <svg className="w-3.5 h-3.5 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -223,7 +223,7 @@ export const ConversationSidebar: React.FC<Props> = ({
         <div className="border-t border-border-base">
           <button
             onClick={() => { if (onNavigate) onNavigate('connectors'); }}
-            className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-white/[0.03] transition-colors"
+            className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-black/[0.03] dark:hover:bg-white/[0.03] transition-colors"
           >
             <div className="flex items-center gap-2">
               <svg className="w-3.5 h-3.5 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -241,7 +241,7 @@ export const ConversationSidebar: React.FC<Props> = ({
         <div className="border-t border-border-base">
           <button
             onClick={() => { if (onNavigate) onNavigate('CRON_JOBS'); else setShowCron(!showCron); }}
-            className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-white/[0.03] transition-colors"
+            className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-black/[0.03] dark:hover:bg-white/[0.03] transition-colors"
           >
             <div className="flex items-center gap-2">
               <svg className="w-3.5 h-3.5 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -270,9 +270,9 @@ export const ConversationSidebar: React.FC<Props> = ({
                 cronJobs.map((job: any) => (
                   <div
                     key={job.id}
-                    className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-white/[0.04] transition-colors group"
+                    className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-black/[0.04] dark:hover:bg-white/[0.04] transition-colors group"
                   >
-                    <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${job.enabled ? 'bg-green-400' : 'bg-white/20'}`} />
+                    <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${job.enabled ? 'bg-green-400' : 'bg-black/20 dark:bg-white/20'}`} />
                     <div className="flex-1 min-w-0">
                       <p className="text-[12px] text-text-secondary truncate">{job.name}</p>
                       <p className="text-[10px] text-text-secondary/30 font-mono">{job.cron_expression}</p>
@@ -293,7 +293,7 @@ export const ConversationSidebar: React.FC<Props> = ({
 
         {/* Bottom: user profile */}
         <div className="border-t border-border-base p-3">
-          <div className="flex items-center gap-3 px-2 py-1.5 rounded-lg hover:bg-white/5 transition-colors cursor-pointer">
+          <div className="flex items-center gap-3 px-2 py-1.5 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 transition-colors cursor-pointer">
             <div className="w-8 h-8 rounded-full bg-brand/20 flex items-center justify-center text-brand text-sm font-bold flex-shrink-0">
               {(userName || 'G').charAt(0).toUpperCase()}
             </div>

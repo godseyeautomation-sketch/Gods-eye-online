@@ -175,11 +175,10 @@ export const WelcomeScreen: React.FC<Props> = ({
 
   return (
     <div className="flex-1 flex flex-col items-center justify-center px-6">
-      {/* Greeting — shifted slightly left with pr to appear centered with the sparkle icon */}
-      <div className="mb-8 w-full max-w-2xl">
-        <h1 className="text-4xl lg:text-5xl font-medium text-text-primary/80 tracking-tight flex items-center gap-3">
-          <span className="text-brand text-3xl">✦</span>
-          {greeting}
+      {/* Greeting — single line, centered */}
+      <div className="mb-8 text-center">
+        <h1 className="text-2xl sm:text-3xl lg:text-4xl font-medium text-text-primary/80 tracking-tight whitespace-nowrap">
+          <span className="text-brand">✦</span>{' '}{greeting}
         </h1>
       </div>
 
