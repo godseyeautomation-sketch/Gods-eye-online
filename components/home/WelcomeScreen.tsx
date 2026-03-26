@@ -185,7 +185,7 @@ export const WelcomeScreen: React.FC<Props> = ({
 
       {/* Central input box */}
       <div className="w-full max-w-2xl">
-        <div className="rounded-2xl border border-border-base bg-[#111] focus-within:border-brand/30 transition-colors">
+        <div className="rounded-2xl border border-border-base bg-surface focus-within:border-brand/30 transition-colors">
           {/* Attached images preview */}
           {attachedImages.length > 0 && (
             <div className="flex gap-2 px-4 pt-3">
@@ -220,7 +220,7 @@ export const WelcomeScreen: React.FC<Props> = ({
               {/* File upload */}
               <button
                 onClick={onFileUpload}
-                className="p-2 rounded-lg hover:bg-white/5 text-text-secondary hover:text-text-primary transition-colors"
+                className="p-2 rounded-lg hover:bg-black/5 dark:hover:bg-black/5 dark:bg-white/5 text-text-secondary hover:text-text-primary transition-colors"
                 title="Attach image"
               >
                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -236,18 +236,18 @@ export const WelcomeScreen: React.FC<Props> = ({
                     className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all border ${
                       activeBrand
                         ? 'bg-brand/10 text-brand border-brand/20'
-                        : 'bg-white/5 text-text-secondary border-transparent hover:border-border-base'
+                        : 'bg-black/5 dark:bg-white/5 text-text-secondary border-transparent hover:border-border-base'
                     }`}
                   >
                     <span className="text-[10px]">◎</span>
                     {activeBrand ? activeBrand.name : 'Brand'}
                   </button>
                   {showBrandPicker && (
-                    <div className="absolute bottom-full left-0 mb-2 w-48 bg-[#1a1a1a] border border-border-base rounded-xl shadow-2xl overflow-hidden z-50">
+                    <div className="absolute bottom-full left-0 mb-2 w-48 bg-panel border border-border-base rounded-xl shadow-2xl overflow-hidden z-50">
                       <div className="p-1">
                         <button
                           onClick={() => { onBrandChange?.(null); setShowBrandPicker(false); }}
-                          className={`w-full text-left px-3 py-2 rounded-lg text-sm hover:bg-white/5 transition-colors ${!activeBrandId ? 'text-brand' : 'text-text-secondary'}`}
+                          className={`w-full text-left px-3 py-2 rounded-lg text-sm hover:bg-black/5 dark:hover:bg-white/5 transition-colors ${!activeBrandId ? 'text-brand' : 'text-text-secondary'}`}
                         >
                           No brand
                         </button>
@@ -255,7 +255,7 @@ export const WelcomeScreen: React.FC<Props> = ({
                           <button
                             key={b.id}
                             onClick={() => { onBrandChange?.(b.id); setShowBrandPicker(false); }}
-                            className={`w-full text-left px-3 py-2 rounded-lg text-sm hover:bg-white/5 transition-colors ${activeBrandId === b.id ? 'text-brand' : 'text-text-primary'}`}
+                            className={`w-full text-left px-3 py-2 rounded-lg text-sm hover:bg-black/5 dark:hover:bg-white/5 transition-colors ${activeBrandId === b.id ? 'text-brand' : 'text-text-primary'}`}
                           >
                             {b.name}
                           </button>
@@ -271,19 +271,19 @@ export const WelcomeScreen: React.FC<Props> = ({
                 <div className="relative">
                   <button
                     onClick={() => setShowSkillPicker(!showSkillPicker)}
-                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white/5 text-text-secondary hover:text-text-primary border border-transparent hover:border-border-base transition-all"
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-black/5 dark:bg-white/5 text-text-secondary hover:text-text-primary border border-transparent hover:border-border-base transition-all"
                   >
                     <span className="text-[10px]">⬡</span>
                     Skills
                   </button>
                   {showSkillPicker && (
-                    <div className="absolute bottom-full left-0 mb-2 w-56 bg-[#1a1a1a] border border-border-base rounded-xl shadow-2xl overflow-hidden z-50 max-h-64 overflow-y-auto">
+                    <div className="absolute bottom-full left-0 mb-2 w-56 bg-panel border border-border-base rounded-xl shadow-2xl overflow-hidden z-50 max-h-64 overflow-y-auto">
                       <div className="p-1">
                         {skills.map(s => (
                           <button
                             key={s.slug}
                             onClick={() => { onSkillSelect?.(s.slug); setShowSkillPicker(false); }}
-                            className="w-full text-left px-3 py-2 rounded-lg text-sm text-text-primary hover:bg-white/5 transition-colors flex items-center gap-2"
+                            className="w-full text-left px-3 py-2 rounded-lg text-sm text-text-primary hover:bg-black/5 dark:hover:bg-white/5 transition-colors flex items-center gap-2"
                           >
                             <span>{s.icon || '⬡'}</span>
                             {s.name}
@@ -310,7 +310,7 @@ export const WelcomeScreen: React.FC<Props> = ({
                     <span className={`text-[8px] font-bold px-1 py-0.5 rounded-full ${
                       currentModel.badge === 'NEW' ? 'bg-brand/20 text-brand' :
                       currentModel.badge === 'PRO' ? 'bg-purple-500/20 text-purple-400' :
-                      'bg-white/10 text-text-secondary'
+                      'bg-black/10 dark:bg-white/10 text-text-secondary'
                     }`}>
                       {currentModel.badge}
                     </span>
@@ -320,8 +320,8 @@ export const WelcomeScreen: React.FC<Props> = ({
                   </svg>
                 </button>
                 {showModelPicker && (
-                  <div className="absolute bottom-full right-0 mb-2 w-52 bg-[#1a1a1a] border border-border-base rounded-xl shadow-2xl overflow-hidden z-50">
-                    <div className="px-3 py-2 border-b border-white/5">
+                  <div className="absolute bottom-full right-0 mb-2 w-52 bg-panel border border-border-base rounded-xl shadow-2xl overflow-hidden z-50">
+                    <div className="px-3 py-2 border-b border-black/5 dark:border-white/5">
                       <p className="text-[9px] text-text-secondary/40 font-medium uppercase tracking-widest">Chat Model</p>
                     </div>
                     <div className="p-1">
@@ -329,7 +329,7 @@ export const WelcomeScreen: React.FC<Props> = ({
                         <button
                           key={model.id}
                           onClick={() => { onModelChange?.(model.id); setShowModelPicker(false); }}
-                          className={`w-full flex items-center justify-between px-3 py-2 text-left hover:bg-white/5 rounded-lg transition-colors ${
+                          className={`w-full flex items-center justify-between px-3 py-2 text-left hover:bg-black/5 dark:hover:bg-white/5 rounded-lg transition-colors ${
                             selectedModel === model.id ? 'bg-brand/10' : ''
                           }`}
                         >
@@ -343,7 +343,7 @@ export const WelcomeScreen: React.FC<Props> = ({
                             <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
                               model.badge === 'NEW' ? 'bg-brand/20 text-brand' :
                               model.badge === 'PRO' ? 'bg-purple-500/20 text-purple-400' :
-                              'bg-white/10 text-text-secondary'
+                              'bg-black/10 dark:bg-white/10 text-text-secondary'
                             }`}>
                               {model.badge}
                             </span>
@@ -390,7 +390,7 @@ export const WelcomeScreen: React.FC<Props> = ({
             <button
               key={s}
               onClick={() => onSuggestionClick(s)}
-              className="w-full text-left px-4 py-2.5 rounded-xl border border-transparent hover:border-border-base hover:bg-white/[0.03] text-sm text-text-secondary/60 hover:text-text-secondary transition-all"
+              className="w-full text-left px-4 py-2.5 rounded-xl border border-transparent hover:border-border-base hover:bg-black/[0.03] dark:hover:bg-white/[0.03] text-sm text-text-secondary/60 hover:text-text-secondary transition-all"
             >
               {s}
             </button>
