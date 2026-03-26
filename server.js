@@ -512,12 +512,12 @@ app.get('/api/gemini/*', async (req, res) => {
 });
 
 // ── Kimi (Moonshot) API Proxy ──
-// OpenAI-compatible API at api.moonshot.cn
+// OpenAI-compatible API at api.moonshot.ai
 app.post('/api/kimi/chat/completions', async (req, res) => {
   try {
     if (!kimiApiKey) return res.status(500).json({ error: 'Kimi API key not configured on server' });
 
-    const response = await fetch('https://api.moonshot.cn/v1/chat/completions', {
+    const response = await fetch('https://api.moonshot.ai/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

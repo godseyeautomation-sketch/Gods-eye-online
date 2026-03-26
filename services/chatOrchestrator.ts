@@ -900,7 +900,7 @@ export async function sendMessage(
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: 'kimi-k2-0711',
+          model: 'kimi-k2.5',
           messages: kimiMessages,
           temperature: 0.7,
           max_tokens: 8192,
