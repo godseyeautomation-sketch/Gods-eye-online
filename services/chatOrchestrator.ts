@@ -716,8 +716,39 @@ async function executeTool(
       }
     }
 
-    default:
+    default: {
+      // Connector tools (connector_gmail_search, connector_github_repos, etc.)
+      if (toolName.startsWith('connector_')) {
+        try {
+          const connRes = await fetch('/api/connectors/execute', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ user_id: callbacks.userId, tool_name: toolName, args }),
+          });
+          const connData = await connRes.json();
+          if (connData.error) return { error: connData.error };
+          return connData.result || connData;
+        } catch (err: any) {
+          return { error: `Connector error: ${err.message}` };
+        }
+      }
+
+      // MCP tools (mcp_*)
+      if (toolName.startsWith('mcp_')) {
+        try {
+          const mcpRes = await fetch('/api/mcp/call', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tool: toolName, args }),
+          });
+          return await mcpRes.json();
+        } catch (err: any) {
+          return { error: `MCP error: ${err.message}` };
+        }
+      }
+
       return { error: `Unknown tool: ${toolName}` };
+    }
   }
 }
 
@@ -849,11 +880,24 @@ export async function sendMessage(
     // 2. Build contents
     let contents = buildContents(messages, ragContext, callbacks.personality, callbacks.brandContext, callbacks.skillOverride);
 
-    // 3. Build request with tools + Google Search grounding
+    // 2b. Fetch connector tools for this user
+    let connectorDeclarations: any[] = [];
+    try {
+      if (callbacks.userId) {
+        const connRes = await fetch(`/api/connectors/tools?user_id=${callbacks.userId}`);
+        if (connRes.ok) {
+          const connData = await connRes.json();
+          connectorDeclarations = connData.declarations || [];
+        }
+      }
+    } catch {} // Connectors not available — fine
+
+    // 3. Build request with tools + Google Search grounding + Connectors
+    const allDeclarations = [...TOOL_DECLARATIONS, ...connectorDeclarations];
     const requestBody: any = {
       contents,
       tools: [
-        { functionDeclarations: TOOL_DECLARATIONS },
+        { functionDeclarations: allDeclarations },
       ],
       toolConfig: { functionCallingConfig: { mode: 'AUTO' } },
       generationConfig: {

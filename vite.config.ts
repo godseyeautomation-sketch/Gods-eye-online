@@ -301,6 +301,16 @@ export default defineConfig(({ mode }) => {
           target: 'http://localhost:3002',
           changeOrigin: true,
         },
+        // Connectors (MCP) proxy — OAuth flows, tool execution, per-user isolation
+        '/api/connectors': {
+          target: 'http://localhost:3002',
+          changeOrigin: true,
+        },
+        // MCP bridge proxy
+        '/api/mcp': {
+          target: 'http://localhost:3002',
+          changeOrigin: true,
+        },
         // Local bridge server proxy (WebSocket + HTTP)
         '/bridge': {
           target: 'http://localhost:3456',
