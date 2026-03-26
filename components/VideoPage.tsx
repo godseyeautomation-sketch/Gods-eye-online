@@ -337,17 +337,17 @@ export const VideoPage: React.FC<{ initialImage?: string | null }> = ({ initialI
             {/* Top Header Section - Videos Only */}
             <div className="flex items-center justify-between px-6 py-3 bg-panel/50 backdrop-blur-md z-40">
                 <div className="flex gap-1 bg-surface/50 p-0.5 rounded-lg">
-                    <button className="flex items-center gap-2 px-3 py-1 rounded-md bg-white dark:bg-[#222] text-[10px] font-bold text-text-primary shadow-sm">
+                    <button className="flex items-center gap-2 px-3 py-1 rounded-md bg-white dark:bg-surface text-[10px] font-bold text-text-primary shadow-sm">
                         <Film size={12} /> Videos
                     </button>
                 </div>
 
-                <div className="flex-1 max-w-lg mx-6 relative group flex items-center bg-white/10 border border-brand/50 hover:border-brand rounded-lg px-3 py-2 transition-all focus-within:ring-1 focus-within:ring-brand">
-                    <Search size={14} className="text-neutral-500 group-focus-within:text-brand transition-colors mr-3" />
+                <div className="flex-1 max-w-lg mx-6 relative group flex items-center bg-black/10 dark:bg-white/10 border border-brand/50 hover:border-brand rounded-lg px-3 py-2 transition-all focus-within:ring-1 focus-within:ring-brand">
+                    <Search size={14} className="text-text-secondary/70 group-focus-within:text-brand transition-colors mr-3" />
                     <input
                         type="text"
                         placeholder="Search for a clip"
-                        className="w-full bg-transparent border-none p-0 text-[11px] font-medium focus:outline-none focus:ring-0 text-text-primary placeholder:text-neutral-400"
+                        className="w-full bg-transparent border-none p-0 text-[11px] font-medium focus:outline-none focus:ring-0 text-text-primary placeholder:text-text-secondary"
                     />
                 </div>
 
@@ -365,10 +365,10 @@ export const VideoPage: React.FC<{ initialImage?: string | null }> = ({ initialI
                         <div className="flex flex-col items-center animate-fade-in">
                             <div className="w-16 h-16 rounded-full border-2 border-brand border-t-transparent animate-spin mb-6"></div>
                             <h3 className="text-xl font-black uppercase tracking-[0.15em] mb-1.5">Creating Video</h3>
-                            <p className="text-neutral-500 text-xs font-medium">Veo 3.1 is imagining your request...</p>
+                            <p className="text-text-secondary/70 text-xs font-medium">Veo 3.1 is imagining your request...</p>
                         </div>
                     ) : generatedVideoUrl ? (
-                        <div className="relative h-full w-full max-w-[360px] flex items-center justify-center group shadow-[0_40px_100px_rgba(0,0,0,0.8)] rounded-2xl overflow-hidden border border-white/10">
+                        <div className="relative h-full w-full max-w-[360px] flex items-center justify-center group shadow-[0_40px_100px_rgba(0,0,0,0.8)] rounded-2xl overflow-hidden border border-border-base">
                             <video src={generatedVideoUrl} autoPlay loop className="h-full w-auto object-cover" />
                             <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                                 <div className="flex gap-3">
@@ -379,7 +379,7 @@ export const VideoPage: React.FC<{ initialImage?: string | null }> = ({ initialI
                         </div>
                     ) : (
                         <div className="flex flex-col items-center opacity-20">
-                            <h1 className="text-xl font-medium text-neutral-400">Type in the prompt box to start</h1>
+                            <h1 className="text-xl font-medium text-text-secondary">Type in the prompt box to start</h1>
                         </div>
                     )}
                 </div>
@@ -397,26 +397,26 @@ export const VideoPage: React.FC<{ initialImage?: string | null }> = ({ initialI
                         >
                             <div className="space-y-5">
                                 <div className="space-y-1.5 relative">
-                                    <label className="text-[10px] text-neutral-500 font-bold uppercase tracking-wide">Aspect Ratio</label>
+                                    <label className="text-[10px] text-text-secondary/70 font-bold uppercase tracking-wide">Aspect Ratio</label>
                                     <button
                                         onClick={() => setIsRatioMenuOpen(!isRatioMenuOpen)}
-                                        className="w-full flex items-center justify-between bg-[#1a1a1a] border border-white/5 rounded-lg px-3.5 py-2.5 text-xs font-bold text-neutral-200"
+                                        className="w-full flex items-center justify-between bg-panel border border-border-base rounded-lg px-3.5 py-2.5 text-xs font-bold text-text-primary"
                                     >
                                         <div className="flex items-center gap-2.5">
                                             {selectedRatio.value === '16:9' ? <Monitor size={14} /> : <Smartphone size={14} />}
                                             {selectedRatio.label}
                                         </div>
-                                        <ChevronDown size={14} className="text-neutral-500" />
+                                        <ChevronDown size={14} className="text-text-secondary/70" />
                                     </button>
 
                                     {/* Ratio Selection Dropdown - Matches Screen 3 */}
                                     {isRatioMenuOpen && (
-                                        <div ref={ratioMenuRef} className="absolute top-full left-0 w-full mt-2 bg-[#1a1a1a] border border-white/10 rounded-lg overflow-hidden shadow-2xl z-[60]">
+                                        <div ref={ratioMenuRef} className="absolute top-full left-0 w-full mt-2 bg-panel border border-border-base rounded-lg overflow-hidden shadow-2xl z-[60]">
                                             {ASPECT_RATIOS.map(r => (
                                                 <button
                                                     key={r.value}
                                                     onClick={() => { setSelectedRatio(r); setIsRatioMenuOpen(false); }}
-                                                    className={`w-full flex items-center gap-2.5 px-3.5 py-2.5 text-xs font-bold transition-all ${selectedRatio.value === r.value ? 'bg-[#333] text-white' : 'text-neutral-400 hover:bg-[#222]'}`}
+                                                    className={`w-full flex items-center gap-2.5 px-3.5 py-2.5 text-xs font-bold transition-all ${selectedRatio.value === r.value ? 'bg-surface text-white' : 'text-text-secondary hover:bg-surface'}`}
                                                 >
                                                     {r.value === '16:9' ? <Monitor size={14} /> : <Smartphone size={14} />}
                                                     {r.label}
@@ -427,11 +427,11 @@ export const VideoPage: React.FC<{ initialImage?: string | null }> = ({ initialI
                                 </div>
 
                                 <div className="space-y-1.5">
-                                    <label className="text-[10px] text-neutral-500 font-bold uppercase tracking-wide">Outputs per prompt</label>
+                                    <label className="text-[10px] text-text-secondary/70 font-bold uppercase tracking-wide">Outputs per prompt</label>
                                     <select
                                         value={outputsPerPrompt}
                                         onChange={(e) => setOutputsPerPrompt(Number(e.target.value))}
-                                        className="w-full bg-[#1a1a1a] border border-white/5 rounded-lg px-3.5 py-2.5 text-xs font-bold text-neutral-200 appearance-none outline-none"
+                                        className="w-full bg-panel border border-border-base rounded-lg px-3.5 py-2.5 text-xs font-bold text-text-primary appearance-none outline-none"
                                     >
                                         <option value={1}>1</option>
                                         <option value={2}>2</option>
@@ -440,25 +440,25 @@ export const VideoPage: React.FC<{ initialImage?: string | null }> = ({ initialI
                                 </div>
 
                                 <div className="space-y-1.5">
-                                    <label className="text-[10px] text-neutral-500 font-bold uppercase tracking-wide">Model</label>
+                                    <label className="text-[10px] text-text-secondary/70 font-bold uppercase tracking-wide">Model</label>
                                     <select
                                         value={selectedModel.id}
                                         onChange={(e) => setSelectedModel(VIDEO_MODELS.find(m => m.id === e.target.value) || VIDEO_MODELS[0])}
-                                        className="w-full bg-[#1a1a1a] border border-white/5 rounded-lg px-3.5 py-2.5 text-xs font-bold text-neutral-200 appearance-none outline-none"
+                                        className="w-full bg-panel border border-border-base rounded-lg px-3.5 py-2.5 text-xs font-bold text-text-primary appearance-none outline-none"
                                     >
                                         {VIDEO_MODELS.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
                                     </select>
                                 </div>
 
-                                <div className="pt-3 border-t border-white/5 flex items-center justify-between">
-                                    <span className="text-[10px] text-neutral-500 font-medium italic">Each generation uses <span className="text-white font-bold underline">20 credits</span></span>
+                                <div className="pt-3 border-t border-border-base flex items-center justify-between">
+                                    <span className="text-[10px] text-text-secondary/70 font-medium italic">Each generation uses <span className="text-white font-bold underline">20 credits</span></span>
                                 </div>
                             </div>
                         </div>
                     )}
 
                     {/* Stacked Control Bar Layout */}
-                    <div className="relative bg-panel/90 backdrop-blur-2xl border border-white/10 rounded-[24px] p-4 shadow-2xl transition-all">
+                    <div className="relative bg-panel/90 backdrop-blur-2xl border border-border-base rounded-[24px] p-4 shadow-2xl transition-all">
 
                         {/* 1. Header Row: Controls */}
                         <div className="flex items-center justify-between mb-3">
@@ -467,21 +467,21 @@ export const VideoPage: React.FC<{ initialImage?: string | null }> = ({ initialI
                                 <div className="relative" ref={modeMenuRef as any}>
                                     <button
                                         onClick={() => setIsModeMenuOpen(!isModeMenuOpen)}
-                                        className={`h-8 px-3 rounded-lg border flex items-center gap-2 transition-all group whitespace-nowrap ${isModeMenuOpen ? 'bg-surface border-brand' : 'bg-[#1a1a1a] border-white/10 hover:border-brand/50'}`}
+                                        className={`h-8 px-3 rounded-lg border flex items-center gap-2 transition-all group whitespace-nowrap ${isModeMenuOpen ? 'bg-surface border-brand' : 'bg-panel border-border-base hover:border-brand/50'}`}
                                     >
-                                        <div className="w-5 h-5 rounded-full bg-white/5 flex items-center justify-center text-brand group-hover:bg-brand group-hover:text-bg transition-colors">
+                                        <div className="w-5 h-5 rounded-full bg-black/5 dark:bg-white/5 flex items-center justify-center text-brand group-hover:bg-brand group-hover:text-bg transition-colors">
                                             {selectedMode.icon === 'Type' ? <Type size={10} /> :
                                                 selectedMode.icon === 'Image' ? <ImageIcon size={10} /> :
                                                     selectedMode.icon === 'Layers' ? <Layers size={10} /> :
                                                         <Sparkles size={10} fill="currentColor" />}
                                         </div>
-                                        <span className="text-[10px] font-bold text-neutral-200 tracking-wide uppercase">{selectedMode.label}</span>
-                                        <ChevronDown size={10} className="text-neutral-500" />
+                                        <span className="text-[10px] font-bold text-text-primary tracking-wide uppercase">{selectedMode.label}</span>
+                                        <ChevronDown size={10} className="text-text-secondary/70" />
                                     </button>
 
                                     {isModeMenuOpen && (
                                         <div 
-                                            className="absolute top-full left-0 mt-2 bg-[#1a1a1a] border border-white/10 rounded-xl overflow-hidden shadow-xl z-50 min-w-[200px] animate-in fade-in slide-in-from-top-2"
+                                            className="absolute top-full left-0 mt-2 bg-panel border border-border-base rounded-xl overflow-hidden shadow-xl z-50 min-w-[200px] animate-in fade-in slide-in-from-top-2"
                                             onClick={(e) => e.stopPropagation()}
                                         >
                                             <div className="p-1.5 space-y-0.5">
@@ -494,7 +494,7 @@ export const VideoPage: React.FC<{ initialImage?: string | null }> = ({ initialI
                                                             setSelectedMode(mode); 
                                                             setIsModeMenuOpen(false); 
                                                         }}
-                                                        className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs transition-colors ${selectedMode.id === mode.id ? 'bg-brand/10 text-brand font-bold' : 'text-neutral-400 hover:bg-white/5 hover:text-white'}`}
+                                                        className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs transition-colors ${selectedMode.id === mode.id ? 'bg-brand/10 text-brand font-bold' : 'text-text-secondary hover:bg-black/5 dark:hover:bg-white/5 hover:text-text-primary'}`}
                                                     >
                                                         {mode.icon === 'Type' ? <Type size={12} /> :
                                                             mode.icon === 'Image' ? <ImageIcon size={12} /> :
@@ -513,22 +513,22 @@ export const VideoPage: React.FC<{ initialImage?: string | null }> = ({ initialI
                                     <button
                                         ref={ratioMenuRef as any}
                                         onClick={() => setIsRatioMenuOpen(!isRatioMenuOpen)}
-                                        className={`h-8 px-3 rounded-lg border flex items-center gap-2 transition-all whitespace-nowrap ${isRatioMenuOpen ? 'bg-surface border-brand' : 'bg-[#1a1a1a] border-white/10 hover:border-brand/50'}`}
+                                        className={`h-8 px-3 rounded-lg border flex items-center gap-2 transition-all whitespace-nowrap ${isRatioMenuOpen ? 'bg-surface border-brand' : 'bg-panel border-border-base hover:border-brand/50'}`}
                                     >
-                                        <div className="w-5 h-5 rounded-full bg-white/5 flex items-center justify-center text-neutral-300">
+                                        <div className="w-5 h-5 rounded-full bg-black/5 dark:bg-white/5 flex items-center justify-center text-neutral-300">
                                             {selectedRatio.value === '16:9' ? <Monitor size={10} /> : <Smartphone size={10} />}
                                         </div>
-                                        <span className="text-[10px] font-bold text-neutral-200 tracking-wide">{selectedRatio.label}</span>
+                                        <span className="text-[10px] font-bold text-text-primary tracking-wide">{selectedRatio.label}</span>
                                     </button>
 
                                     {isRatioMenuOpen && (
-                                        <div className="absolute top-full left-0 mt-2 bg-[#1a1a1a] border border-white/10 rounded-xl overflow-hidden shadow-xl z-50 min-w-[160px] animate-in fade-in slide-in-from-top-2">
+                                        <div className="absolute top-full left-0 mt-2 bg-panel border border-border-base rounded-xl overflow-hidden shadow-xl z-50 min-w-[160px] animate-in fade-in slide-in-from-top-2">
                                             <div className="p-1.5 space-y-0.5">
                                                 {ASPECT_RATIOS.map((ratio) => (
                                                     <button
                                                         key={ratio.value}
                                                         onClick={() => { setSelectedRatio(ratio); setIsRatioMenuOpen(false); }}
-                                                        className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs transition-colors ${selectedRatio.value === ratio.value ? 'bg-brand/10 text-brand font-bold' : 'text-neutral-400 hover:bg-white/5 hover:text-white'}`}
+                                                        className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs transition-colors ${selectedRatio.value === ratio.value ? 'bg-brand/10 text-brand font-bold' : 'text-text-secondary hover:bg-black/5 dark:hover:bg-white/5 hover:text-text-primary'}`}
                                                     >
                                                         {ratio.value === '16:9' ? <Monitor size={12} /> : <Smartphone size={12} />}
                                                         {ratio.label}
@@ -545,25 +545,25 @@ export const VideoPage: React.FC<{ initialImage?: string | null }> = ({ initialI
                                 <button
                                     ref={settingsRef as any}
                                     onClick={() => setIsSettingsOpen(!isSettingsOpen)}
-                                    className={`h-8 px-3 rounded-lg border flex items-center gap-2 transition-all whitespace-nowrap ${isSettingsOpen ? 'bg-surface border-brand' : 'bg-[#1a1a1a] border-white/10 hover:border-brand/50'}`}
+                                    className={`h-8 px-3 rounded-lg border flex items-center gap-2 transition-all whitespace-nowrap ${isSettingsOpen ? 'bg-surface border-brand' : 'bg-panel border-border-base hover:border-brand/50'}`}
                                 >
-                                    <div className="w-5 h-5 rounded-full bg-white/5 flex items-center justify-center text-neutral-300">
+                                    <div className="w-5 h-5 rounded-full bg-black/5 dark:bg-white/5 flex items-center justify-center text-neutral-300">
                                         <Settings2 size={10} />
                                     </div>
-                                    <span className="text-[10px] font-bold text-neutral-200 tracking-wide">{selectedModel.name}</span>
+                                    <span className="text-[10px] font-bold text-text-primary tracking-wide">{selectedModel.name}</span>
                                 </button>
 
                                 {isSettingsOpen && (
-                                    <div className="absolute bottom-full right-0 mb-2 bg-[#1a1a1a] border border-white/10 rounded-xl overflow-hidden shadow-xl z-50 min-w-[220px] animate-in fade-in slide-in-from-bottom-2">
+                                    <div className="absolute bottom-full right-0 mb-2 bg-panel border border-border-base rounded-xl overflow-hidden shadow-xl z-50 min-w-[220px] animate-in fade-in slide-in-from-bottom-2">
                                         <div className="p-3 space-y-4">
                                             <div className="space-y-2">
-                                                <label className="text-[10px] uppercase font-bold text-neutral-500 tracking-wider">Model</label>
+                                                <label className="text-[10px] uppercase font-bold text-text-secondary/70 tracking-wider">Model</label>
                                                 <div className="space-y-1">
                                                     {VIDEO_MODELS.map((model) => (
                                                         <button
                                                             key={model.id}
                                                             onClick={() => { setSelectedModel(model); setIsSettingsOpen(false); }}
-                                                            className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs transition-colors ${selectedModel.id === model.id ? 'bg-brand/10 text-brand font-bold' : 'text-neutral-400 hover:bg-white/5 hover:text-white'}`}
+                                                            className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs transition-colors ${selectedModel.id === model.id ? 'bg-brand/10 text-brand font-bold' : 'text-text-secondary hover:bg-black/5 dark:hover:bg-white/5 hover:text-text-primary'}`}
                                                         >
                                                             {model.name}
                                                             {selectedModel.id === model.id && <Sparkles size={10} />}
@@ -571,14 +571,14 @@ export const VideoPage: React.FC<{ initialImage?: string | null }> = ({ initialI
                                                     ))}
                                                 </div>
                                             </div>
-                                            <div className="space-y-2 pt-2 border-t border-white/5">
-                                                <label className="text-[10px] uppercase font-bold text-neutral-500 tracking-wider">Outputs: {outputsPerPrompt}</label>
+                                            <div className="space-y-2 pt-2 border-t border-border-base">
+                                                <label className="text-[10px] uppercase font-bold text-text-secondary/70 tracking-wider">Outputs: {outputsPerPrompt}</label>
                                                 <input
                                                     type="range"
                                                     min="1" max="4"
                                                     value={outputsPerPrompt}
                                                     onChange={(e) => setOutputsPerPrompt(Number(e.target.value))}
-                                                    className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-brand [&::-webkit-slider-thumb]:rounded-full"
+                                                    className="w-full h-1 bg-black/10 dark:bg-white/10 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-brand [&::-webkit-slider-thumb]:rounded-full"
                                                 />
                                             </div>
                                         </div>
@@ -593,10 +593,10 @@ export const VideoPage: React.FC<{ initialImage?: string | null }> = ({ initialI
                             {selectedMode.id === 'frames-to-video' && (
                                 <div className="flex gap-4 mb-4">
                                     <div className="flex-1 space-y-2">
-                                        <label className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider">Start Frame</label>
+                                        <label className="text-[10px] font-bold text-text-secondary/70 uppercase tracking-wider">Start Frame</label>
                                         <div
                                             onClick={() => triggerUpload('start')}
-                                            className={`h-32 rounded-xl border-2 border-dashed border-white/10 hover:border-brand/50 bg-[#111] hover:bg-[#1a1a1a] transition-all flex flex-col items-center justify-center cursor-pointer overflow-hidden relative group ${startImage ? 'border-solid border-brand/20' : ''}`}
+                                            className={`h-32 rounded-xl border-2 border-dashed border-border-base hover:border-brand/50 bg-surface hover:bg-panel transition-all flex flex-col items-center justify-center cursor-pointer overflow-hidden relative group ${startImage ? 'border-solid border-brand/20' : ''}`}
                                         >
                                             {startImage ? (
                                                 <>
@@ -621,7 +621,7 @@ export const VideoPage: React.FC<{ initialImage?: string | null }> = ({ initialI
                                                     </div>
                                                 </>
                                             ) : (
-                                                <div className="flex flex-col items-center gap-2 text-neutral-500 group-hover:text-brand">
+                                                <div className="flex flex-col items-center gap-2 text-text-secondary/70 group-hover:text-brand">
                                                     <ImageIcon size={20} />
                                                     <span className="text-[10px] font-bold uppercase">Upload Start</span>
                                                 </div>
@@ -629,10 +629,10 @@ export const VideoPage: React.FC<{ initialImage?: string | null }> = ({ initialI
                                         </div>
                                     </div>
                                     <div className="flex-1 space-y-2">
-                                        <label className="text-[10px] font-bold text-neutral-500 uppercase tracking-wider">End Frame (Optional)</label>
+                                        <label className="text-[10px] font-bold text-text-secondary/70 uppercase tracking-wider">End Frame (Optional)</label>
                                         <div
                                             onClick={() => triggerUpload('end')}
-                                            className={`h-32 rounded-xl border-2 border-dashed border-white/10 hover:border-brand/50 bg-[#111] hover:bg-[#1a1a1a] transition-all flex flex-col items-center justify-center cursor-pointer overflow-hidden relative group ${endImage ? 'border-solid border-brand/20' : ''}`}
+                                            className={`h-32 rounded-xl border-2 border-dashed border-border-base hover:border-brand/50 bg-surface hover:bg-panel transition-all flex flex-col items-center justify-center cursor-pointer overflow-hidden relative group ${endImage ? 'border-solid border-brand/20' : ''}`}
                                         >
                                             {endImage ? (
                                                 <>
@@ -657,7 +657,7 @@ export const VideoPage: React.FC<{ initialImage?: string | null }> = ({ initialI
                                                     </div>
                                                 </>
                                             ) : (
-                                                <div className="flex flex-col items-center gap-2 text-neutral-500 group-hover:text-brand">
+                                                <div className="flex flex-col items-center gap-2 text-text-secondary/70 group-hover:text-brand">
                                                     <ImageIcon size={20} />
                                                     <span className="text-[10px] font-bold uppercase">Upload End</span>
                                                 </div>
@@ -673,7 +673,7 @@ export const VideoPage: React.FC<{ initialImage?: string | null }> = ({ initialI
                                         const ingredientId = `ingredient-${idx}`;
                                         const hasFailed = failedImages.has(ingredientId);
                                         return (
-                                            <div key={idx} className="relative w-24 h-24 rounded-xl overflow-hidden border border-white/10 flex-shrink-0 group">
+                                            <div key={idx} className="relative w-24 h-24 rounded-xl overflow-hidden border border-border-base flex-shrink-0 group">
                                                 <img 
                                                     ref={(el) => {
                                                         if (el) imageRefs.current.set(ingredientId, el);
@@ -702,9 +702,9 @@ export const VideoPage: React.FC<{ initialImage?: string | null }> = ({ initialI
                                     {ingredients.length < 5 && (
                                         <div
                                             onClick={() => triggerUpload('ingredient')}
-                                            className="w-24 h-24 rounded-xl border-2 border-dashed border-white/10 hover:border-brand/50 bg-[#111] hover:bg-[#1a1a1a] transition-all flex flex-col items-center justify-center cursor-pointer flex-shrink-0 group"
+                                            className="w-24 h-24 rounded-xl border-2 border-dashed border-border-base hover:border-brand/50 bg-surface hover:bg-panel transition-all flex flex-col items-center justify-center cursor-pointer flex-shrink-0 group"
                                         >
-                                            <div className="flex flex-col items-center gap-1.5 text-neutral-500 group-hover:text-brand">
+                                            <div className="flex flex-col items-center gap-1.5 text-text-secondary/70 group-hover:text-brand">
                                                 <Plus size={16} />
                                                 <span className="text-[9px] font-bold uppercase text-center leading-tight">Add<br />Ingredient</span>
                                             </div>
@@ -721,7 +721,7 @@ export const VideoPage: React.FC<{ initialImage?: string | null }> = ({ initialI
                                 value={prompt}
                                 onChange={(e) => setPrompt(e.target.value)}
                                 placeholder="Describe the video you want to generate..."
-                                className="w-full bg-[#111] border border-white/5 rounded-xl text-text-primary placeholder-text-secondary/40 outline-none px-4 py-3 h-24 resize-none text-sm font-medium leading-relaxed focus:border-brand/40 transition-colors"
+                                className="w-full bg-surface border border-border-base rounded-xl text-text-primary placeholder-text-secondary/40 outline-none px-4 py-3 h-24 resize-none text-sm font-medium leading-relaxed focus:border-brand/40 transition-colors"
                                 onKeyDown={(e) => {
                                     if (e.key === 'Enter' && !e.shiftKey) {
                                         e.preventDefault();
@@ -732,8 +732,8 @@ export const VideoPage: React.FC<{ initialImage?: string | null }> = ({ initialI
                         </div>
 
                         {/* 3. Footer Row: Generate Action */}
-                        <div className="flex items-center justify-end gap-3 mt-3 pt-3 border-t border-white/5">
-                            <span className="text-[10px] font-mono text-neutral-500 uppercase tracking-widest opacity-60">Veo 3.1 - Fast</span>
+                        <div className="flex items-center justify-end gap-3 mt-3 pt-3 border-t border-border-base">
+                            <span className="text-[10px] font-mono text-text-secondary/70 uppercase tracking-widest opacity-60">Veo 3.1 - Fast</span>
                             <button
                                 onClick={handleGenerate}
                                 disabled={!prompt || isGenerating}
