@@ -97,6 +97,58 @@ function falProxyPlugin(falKey: string): Plugin {
   };
 }
 
+// ── Kimi (Moonshot) proxy plugin ─────────────────────────────────────────────
+// Proxies /api/kimi/* → api.moonshot.ai/v1/*  (OpenAI-compatible)
+function kimiProxyPlugin(kimiKey: string): Plugin {
+  const readBody = (req: IncomingMessage): Promise<Buffer> =>
+    new Promise((resolve, reject) => {
+      const chunks: Buffer[] = [];
+      req.on('data', (c: Buffer) => chunks.push(c));
+      req.on('end', () => resolve(Buffer.concat(chunks)));
+      req.on('error', reject);
+    });
+
+  return {
+    name: 'kimi-proxy',
+    configureServer(server) {
+      server.middlewares.use(async (req: IncomingMessage, res: ServerResponse, next: () => void) => {
+        const url = req.url || '';
+        if (!url.startsWith('/api/kimi/')) return next();
+
+        if (!kimiKey) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'KIMI_API_KEY not set in .env file.' }));
+          return;
+        }
+
+        const targetPath = url.replace(/^\/api\/kimi\//, '');
+        const targetUrl = `https://api.moonshot.ai/v1/${targetPath}`;
+        console.log(`[kimi proxy] ${req.method} ${targetUrl}`);
+
+        try {
+          const bodyBuf = req.method !== 'GET' ? await readBody(req) : null;
+          const kimiRes = await fetch(targetUrl, {
+            method: req.method || 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${kimiKey}`,
+            },
+            ...(bodyBuf ? { body: bodyBuf.toString('utf8') } : {}),
+          });
+
+          const text = await kimiRes.text();
+          res.writeHead(kimiRes.status, { 'Content-Type': 'application/json' });
+          res.end(text);
+        } catch (err: any) {
+          console.error('[kimi proxy] error:', err.message);
+          res.writeHead(502, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: `Kimi proxy error: ${err.message}` }));
+        }
+      });
+    },
+  };
+}
+
 // ── Brand support plugin ────────────────────────────────────────────────────
 // Handles two routes:
 //   GET /api/scrape-brand?url=  → scrape HTML, return logo + raster image URLs (no SVGs)
@@ -193,6 +245,7 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
   const apiKey = env.VITE_GEMINI_API_KEY || env.GEMINI_API_KEY;
   const falKey = env.FAL_KEY;
+  const kimiKey = env.KIMI_API_KEY || env.VITE_KIMI_API_KEY;
 
   return {
     server: {
@@ -260,6 +313,7 @@ export default defineConfig(({ mode }) => {
     plugins: [
       react(),
       falProxyPlugin(falKey),
+      kimiProxyPlugin(kimiKey),
       brandScraperPlugin(),
     ],
     define: {
