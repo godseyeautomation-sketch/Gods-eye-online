@@ -925,6 +925,8 @@ export async function sendMessage(
           if (i < 50) await new Promise(r => setTimeout(r, 15));
         }
 
+        // Signal completion — saves message to DB and resets isLoading
+        callbacks.onComplete(kimiText);
         return {
           text: kimiText,
           toolCalls: [],
@@ -932,6 +934,7 @@ export async function sendMessage(
           searchResults: [],
         };
       }
+      callbacks.onComplete('');
       throw new Error('No response from Kimi');
     }
 
