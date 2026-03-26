@@ -872,7 +872,70 @@ export async function sendMessage(
     let iterations = 0;
     const MAX_ITERATIONS = 8;
     const chatModel = callbacks.model || 'gemini-2.5-flash';
+    const isKimiModel = chatModel.startsWith('kimi-');
 
+    // ── KIMI (Moonshot) ROUTING — OpenAI-compatible API ──
+    if (isKimiModel) {
+      // Convert Gemini-format messages to OpenAI-format for Kimi
+      const kimiMessages: any[] = [];
+      // Extract system text from the first user message (Gemini format embeds it there)
+      const firstContent = contents[0];
+      const firstText = firstContent?.parts?.[0]?.text || '';
+      const systemPart = firstText.includes('\n\nUser: ') ? firstText.split('\n\nUser: ')[0] : SYSTEM_PROMPT;
+      kimiMessages.push({ role: 'system', content: systemPart });
+      // Conversation messages
+      for (let i = 0; i < contents.length; i++) {
+        const msg = contents[i];
+        const role = msg.role === 'model' ? 'assistant' : 'user';
+        const textParts = (msg.parts || []).filter((p: any) => p.text);
+        let text = textParts.map((p: any) => p.text).join('');
+        // First user message has system prepended — extract just the user part
+        if (i === 0 && role === 'user' && text.includes('\n\nUser: ')) {
+          text = text.split('\n\nUser: ').slice(1).join('\n\nUser: ');
+        }
+        if (text) kimiMessages.push({ role, content: text });
+      }
+
+      const kimiResponse = await fetch('/api/kimi/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'kimi-k2-0711',
+          messages: kimiMessages,
+          temperature: 0.7,
+          max_tokens: 8192,
+        }),
+      });
+
+      if (!kimiResponse.ok) {
+        const err = await kimiResponse.json().catch(() => ({}));
+        throw new Error(err.error?.message || `Kimi API Error: ${kimiResponse.status}`);
+      }
+
+      const kimiData = await kimiResponse.json();
+      const kimiText = kimiData.choices?.[0]?.message?.content || '';
+
+      if (kimiText) {
+        // Stream-simulate for smooth UX
+        const words = kimiText.split(' ');
+        let accumulated = '';
+        for (let i = 0; i < words.length; i++) {
+          accumulated += (i > 0 ? ' ' : '') + words[i];
+          callbacks.onChunk(accumulated);
+          if (i < 50) await new Promise(r => setTimeout(r, 15));
+        }
+
+        return {
+          text: kimiText,
+          toolCalls: [],
+          attachments: [],
+          searchResults: [],
+        };
+      }
+      throw new Error('No response from Kimi');
+    }
+
+    // ── GEMINI ROUTING ──
     while (iterations < MAX_ITERATIONS) {
       iterations++;
 

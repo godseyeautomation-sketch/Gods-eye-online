@@ -24,6 +24,7 @@ const BRIDGE_PORT = process.env.BRIDGE_PORT || '3456';
 const BRIDGE_TARGET = `http://${BRIDGE_HOST}:${BRIDGE_PORT}`;
 
 const apiKey = process.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
+const kimiApiKey = process.env.KIMI_API_KEY || process.env.VITE_KIMI_API_KEY;
 const uploadPostApiKey = process.env.UPLOAD_POST_API_KEY;
 
 // Middleware for JSON parsing with large body limits
@@ -506,6 +507,42 @@ app.get('/api/gemini/*', async (req, res) => {
       res.end();
     }
   } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ── Kimi (Moonshot) API Proxy ──
+// OpenAI-compatible API at api.moonshot.cn
+app.post('/api/kimi/chat/completions', async (req, res) => {
+  try {
+    if (!kimiApiKey) return res.status(500).json({ error: 'Kimi API key not configured on server' });
+
+    const response = await fetch('https://api.moonshot.cn/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${kimiApiKey}`,
+      },
+      body: JSON.stringify(req.body),
+    });
+
+    res.status(response.status);
+    // Forward headers (skip transfer-encoding etc.)
+    response.headers.forEach((val, key) => {
+      const lk = key.toLowerCase();
+      if (lk !== 'transfer-encoding' && lk !== 'content-encoding' && lk !== 'content-length') {
+        res.setHeader(key, val);
+      }
+    });
+
+    if (response.body) {
+      const { Readable } = await import('node:stream');
+      Readable.fromWeb(response.body).pipe(res);
+    } else {
+      res.end();
+    }
+  } catch (error) {
+    console.error('[Kimi proxy error]', error.message);
     res.status(500).json({ error: error.message });
   }
 });

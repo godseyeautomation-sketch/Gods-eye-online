@@ -30,8 +30,6 @@ interface Props {
   onBrandChange?: (id: string | null) => void;
   skills?: SkillOption[];
   onSkillSelect?: (slug: string) => void;
-  bridgeStatus?: 'disconnected' | 'connecting' | 'ready' | 'running' | 'error' | 'starting' | 'stopped';
-  onBridgeConnect?: () => void;
 }
 
 export const ChatArea: React.FC<Props> = ({
@@ -59,8 +57,6 @@ export const ChatArea: React.FC<Props> = ({
   onBrandChange,
   skills = [],
   onSkillSelect,
-  bridgeStatus,
-  onBridgeConnect,
 }) => {
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -184,8 +180,6 @@ export const ChatArea: React.FC<Props> = ({
         brands={brands.map(b => ({ id: b.id || '', name: b.name || 'Unnamed' }))}
         selectedBrand={activeBrandId}
         onBrandChange={onBrandChange}
-        bridgeStatus={bridgeStatus}
-        onBridgeConnect={onBridgeConnect}
       />
     </div>
   );

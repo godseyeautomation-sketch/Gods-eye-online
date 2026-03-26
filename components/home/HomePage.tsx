@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useBrain } from '../../context/BrainContext';
-import { localBridge, type BridgeStatus } from '../../services/localBridge';
 import { buildContextBrief, buildGeminiContextFromTranscript } from '../../services/bridgeSkill';
 import { ConversationSidebar } from './ConversationSidebar';
 import { ChatArea } from './ChatArea';
@@ -89,179 +88,9 @@ export const HomePage: React.FC<Props> = ({ onNavigate }) => {
 
   // Model selection
   const [selectedModel, setSelectedModel] = useState<ChatModelId>('gemini-3-flash-preview');
-  const [bridgeStatus, setBridgeStatus] = useState<BridgeStatus>('disconnected');
-  const [localFolder, setLocalFolder] = useState<string | null>(null);
-  const [localTranscript, setLocalTranscript] = useState('');
-  const isLocalModel = selectedModel === 'claude-local';
-
-  // Raw WebSocket ref — bypasses localBridge.ts class entirely (React closure issues)
-  const wsRef = useRef<WebSocket | null>(null);
-  const localBufferRef = useRef('');
-  const wsReadyRef = useRef(false);
-  const activeConvIdRef = useRef<string | null>(null);
-  // Keep ref in sync with state (for WebSocket closure access)
-  useEffect(() => { activeConvIdRef.current = activeConvId; }, [activeConvId]);
-
-  // Build context brief from current conversation for Claude
-  const buildLocalContext = useCallback(() => {
-    const parts: string[] = [];
-    // User identity
-    const p = profile?.personality;
-    if (p) {
-      parts.push(`User: ${p.name || 'User'} (${(p.role || '').replace(/_/g, ' ')})`);
-      if (p.soul) parts.push(`Personality: ${p.soul}`);
-    }
-    // Brand context
-    if (activeBrand) {
-      parts.push(`Active Brand: ${activeBrand.name || 'Unknown'}, Industry: ${activeBrand.industry || ''}, Tone: ${activeBrand.tone || ''}, Audience: ${activeBrand.audience || ''}`);
-    }
-    // Recent conversation history (last 8 messages)
-    const recent = messages.slice(-8);
-    if (recent.length > 0) {
-      parts.push('\n--- RECENT CONVERSATION ---');
-      for (const msg of recent) {
-        const role = msg.role === 'user' ? 'User' : 'AI (Gemini)';
-        const text = (msg.content || msg.text || '').substring(0, 300);
-        if (text) parts.push(`${role}: ${text}`);
-      }
-      parts.push('--- END CONVERSATION ---\n');
-    }
-    parts.push('Continue this conversation naturally. You have full context of what was discussed above.');
-    return parts.join('\n');
-  }, [messages, profile, activeBrand]);
-
-  // Response timeout ref — clears isLoading if bridge never sends done
-  const localResponseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const clearLocalResponseTimeout = useCallback(() => {
-    if (localResponseTimeoutRef.current) {
-      clearTimeout(localResponseTimeoutRef.current);
-      localResponseTimeoutRef.current = null;
-    }
-  }, []);
-
-  const startLocalResponseTimeout = useCallback(() => {
-    clearLocalResponseTimeout();
-    localResponseTimeoutRef.current = setTimeout(() => {
-      console.warn('[Local] Response timeout — bridge did not send done within 120s');
-      setIsLoading(false);
-      setStreamingText(null);
-      setBridgeStatus('error');
-    }, 120000); // 120s max wait for a response
-  }, [clearLocalResponseTimeout]);
-
-  // Setup raw WebSocket with DOM event listeners (not React closures)
-  const ensureLocalWs = useCallback((): Promise<boolean> => {
-    // Reuse existing connection if open and ready
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && wsReadyRef.current) {
-      return Promise.resolve(true);
-    }
-    // Close existing
-    if (wsRef.current) { try { wsRef.current.close(); } catch {} }
-    wsReadyRef.current = false;
-
-    return new Promise((resolve) => {
-      const folder = localFolder || '/Users/bitanpurkayastha/Desktop';
-      const context = buildLocalContext();
-      let resolved = false;
-      const safeResolve = (val: boolean) => { if (!resolved) { resolved = true; resolve(val); } };
-
-      const ws = new WebSocket(localBridge.bridgeWsUrl);
-
-      ws.onopen = () => {
-        ws.send(JSON.stringify({ type: 'start', model: 'claude', folder, context }));
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const m = JSON.parse(event.data);
-          if (m.type === 'status') {
-            if (m.status === 'ready') { wsReadyRef.current = true; setBridgeStatus('ready'); safeResolve(true); }
-            if (m.status === 'running') { setBridgeStatus('connecting'); }
-            if (m.status === 'error') {
-              setBridgeStatus('error');
-              setIsLoading(false);
-              setStreamingText(null);
-              clearLocalResponseTimeout();
-            }
-          }
-          if (m.type === 'output' && !m.done && m.text) {
-            localBufferRef.current += m.text;
-            setStreamingText(localBufferRef.current);
-            // Reset timeout on each chunk — bridge is still alive
-            startLocalResponseTimeout();
-          }
-          if (m.type === 'output' && m.done) {
-            clearLocalResponseTimeout();
-            const finalText = localBufferRef.current.trim();
-            localBufferRef.current = '';
-            if (finalText) {
-              const convId = activeConvIdRef.current || '';
-              const newMsg: ChatMessage = {
-                id: crypto.randomUUID(),
-                conversationId: convId,
-                role: 'model',
-                content: finalText,
-                timestamp: Date.now(),
-              };
-              if (convId) {
-                addMessage(newMsg).catch(e => console.warn('[Local] Save failed:', e));
-              }
-              setMessages(prev => [...prev, newMsg]);
-            }
-            setStreamingText(null);
-            setIsLoading(false);
-          }
-        } catch {}
-      };
-
-      ws.onerror = () => {
-        wsReadyRef.current = false;
-        setBridgeStatus('error');
-        setIsLoading(false);
-        setStreamingText(null);
-        clearLocalResponseTimeout();
-        safeResolve(false);
-      };
-      ws.onclose = () => {
-        wsReadyRef.current = false;
-        setBridgeStatus('disconnected');
-        setIsLoading(false);
-        setStreamingText(null);
-        clearLocalResponseTimeout();
-        wsRef.current = null;
-      };
-      wsRef.current = ws;
-      setTimeout(() => safeResolve(false), 10000); // 10s connection timeout
-    });
-  }, [localFolder, buildLocalContext, clearLocalResponseTimeout, startLocalResponseTimeout]);
-
   // Handle model change
   const handleModelChange = useCallback(async (modelId: ChatModelId) => {
-    if (modelId === 'claude-local') {
-      // Check bridge availability (tries server proxy, then direct localhost)
-      const { running } = await localBridge.checkAvailability();
-      if (!running) {
-        setMessages(prev => [...prev, {
-          id: Date.now().toString(), role: 'assistant' as const, timestamp: Date.now(),
-          text: '⚠️ **Local bridge server not running.** Run `node local-bridge-server.cjs` in your terminal.',
-        }]);
-        return;
-      }
-
-      // Pick folder
-      const folder = window.prompt('Enter working folder path:', '/Users/bitanpurkayastha/Desktop');
-      if (!folder) return;
-
-      setLocalFolder(folder);
-      setSelectedModel(modelId);
-      // Connection will happen on first message send
-    } else {
-      if (wsRef.current) { try { wsRef.current.close(); } catch {} wsRef.current = null; }
-      wsReadyRef.current = false;
-      setBridgeStatus('disconnected');
-      setSelectedModel(modelId);
-    }
+    setSelectedModel(modelId);
   }, []);
 
   // File upload
@@ -390,22 +219,6 @@ export const HomePage: React.FC<Props> = ({ onNavigate }) => {
       // Auto-title on first message
       if (updatedMessages.filter(m => m.role === 'user').length === 1) {
         autoTitle(convId, text);
-      }
-
-      // ── LOCAL MODEL ROUTING ──
-      if (isLocalModel) {
-        const connected = await ensureLocalWs();
-        if (connected && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-          setIsLoading(true);
-          localBufferRef.current = '';
-          setStreamingText('');
-          startLocalResponseTimeout(); // Safety net — force-unblock after 120s
-          wsRef.current.send(JSON.stringify({ type: 'message', text }));
-          return;
-        }
-        // Bridge unavailable — reset loading and fall through to Gemini
-        setIsLoading(false);
-        setStreamingText(null);
       }
 
       // Collect streaming state for final message
@@ -673,16 +486,6 @@ export const HomePage: React.FC<Props> = ({ onNavigate }) => {
             setActiveSkillContent(skill.content);
             setInputValue(`[Using ${skill.name}] `);
           }
-        }}
-        bridgeStatus={bridgeStatus}
-        onBridgeConnect={async () => {
-          setBridgeStatus('connecting');
-          const { running } = await localBridge.checkAvailability();
-          if (running) {
-            const connected = await ensureLocalWs();
-            if (connected) return;
-          }
-          setBridgeStatus('error');
         }}
       />
     </div>

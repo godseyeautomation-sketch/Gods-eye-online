@@ -6,7 +6,7 @@ export const CHAT_MODELS = [
   { id: 'gemini-3.1-flash-lite-preview', name: 'Gemini 3.1 Flash Lite', badge: '', isLocal: false },
   { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', badge: '', isLocal: false },
   { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', badge: 'PRO', isLocal: false },
-  { id: 'claude-local', name: 'Claude Code', badge: 'LOCAL', isLocal: true },
+  { id: 'kimi-k2.5', name: 'Kimi K2.5', badge: 'NEW', isLocal: false },
 ] as const;
 
 export type ChatModelId = typeof CHAT_MODELS[number]['id'];
@@ -32,8 +32,6 @@ interface Props {
   brands?: BrandOption[];
   selectedBrand?: string | null;
   onBrandChange?: (brandId: string | null) => void;
-  bridgeStatus?: 'disconnected' | 'connecting' | 'ready' | 'running' | 'error' | 'starting' | 'stopped';
-  onBridgeConnect?: () => void;
 }
 
 export const ChatInput: React.FC<Props> = ({
@@ -54,8 +52,6 @@ export const ChatInput: React.FC<Props> = ({
   brands = [],
   selectedBrand = null,
   onBrandChange,
-  bridgeStatus = 'disconnected',
-  onBridgeConnect,
 }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [showModelPicker, setShowModelPicker] = useState(false);
@@ -360,65 +356,10 @@ export const ChatInput: React.FC<Props> = ({
                           )}
                         </button>
                       ))}
-                      {/* Separator + Local models */}
-                      <div className="border-t border-white/5 my-1" />
-                      <div className="px-3 py-1">
-                        <p className="text-[9px] text-text-secondary/40 font-medium uppercase tracking-widest">Local AI</p>
-                      </div>
-                      {CHAT_MODELS.filter(m => m.isLocal).map((model) => (
-                        <button
-                          key={model.id}
-                          onClick={() => {
-                            onModelChange?.(model.id);
-                            setShowModelPicker(false);
-                          }}
-                          className={`w-full flex items-center justify-between px-3 py-2 text-left hover:bg-white/5 transition-colors ${
-                            selectedModel === model.id ? 'bg-brand/10' : ''
-                          }`}
-                        >
-                          <div className="flex items-center gap-2">
-                            {selectedModel === model.id && (
-                              <div className="w-1.5 h-1.5 rounded-full bg-blue-400 flex-shrink-0" />
-                            )}
-                            <span className="text-sm mr-1">🖥</span>
-                            <span className={`text-sm ${selectedModel === model.id ? 'text-blue-400 font-medium' : 'text-text-primary'}`}>
-                              {model.name}
-                            </span>
-                          </div>
-                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-blue-500/20 text-blue-400">
-                            LOCAL
-                          </span>
-                        </button>
-                      ))}
                     </div>
                   </div>
                 )}
               </div>
-
-              {/* Bridge connect button — shown when Claude Local is selected */}
-              {selectedModel === 'claude-local' && (
-                <button
-                  onClick={onBridgeConnect}
-                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all ${
-                    bridgeStatus === 'ready' ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20' :
-                    bridgeStatus === 'connecting' || bridgeStatus === 'starting' ? 'bg-yellow-500/15 text-yellow-400 border border-yellow-500/20 animate-pulse' :
-                    bridgeStatus === 'error' ? 'bg-red-500/15 text-red-400 border border-red-500/20 hover:bg-red-500/25' :
-                    'bg-blue-500/15 text-blue-400 border border-blue-500/20 hover:bg-blue-500/25'
-                  }`}
-                  title={bridgeStatus === 'ready' ? 'Bridge connected' : 'Click to connect to local bridge'}
-                >
-                  <div className={`w-1.5 h-1.5 rounded-full ${
-                    bridgeStatus === 'ready' ? 'bg-emerald-400' :
-                    bridgeStatus === 'connecting' || bridgeStatus === 'starting' ? 'bg-yellow-400' :
-                    bridgeStatus === 'error' ? 'bg-red-400' :
-                    'bg-blue-400'
-                  }`} />
-                  {bridgeStatus === 'ready' ? 'Connected' :
-                   bridgeStatus === 'connecting' || bridgeStatus === 'starting' ? 'Connecting...' :
-                   bridgeStatus === 'error' ? 'Retry' :
-                   'Connect'}
-                </button>
-              )}
 
               {value.trim() && (
                 <button
