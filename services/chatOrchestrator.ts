@@ -685,6 +685,8 @@ async function executeTool(
               cron_expression: args.cron_expression,
               agent_type: args.task_type || 'research',
               timezone: 'Asia/Kolkata',
+              // Link cron job to the conversation where it was created
+              conversation_id: callbacks.conversationId || null,
             };
             const res = await fetch(`/api/cron/jobs`, { method: 'POST', headers, body: JSON.stringify(body) });
             return await res.json();

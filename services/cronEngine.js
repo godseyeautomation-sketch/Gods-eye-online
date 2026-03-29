@@ -14,6 +14,8 @@
 
 import cron from 'node-cron';
 import { createClient } from '@supabase/supabase-js';
+import fs from 'fs';
+import path from 'path';
 
 // ── Supabase Admin Client (server-side, uses anon key) ──────────────────────
 const supabaseUrl = process.env.VITE_SUPABASE_URL;
@@ -153,6 +155,51 @@ async function logExecution(jobId, userId, status, result, error = null) {
     last_run_at: new Date().toISOString(),
     last_run_status: status,
   }).eq('id', jobId);
+
+  // Push result to chat sync store if job has a conversation_id
+  try {
+    const { data: job } = await supabase.from('cron_jobs').select('name, config').eq('id', jobId).single();
+    const conversationId = job?.config?.conversation_id;
+    if (conversationId && status === 'success') {
+      const resultText = typeof result === 'string' ? result : (result?.text || JSON.stringify(result));
+      pushCronResultToChat(conversationId, userId, job.name, resultText);
+    }
+  } catch (e) {
+    console.warn(`[Cron] Failed to push result to chat:`, e.message);
+  }
+}
+
+/**
+ * Push a cron execution result as a chat message into the sync store.
+ * The frontend will pick this up on next load/poll and add it to IndexedDB.
+ */
+const SYNC_DIR = path.join(process.env.HOME || '', '.klint', 'sync');
+
+function pushCronResultToChat(conversationId, userId, jobName, resultText) {
+  try {
+    // Read existing pending cron results (or create new array)
+    const pendingFile = path.join(SYNC_DIR, 'cron_chat_pending.json');
+    let pending = [];
+    try { pending = JSON.parse(fs.readFileSync(pendingFile, 'utf-8')); } catch { pending = []; }
+
+    // Create a chat message object
+    const msg = {
+      id: `cron-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      conversationId,
+      role: 'model',
+      content: `**Scheduled Task: ${jobName}** completed\n\n${resultText}`,
+      timestamp: Date.now(),
+      isCronResult: true,
+      userId,
+    };
+
+    pending.push(msg);
+    if (!fs.existsSync(SYNC_DIR)) fs.mkdirSync(SYNC_DIR, { recursive: true });
+    fs.writeFileSync(pendingFile, JSON.stringify(pending, null, 2), 'utf-8');
+    console.log(`[Cron] Pushed result to chat for conversation ${conversationId.slice(0, 8)}...`);
+  } catch (e) {
+    console.warn(`[Cron] Failed to write chat pending:`, e.message);
+  }
 }
 
 // ── Research Trends Agent ───────────────────────────────────────────────────
@@ -563,11 +610,13 @@ function registerCronRoutes(app) {
   // Create a new job
   app.post('/api/cron/jobs', async (req, res) => {
     try {
-      const userId = req.headers['x-user-id'];
+      const userId = req.headers['x-user-id'] || req.body.user_id;
       if (!userId) return res.status(401).json({ error: 'x-user-id header required' });
 
-      const { brandId, taskType, name, cronExpression, config, timezone } = req.body;
-      const job = await createJob({ userId, brandId, taskType, name, cronExpression, config, timezone });
+      const { brandId, taskType, name, cronExpression, config, timezone, conversation_id } = req.body;
+      // Store conversation_id in config so cron results can be pushed back to chat
+      const enrichedConfig = { ...(config || {}), ...(conversation_id ? { conversation_id } : {}) };
+      const job = await createJob({ userId, brandId, taskType, name, cronExpression, config: enrichedConfig, timezone });
       res.json({ ok: true, job });
     } catch (err) {
       res.status(400).json({ error: err.message });

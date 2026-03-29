@@ -131,6 +131,9 @@ async function syncStoreToServer(storeName: string) {
 // ── Initial full sync: push ALL IndexedDB stores to server on page load ──
 // This ensures data that existed before the sync code was added gets pushed.
 let _initialSyncDone = false;
+// Chat stores (conversations, chat_messages) are NOT included here — they sync
+// on every write/delete via syncChatToServer/syncChatToServerImmediate.
+// Including them here would overwrite the server with stale restored data after cache clears.
 const ALL_SYNC_STORES = [STORE_NAME, BRAND_PROFILES_STORE, CONTENT_SLOTS_STORE, VIDEO_STORE, VIDEO_PROJECTS_STORE];
 
 export async function syncAllStoresToServer() {
@@ -151,6 +154,31 @@ export async function syncAllStoresToServer() {
 // Auto-run initial sync after a short delay (let app boot first)
 if (typeof window !== 'undefined') {
     setTimeout(() => syncAllStoresToServer(), 3000);
+
+    // Flush pending chat syncs before page unload (covers tab close, navigation, refresh)
+    window.addEventListener('beforeunload', () => {
+        // Use sendBeacon for reliable delivery during unload
+        const syncViaBeacon = async (storeName: string) => {
+            try {
+                const db = await openDB(DB_NAME);
+                const allData = await db.getAll(storeName);
+                const cleanData = allData.map((item: any) => {
+                    const clean = { ...item };
+                    if (typeof clean.url === 'object') clean.url = '[blob]';
+                    if (typeof clean.url === 'string' && clean.url.length > 1000) clean.url = clean.url.slice(0, 100) + '...[truncated]';
+                    if (clean.videoBlob) delete clean.videoBlob;
+                    if (clean.blob) delete clean.blob;
+                    return clean;
+                });
+                navigator.sendBeacon(
+                    `${SYNC_API_BASE}/api/sync/${storeName}`,
+                    new Blob([JSON.stringify({ data: cleanData, _source: 'browser-unload' })], { type: 'application/json' })
+                );
+            } catch {}
+        };
+        syncViaBeacon(CONVERSATIONS_STORE);
+        syncViaBeacon(CHAT_MESSAGES_STORE);
+    });
 }
 
 // ── Slot Image Helpers (brand calendar) ────────────────────────────────────
@@ -668,3 +696,83 @@ export const getVideoBlob = async (videoId: string): Promise<Blob | null> => {
     } catch {}
     return null;
 };
+
+// ── Chat Sync: Push conversations + messages to server ─────────────────────
+
+export function syncChatToServer() {
+    debouncedSyncStore(CONVERSATIONS_STORE);
+    debouncedSyncStore(CHAT_MESSAGES_STORE);
+}
+
+/**
+ * Immediately sync chat stores to server (no debounce).
+ * Used after deletes so the server never holds stale/deleted data.
+ */
+export async function syncChatToServerImmediate(): Promise<void> {
+    // Cancel any pending debounced syncs for these stores
+    if (_syncTimers[CONVERSATIONS_STORE]) clearTimeout(_syncTimers[CONVERSATIONS_STORE]);
+    if (_syncTimers[CHAT_MESSAGES_STORE]) clearTimeout(_syncTimers[CHAT_MESSAGES_STORE]);
+    await syncStoreToServer(CONVERSATIONS_STORE);
+    await syncStoreToServer(CHAT_MESSAGES_STORE);
+}
+
+/**
+ * Restore conversations and chat messages from server into IndexedDB.
+ * Called on app load when IndexedDB is empty (e.g. after browser cache clear).
+ * Returns true if data was restored.
+ */
+export async function restoreChatFromServer(): Promise<boolean> {
+    const db = await getDB();
+
+    // Check if IndexedDB already has conversations
+    const existingConvs = await db.getAll(CONVERSATIONS_STORE);
+    if (existingConvs.length > 0) {
+        return false; // Data exists, no restore needed
+    }
+
+    console.log('[Klint Sync] IndexedDB empty — attempting chat restore from server...');
+
+    // Use relative URLs so Vite proxy handles routing (works in both dev and prod)
+    const fetchBase = typeof window !== 'undefined' && window.location.origin
+        ? '' // relative URL — Vite proxy or prod server handles /api/sync/*
+        : SYNC_API_BASE;
+
+    try {
+        // Fetch conversations from server
+        const convRes = await fetch(`${fetchBase}/api/sync/${CONVERSATIONS_STORE}`);
+        if (!convRes.ok) throw new Error(`conversations fetch failed: ${convRes.status}`);
+        const convData = await convRes.json();
+        const conversations = convData?.data || [];
+
+        // Fetch messages from server
+        const msgRes = await fetch(`${fetchBase}/api/sync/${CHAT_MESSAGES_STORE}`);
+        if (!msgRes.ok) throw new Error(`chat_messages fetch failed: ${msgRes.status}`);
+        const msgData = await msgRes.json();
+        const chatMessages = msgData?.data || [];
+
+        if (conversations.length === 0 && chatMessages.length === 0) {
+            console.log('[Klint Sync] No chat data on server to restore.');
+            return false;
+        }
+
+        // Write conversations back into IndexedDB
+        const convTx = db.transaction(CONVERSATIONS_STORE, 'readwrite');
+        for (const conv of conversations) {
+            await convTx.store.put(conv);
+        }
+        await convTx.done;
+
+        // Write messages back into IndexedDB
+        const msgTx = db.transaction(CHAT_MESSAGES_STORE, 'readwrite');
+        for (const msg of chatMessages) {
+            await msgTx.store.put(msg);
+        }
+        await msgTx.done;
+
+        console.log(`[Klint Sync] ✅ Restored ${conversations.length} conversations and ${chatMessages.length} messages from server.`);
+        return true;
+    } catch (err) {
+        console.warn('[Klint Sync] ❌ Failed to restore chat from server:', err);
+        return false;
+    }
+}

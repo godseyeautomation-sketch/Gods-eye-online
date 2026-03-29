@@ -7,6 +7,7 @@ import { ChatArea } from './ChatArea';
 import {
   createConversation,
   listConversations,
+  getConversation,
   deleteConversation,
   updateConversation,
   addMessage,
@@ -18,6 +19,7 @@ import {
   type SearchResultEntry,
 } from '../../services/conversationService';
 import { sendMessage as orchestratorSend } from '../../services/chatOrchestrator';
+import { restoreChatFromServer } from '../../services/localStorageService';
 import { getAllBrandProfiles } from '../../services/brandService';
 import type { BrandProfile } from '../../types/brand.types';
 import { listSkills, getSkillBySlug } from '../../services/skillsService';
@@ -116,10 +118,75 @@ export const HomePage: React.FC<Props> = ({ onNavigate }) => {
     setAttachedImages(prev => prev.filter((_, i) => i !== index));
   };
 
-  // Load conversations on mount
+  // Load conversations on mount — restore from server first if IndexedDB was cleared
   useEffect(() => {
-    loadConversations();
+    let cancelled = false;
+    (async () => {
+      const restored = await restoreChatFromServer();
+      if (cancelled) return;
+      await loadConversations();
+
+      // If restore failed (e.g. server not ready yet), retry once after a short delay
+      if (!restored) {
+        setTimeout(async () => {
+          if (cancelled) return;
+          const retryRestored = await restoreChatFromServer();
+          if (retryRestored && !cancelled) {
+            await loadConversations();
+          }
+        }, 3000);
+      }
+    })();
+    return () => { cancelled = true; };
   }, [userId]);
+
+  // Poll for pending cron job results and inject them as chat messages
+  useEffect(() => {
+    if (userId === 'anon') return;
+    let cancelled = false;
+
+    const fetchCronResults = async () => {
+      try {
+        const res = await fetch(`/api/cron/chat-pending?user_id=${encodeURIComponent(userId)}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        const messages = data.messages || [];
+        if (messages.length === 0) return;
+
+        for (const msg of messages) {
+          // Check if conversation exists, if not skip (conversation might have been deleted)
+          const conv = await getConversation(msg.conversationId);
+          if (!conv) continue;
+
+          // Add the cron result as a chat message
+          await addMessage({
+            id: msg.id,
+            conversationId: msg.conversationId,
+            role: msg.role || 'model',
+            content: msg.content,
+            timestamp: msg.timestamp || Date.now(),
+          });
+        }
+
+        // Refresh conversation list to show updated previews
+        if (messages.length > 0 && !cancelled) {
+          await loadConversations();
+          // If we're viewing a conversation that got a cron result, refresh messages
+          if (activeConvId && messages.some(m => m.conversationId === activeConvId)) {
+            await loadMessages(activeConvId);
+          }
+        }
+      } catch (e) {
+        console.warn('[Cron Chat] Failed to fetch pending results:', e);
+      }
+    };
+
+    // Fetch on mount
+    fetchCronResults();
+    // Poll every 60 seconds
+    const interval = setInterval(fetchCronResults, 60000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [userId, activeConvId]);
 
   const loadConversations = async () => {
     const convs = await listConversations(userId);

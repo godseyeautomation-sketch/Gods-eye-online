@@ -840,9 +840,112 @@ app.get('/api/upload-post/impressions/:username', (req, res) => proxyUploadPost(
 app.get('/api/upload-post/facebook/pages', (req, res) => { const qs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : ''; proxyUploadPost(req, res, 'GET', `/api/uploadposts/facebook/pages${qs}`); });
 app.get('/api/upload-post/linkedin/pages', (req, res) => { const qs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : ''; proxyUploadPost(req, res, 'GET', `/api/uploadposts/linkedin/pages${qs}`); });
 app.get('/api/upload-post/pinterest/boards', (req, res) => { const qs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : ''; proxyUploadPost(req, res, 'GET', `/api/uploadposts/pinterest/boards${qs}`); });
-app.post('/api/upload-post/users', (req, res) => proxyUploadPost(req, res, 'POST', '/api/uploadposts/users', req.body));
-app.get('/api/upload-post/users', (req, res) => proxyUploadPost(req, res, 'GET', '/api/uploadposts/users'));
-app.delete('/api/upload-post/users', (req, res) => proxyUploadPost(req, res, 'DELETE', '/api/uploadposts/users', req.body));
+// ── User-scoped social profile management ────────────────────────────────────
+// The external Upload-Post API returns ALL profiles under the API key.
+// We maintain a local mapping (userId → [usernames]) so each user only sees their own.
+const SOCIAL_PROFILE_OWNERS_FILE = path.join(SYNC_DIR, 'social-profile-owners.json');
+
+function readProfileOwners() {
+  try { return JSON.parse(fs.readFileSync(SOCIAL_PROFILE_OWNERS_FILE, 'utf-8')); } catch { return {}; }
+}
+function writeProfileOwners(data) {
+  fs.writeFileSync(SOCIAL_PROFILE_OWNERS_FILE, JSON.stringify(data, null, 2), 'utf-8');
+}
+
+// POST /api/upload-post/users — create profile and record ownership
+app.post('/api/upload-post/users', async (req, res) => {
+  try {
+    const { user_id, ...profileData } = req.body || {};
+    // Proxy to external API (without user_id — it doesn't know about it)
+    if (!uploadPostApiKey) return res.status(500).json({ error: 'UPLOAD_POST_API_KEY not configured' });
+    const url = `${UPLOAD_POST_BASE}/api/uploadposts/users`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Authorization': `Apikey ${uploadPostApiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(profileData),
+    });
+    const data = await response.text();
+    let parsed;
+    try { parsed = JSON.parse(data); } catch { parsed = data; }
+
+    // Record ownership if user_id was provided and creation succeeded
+    if (response.ok && user_id && profileData.username) {
+      const owners = readProfileOwners();
+      if (!owners[user_id]) owners[user_id] = [];
+      if (!owners[user_id].includes(profileData.username)) {
+        owners[user_id].push(profileData.username);
+      }
+      writeProfileOwners(owners);
+      console.log(`[Social] Mapped profile "${profileData.username}" → user ${user_id}`);
+    }
+
+    res.status(response.status).json(parsed);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/upload-post/users?user_id=X — fetch all, filter by ownership
+app.get('/api/upload-post/users', async (req, res) => {
+  try {
+    if (!uploadPostApiKey) return res.status(500).json({ error: 'UPLOAD_POST_API_KEY not configured' });
+    const url = `${UPLOAD_POST_BASE}/api/uploadposts/users`;
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: { 'Authorization': `Apikey ${uploadPostApiKey}`, 'Content-Type': 'application/json' },
+    });
+    const data = await response.text();
+    let parsed;
+    try { parsed = JSON.parse(data); } catch { return res.status(response.status).send(data); }
+
+    const userId = req.query.user_id;
+    if (userId) {
+      const owners = readProfileOwners();
+      const ownedUsernames = owners[userId] || [];
+      const allProfiles = parsed.profiles || parsed.data || parsed.users || [];
+      const filtered = allProfiles.filter(p => ownedUsernames.includes(p.username));
+      // Return in same format as external API
+      if (parsed.profiles) parsed.profiles = filtered;
+      else if (parsed.data) parsed.data = filtered;
+      else if (parsed.users) parsed.users = filtered;
+    }
+
+    res.status(response.status).json(parsed);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// DELETE /api/upload-post/users — delete profile and remove ownership
+app.delete('/api/upload-post/users', async (req, res) => {
+  try {
+    const { user_id, ...deleteData } = req.body || {};
+    if (!uploadPostApiKey) return res.status(500).json({ error: 'UPLOAD_POST_API_KEY not configured' });
+    const url = `${UPLOAD_POST_BASE}/api/uploadposts/users`;
+    const response = await fetch(url, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Apikey ${uploadPostApiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(deleteData),
+    });
+    const data = await response.text();
+    let parsed;
+    try { parsed = JSON.parse(data); } catch { parsed = data; }
+
+    // Remove from ownership mapping
+    if (response.ok && deleteData.username) {
+      const owners = readProfileOwners();
+      for (const uid of Object.keys(owners)) {
+        owners[uid] = owners[uid].filter(u => u !== deleteData.username);
+      }
+      writeProfileOwners(owners);
+      console.log(`[Social] Removed profile "${deleteData.username}" from ownership mapping`);
+    }
+
+    res.status(response.status).json(parsed);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 app.post('/api/upload-post/users/generate-jwt', (req, res) => proxyUploadPost(req, res, 'POST', '/api/uploadposts/users/generate-jwt', req.body));
 app.post('/api/upload-post/users/validate-jwt', (req, res) => proxyUploadPost(req, res, 'POST', '/api/uploadposts/users/validate-jwt', req.body));
 app.get('/api/upload-post/me', (req, res) => proxyUploadPost(req, res, 'GET', '/api/uploadposts/me'));
@@ -1672,6 +1775,27 @@ Current time: ${new Date().toISOString()}`;
       last_run_at: new Date().toISOString(),
     });
 
+    // Push result to chat if job has a conversation_id
+    const conversationId = job.config?.conversation_id;
+    if (conversationId) {
+      try {
+        const pendingFile = path.join(SYNC_DIR, 'cron_chat_pending.json');
+        let pending = [];
+        try { pending = JSON.parse(fs.readFileSync(pendingFile, 'utf-8')); } catch { pending = []; }
+        pending.push({
+          id: `cron-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          conversationId,
+          role: 'model',
+          content: `**Scheduled Task: ${job.name}** completed\n\n${resultText}`,
+          timestamp: Date.now(),
+          isCronResult: true,
+          userId: job.user_id,
+        });
+        fs.writeFileSync(pendingFile, JSON.stringify(pending, null, 2), 'utf-8');
+        console.log(`[Cron] Pushed result to chat for conversation ${conversationId.slice(0, 8)}...`);
+      } catch (e) { console.warn('[Cron] Chat push failed:', e.message); }
+    }
+
     console.log(`[Cron] ✅ Job "${job.name}" completed successfully`);
   } catch (err) {
     console.error(`[Cron] ❌ Job "${job.name}" failed:`, err.message);
@@ -1728,7 +1852,7 @@ app.get('/api/cron/jobs', async (req, res) => {
 
 // Create a new cron job
 app.post('/api/cron/jobs', async (req, res) => {
-  const { user_id, brand_id, name, prompt, cron_expression, agent_type, timezone } = req.body;
+  const { user_id, brand_id, name, prompt, cron_expression, agent_type, timezone, conversation_id } = req.body;
   if (!user_id || !name || !cron_expression) {
     return res.status(400).json({ error: 'user_id, name, cron_expression required' });
   }
@@ -1736,6 +1860,10 @@ app.post('/api/cron/jobs', async (req, res) => {
     return res.status(400).json({ error: `Invalid cron: "${cron_expression}"` });
   }
   try {
+    const jobConfig = { prompt: prompt || name };
+    // Store conversation_id so cron results can be pushed back to chat
+    if (conversation_id) jobConfig.conversation_id = conversation_id;
+
     const [job] = await supabaseRest('cron_jobs', 'POST', {
       user_id,
       brand_id: brand_id || null,
@@ -1744,7 +1872,7 @@ app.post('/api/cron/jobs', async (req, res) => {
       task_type: agent_type || 'research',
       timezone: timezone || 'Asia/Kolkata',
       enabled: true,
-      config: { prompt: prompt || name },
+      config: jobConfig,
     }, { 'Prefer': 'return=representation' });
     scheduleJob(job);
     res.json(job);
@@ -1823,6 +1951,30 @@ app.get('/api/cron/executions', async (req, res) => {
     query += `&limit=${limit}&select=*`;
     const execs = await supabaseRest(query);
     res.json(execs || []);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get pending cron chat results for a user — returns messages and clears them
+app.get('/api/cron/chat-pending', (req, res) => {
+  const { user_id } = req.query;
+  if (!user_id) return res.status(400).json({ error: 'user_id required' });
+  try {
+    const pendingFile = path.join(SYNC_DIR, 'cron_chat_pending.json');
+    let pending = [];
+    try { pending = JSON.parse(fs.readFileSync(pendingFile, 'utf-8')); } catch { pending = []; }
+
+    // Filter to only this user's results
+    const userResults = pending.filter(m => m.userId === user_id);
+    const remaining = pending.filter(m => m.userId !== user_id);
+
+    // Clear consumed results
+    if (userResults.length > 0) {
+      fs.writeFileSync(pendingFile, JSON.stringify(remaining, null, 2), 'utf-8');
+    }
+
+    res.json({ ok: true, messages: userResults });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

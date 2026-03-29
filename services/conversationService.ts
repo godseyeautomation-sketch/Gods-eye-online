@@ -4,6 +4,7 @@
  */
 
 import { openDB } from 'idb';
+import { syncChatToServer, syncChatToServerImmediate } from './localStorageService';
 
 const DB_NAME = 'klint-studio-db';
 
@@ -74,6 +75,7 @@ export async function createConversation(userId: string, title?: string): Promis
     isArchived: false,
   };
   await db.put('conversations', conv);
+  syncChatToServer();
   return conv;
 }
 
@@ -94,6 +96,7 @@ export async function updateConversation(id: string, patch: Partial<Conversation
   if (!conv) return;
   Object.assign(conv, patch, { updatedAt: Date.now() });
   await db.put('conversations', conv);
+  syncChatToServer();
 }
 
 export async function deleteConversation(id: string): Promise<void> {
@@ -106,6 +109,8 @@ export async function deleteConversation(id: string): Promise<void> {
     await tx.store.delete(msg.id);
   }
   await tx.done;
+  // Sync immediately — don't debounce deletes, so server never holds stale data
+  await syncChatToServerImmediate();
 }
 
 // ── Messages CRUD ────────────────────────────────────────────────────────────
@@ -125,6 +130,7 @@ export async function addMessage(msg: ChatMessage): Promise<ChatMessage> {
     await db.put('conversations', conv);
   }
 
+  syncChatToServer();
   return msg;
 }
 
@@ -140,6 +146,7 @@ export async function updateMessage(id: string, patch: Partial<ChatMessage>): Pr
   if (!msg) return;
   Object.assign(msg, patch);
   await db.put('chat_messages', msg);
+  syncChatToServer();
 }
 
 export async function getMessageCount(conversationId: string): Promise<number> {

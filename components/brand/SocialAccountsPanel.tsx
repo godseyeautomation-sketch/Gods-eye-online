@@ -10,6 +10,7 @@ import {
   getHistory, getScheduledPosts, cancelScheduledPost,
   getProfileAnalytics, generateConnectUrl,
 } from '../../services/uploadPostService';
+import { useAuth } from '../../context/AuthContext';
 
 interface Props {
   brandName: string;
@@ -33,6 +34,8 @@ const PlatformBadge: React.FC<{ platform: SocialPlatform | string; size?: 'sm' |
 };
 
 export const SocialAccountsPanel: React.FC<Props> = ({ brandName }) => {
+  const { user } = useAuth();
+  const userId = user?.id;
   const [profiles, setProfiles] = useState<SocialProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -67,7 +70,7 @@ export const SocialAccountsPanel: React.FC<Props> = ({ brandName }) => {
     setError(null);
     try {
       const [profs, info] = await Promise.all([
-        getProfiles().catch(() => []),
+        getProfiles(userId).catch(() => []),
         verifyAccount().catch(() => null),
       ]);
       setProfiles(profs);
@@ -82,11 +85,19 @@ export const SocialAccountsPanel: React.FC<Props> = ({ brandName }) => {
     }
   };
 
+  // Get usernames owned by this user (for filtering history/scheduled)
+  const ownedUsernames = profiles.map(p => p.username);
+
   const loadHistory = async () => {
     setLoadingHistory(true);
     try {
       const data = await getHistory(1, 50);
-      setPostHistory(data.data || data.history || data || []);
+      const allPosts = data.data || data.history || data || [];
+      // Filter to only show posts from this user's profiles
+      const filtered = ownedUsernames.length > 0
+        ? allPosts.filter((post: any) => ownedUsernames.includes(post.username || post.user || post.profile))
+        : [];
+      setPostHistory(filtered);
     } catch { setPostHistory([]); }
     finally { setLoadingHistory(false); }
   };
@@ -95,7 +106,12 @@ export const SocialAccountsPanel: React.FC<Props> = ({ brandName }) => {
     setLoadingScheduled(true);
     try {
       const data = await getScheduledPosts();
-      setScheduled(Array.isArray(data) ? data : []);
+      const allScheduled = Array.isArray(data) ? data : [];
+      // Filter to only show scheduled posts from this user's profiles
+      const filtered = ownedUsernames.length > 0
+        ? allScheduled.filter((post: any) => ownedUsernames.includes(post.username || post.user || post.profile))
+        : [];
+      setScheduled(filtered);
     } catch { setScheduled([]); }
     finally { setLoadingScheduled(false); }
   };
@@ -124,7 +140,7 @@ export const SocialAccountsPanel: React.FC<Props> = ({ brandName }) => {
     setAdding(true);
     setError(null);
     try {
-      const result = await createProfile({ username: sanitized });
+      const result = await createProfile({ username: sanitized, user_id: userId });
       setNewUsername('');
       setShowAddForm(false);
       await loadProfiles();
@@ -138,7 +154,7 @@ export const SocialAccountsPanel: React.FC<Props> = ({ brandName }) => {
   const handleDeleteProfile = async (username: string) => {
     if (!confirm(`Remove profile "${username}"? This will disconnect all social accounts linked to it.`)) return;
     try {
-      await deleteProfile(username);
+      await deleteProfile(username, userId);
       await loadProfiles();
     } catch (e: any) {
       setError(e.message);

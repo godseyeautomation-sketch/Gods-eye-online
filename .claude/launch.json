@@ -2,10 +2,16 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "klint-dev",
-      "runtimeExecutable": "/usr/local/bin/node",
-      "runtimeArgs": ["./node_modules/.bin/concurrently", "node dev-server.js", "./node_modules/.bin/vite --port 3001"],
+      "name": "dev",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["./node_modules/vite/bin/vite.js"],
       "port": 3001
+    },
+    {
+      "name": "api",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["dev-server.js"],
+      "port": 3002
     }
   ]
 }

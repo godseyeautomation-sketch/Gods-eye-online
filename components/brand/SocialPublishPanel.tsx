@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X, Send, Clock, Loader2, CheckCircle2, AlertCircle, ExternalLink, Upload } from 'lucide-react';
 import { SOCIAL_PLATFORMS, type SocialPlatform, type SocialProfile, type ContentSlot } from '../../types/brand.types';
 import { getProfiles, uploadPhoto, uploadText, getUploadStatus } from '../../services/uploadPostService';
+import { useAuth } from '../../context/AuthContext';
 
 interface Props {
   slot: ContentSlot;
@@ -12,6 +13,8 @@ interface Props {
 type PublishMode = 'now' | 'schedule';
 
 export const SocialPublishPanel: React.FC<Props> = ({ slot, onClose, onPublished }) => {
+  const { user } = useAuth();
+  const userId = user?.id;
   const [profiles, setProfiles] = useState<SocialProfile[]>([]);
   const [loadingProfiles, setLoadingProfiles] = useState(true);
   const [selectedPlatforms, setSelectedPlatforms] = useState<SocialPlatform[]>([]);
@@ -60,7 +63,7 @@ export const SocialPublishPanel: React.FC<Props> = ({ slot, onClose, onPublished
 
   // Load profiles
   useEffect(() => {
-    getProfiles()
+    getProfiles(userId)
       .then(p => {
         setProfiles(p);
         if (p.length > 0) setSelectedProfile(p[0].username);

@@ -205,9 +205,10 @@ export async function getTotalImpressions(profileUsername: string): Promise<any>
 
 // ── User/Profile Management ──────────────────────────────────────────────────
 
-/** List connected social profiles */
-export async function getProfiles(): Promise<SocialProfile[]> {
-  const res = await fetch('/api/upload-post/users');
+/** List connected social profiles (filtered by userId) */
+export async function getProfiles(userId?: string): Promise<SocialProfile[]> {
+  const qs = userId ? `?user_id=${encodeURIComponent(userId)}` : '';
+  const res = await fetch(`/api/upload-post/users${qs}`);
   if (!res.ok) throw new Error('Failed to get profiles');
   const data = await res.json();
   return data.profiles || data.data || data.users || [];
@@ -240,8 +241,8 @@ export async function generateConnectUrl(username: string, options?: {
   return res.json();
 }
 
-/** Create a new social profile */
-export async function createProfile(profile: { username: string; platform?: string }): Promise<SocialProfile> {
+/** Create a new social profile (tagged with userId for isolation) */
+export async function createProfile(profile: { username: string; platform?: string; user_id?: string }): Promise<SocialProfile> {
   const res = await fetch('/api/upload-post/users', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -255,11 +256,11 @@ export async function createProfile(profile: { username: string; platform?: stri
 }
 
 /** Delete a social profile */
-export async function deleteProfile(username: string): Promise<void> {
+export async function deleteProfile(username: string, userId?: string): Promise<void> {
   const res = await fetch('/api/upload-post/users', {
     method: 'DELETE',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username }),
+    body: JSON.stringify({ username, user_id: userId }),
   });
   if (!res.ok) throw new Error('Failed to delete profile');
 }
