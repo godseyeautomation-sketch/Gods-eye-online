@@ -689,7 +689,7 @@ export const ControlBar: React.FC<ControlBarProps> = ({
                 onChange={e => setConfig(prev => ({ ...prev, prompt: e.target.value }))}
                 placeholder={inputImages.length > 0 ? "e.g. Combine elements from img 1 and img 2..." : "Imagine something extraordinary..."}
                 className="flex-1 bg-transparent text-text-primary placeholder-text-secondary/50 outline-none px-1 py-1.5 h-12 resize-none text-sm font-medium leading-relaxed"
-                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onGenerate(); } }}
+                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); e.stopPropagation(); onGenerate(); } }}
               />
 
               <button

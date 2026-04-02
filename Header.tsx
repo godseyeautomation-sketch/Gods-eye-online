@@ -60,6 +60,7 @@ export const Header: React.FC<HeaderProps> = ({ currentMode, setMode, theme, tog
               <button
                 key={item.id}
                 onClick={() => {
+                    if (currentMode === item.id) return; // Don't remount if already on this tab
                     if (Object.values(AppMode).includes(item.id as AppMode)) {
                         setMode(item.id as AppMode);
                     }
@@ -197,10 +198,10 @@ export const Header: React.FC<HeaderProps> = ({ currentMode, setMode, theme, tog
                 {navItems.map((item) => (
                      <button
                         key={item.id}
-                        onClick={() => setMode(item.id as AppMode)}
+                        onClick={() => { if (currentMode !== item.id) setMode(item.id as AppMode); }}
                         className={`flex-shrink-0 px-4 py-2 rounded-lg text-xs font-bold transition-all whitespace-nowrap border ${
-                            currentMode === item.id 
-                            ? 'bg-brand text-bg border-brand shadow-sm' 
+                            currentMode === item.id
+                            ? 'bg-brand text-bg border-brand shadow-sm'
                             : 'bg-surface text-text-secondary border-border-base hover:border-text-secondary'
                         }`}
                      >

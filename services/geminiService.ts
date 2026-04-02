@@ -219,6 +219,7 @@ export const generateImage = async ({
   model,
   aspectRatio = '1:1',
   quality = '4K',
+  batchSize = 1,          // number of images to generate (maps to candidateCount)
   baseImages = [],
   userId = 'anonymous',
   saveToGallery = true,   // set false to skip IndexedDB (brand section)
@@ -316,8 +317,15 @@ export const generateImage = async ({
     }
 
     const data = await response.json();
-    const candidates = data.candidates || [];
-    if (candidates.length === 0) throw new Error("No image generated.");
+    const allCandidates = data.candidates || [];
+    console.log(`[Generate] API returned ${allCandidates.length} candidates, batchSize requested: ${batchSize}`);
+    if (allCandidates.length > 0) {
+      const partsCount = allCandidates[0]?.content?.parts?.length || 0;
+      console.log(`[Generate] First candidate has ${partsCount} parts`);
+    }
+    if (allCandidates.length === 0) throw new Error("No image generated.");
+    // Limit to requested batch size to avoid generating extra images and wasting tokens
+    const candidates = allCandidates.slice(0, batchSize || 1);
 
     // D. Process Results (Local Storage + Auto Download)
     // Use the userId passed from the frontend to ensure sync

@@ -252,7 +252,7 @@ export default defineConfig(({ mode }) => {
       port: 3001,
       host: '0.0.0.0',
       watch: {
-        ignored: ['**/.claude/**', '**/.openclaw/**', '**/node_modules/**'],
+        ignored: ['**/.claude/**', '**/.openclaw/**', '**/node_modules/**', '**/.klint/**'],
       },
       proxy: {
         // Gemini still goes through dev-server.js on 3002

@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Header } from './components/Header';
 import { ControlBar } from './components/ControlBar';
 import { AdminPanel } from './components/AdminPanel';
@@ -53,6 +53,8 @@ const App: React.FC = () => {
   const MAX_IMAGE_CONCURRENT = 4;
   const [activeImageGens, setActiveImageGens] = useState(0);
   const isGenerating = activeImageGens >= MAX_IMAGE_CONCURRENT;
+  // Ref-based guard to prevent double-click triggering duplicate generations
+  const generatingRef = useRef(false);
 
   // Reset active app when navigating away from Apps mode
   useEffect(() => { if (mode !== AppMode.APPS) setActiveAppId(null); }, [mode]);
@@ -218,6 +220,7 @@ const App: React.FC = () => {
   }, [config.model]);
 
   const handleGenerate = async () => {
+    if (generatingRef.current) return; // Block duplicate calls
     if (!config.prompt && config.model !== 'fal-ai/qwen-image-layered') return;
     if (config.model === 'fal-ai/qwen-image-layered' && inputImages.length === 0) {
       alert('Qwen Layered requires at least one reference image. Add an image using the + button.');
@@ -227,6 +230,7 @@ const App: React.FC = () => {
       alert(`Max ${MAX_IMAGE_CONCURRENT} concurrent image generations. Wait for one to finish.`);
       return;
     }
+    generatingRef.current = true;
 
     // Capture current values before clearing — unblock input immediately
     const capturedPrompt = config.prompt;
@@ -489,6 +493,7 @@ const App: React.FC = () => {
           batchSize: capturedBatch,
           baseImages: capturedImages.length > 0 ? capturedImages : undefined,
           userId: session?.user?.id,
+          saveToGallery: false, // App.tsx handles its own save via saveGeneratedAsset below
           ragContext,
         });
       }
@@ -550,6 +555,7 @@ const App: React.FC = () => {
       setGeneratedAssets(prev => prev.filter(a => !skeletonIds.includes(a.id)));
     } finally {
       setActiveImageGens(prev => Math.max(0, prev - 1));
+      generatingRef.current = false;
     }
   };
 
@@ -638,9 +644,14 @@ const App: React.FC = () => {
           ) : (
             <div className="h-full flex items-center justify-center text-neutral-500">Access Denied</div>
           )
-        ) : mode === AppMode.EXPLORE ? (
-          <div className="h-full overflow-hidden"><HomePage onNavigate={setMode} /></div>
-        ) : mode === AppMode.VIDEO ? (
+        ) : null}
+
+        {/* HomePage stays mounted to preserve state (greeting, conversations) across tab switches */}
+        <div className="h-full overflow-hidden" style={{ display: mode === AppMode.EXPLORE ? 'block' : 'none' }}>
+          <HomePage onNavigate={setMode} />
+        </div>
+
+        {mode === AppMode.VIDEO ? (
           <FeatureGate feature="video">
             <VideoProjectProvider>
               <FalVideoPage initialImage={videoReferenceImageUrl || undefined} />
