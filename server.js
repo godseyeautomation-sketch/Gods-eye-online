@@ -6,6 +6,7 @@ import { createServer } from 'http';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import dotenv from 'dotenv';
 import { registerCronRoutes, loadAndScheduleAll } from './services/cronEngine.js';
+import { mountMcpEndpoints } from './services/mcpServer.js';
 
 dotenv.config();
 
@@ -2008,6 +2009,9 @@ app.get('/api/campaigns/creatives', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// ── MCP SSE Server (must be before static/SPA catch-all) ──
+mountMcpEndpoints(app, { port: PORT });
 
 // Serve static files from the dist directory, but DON'T serve index.html automatically
 // This forces index.html requests to fall through to our custom injector below.

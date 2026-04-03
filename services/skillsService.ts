@@ -45,10 +45,17 @@ export async function listSkills(userId: string): Promise<Skill[]> {
   const dbSkills = (error || !data) ? [] : data;
   if (error) console.error('[Skills] List error:', error);
 
+  // Deduplicate DB skills by slug (keep the most recent one)
+  const seenSlugs = new Set<string>();
+  const uniqueDbSkills = dbSkills.filter(s => {
+    if (seenSlugs.has(s.slug)) return false;
+    seenSlugs.add(s.slug);
+    return true;
+  });
+
   // Merge built-in skills that aren't already in the database
-  const dbSlugs = new Set(dbSkills.map(s => s.slug));
   const builtinFallbacks = BUILTIN_SKILLS
-    .filter(s => !dbSlugs.has(s.slug))
+    .filter(s => !seenSlugs.has(s.slug))
     .map(s => ({
       ...s,
       id: `builtin-${s.slug}`,
@@ -56,7 +63,7 @@ export async function listSkills(userId: string): Promise<Skill[]> {
       created_at: new Date().toISOString(),
     } as Skill));
 
-  return [...dbSkills, ...builtinFallbacks];
+  return [...uniqueDbSkills, ...builtinFallbacks];
 }
 
 export async function getSkillBySlug(userId: string, slug: string): Promise<Skill | null> {
@@ -346,8 +353,12 @@ Never use generic marketing language. Every word should feel like it came from t
 ];
 
 export async function seedBuiltinSkills(userId: string): Promise<void> {
-  const existing = await listSkills(userId);
-  const existingSlugs = new Set(existing.map(s => s.slug));
+  // Query DB directly to avoid builtin fallbacks inflating the list
+  const { data } = await supabase
+    .from('skills')
+    .select('slug')
+    .eq('user_id', userId);
+  const existingSlugs = new Set((data || []).map((s: any) => s.slug));
 
   for (const skill of BUILTIN_SKILLS) {
     if (!existingSlugs.has(skill.slug)) {

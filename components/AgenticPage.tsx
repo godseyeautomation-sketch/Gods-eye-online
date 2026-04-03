@@ -204,8 +204,8 @@ export const AgenticPage: React.FC = () => {
         {tab === 'marketplace' && (
           <div className="space-y-4">
             <div className="flex gap-2">
-              <div className="flex-1 relative">
-                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary/40" />
+              <div className="flex-1 relative flex items-center">
+                <Search size={16} className="absolute left-3 text-text-secondary/40 pointer-events-none" />
                 <input
                   type="text"
                   value={mpQuery}

@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { mountMcpEndpoints } from './services/mcpServer.js';
 
 dotenv.config();
 
@@ -3322,6 +3323,9 @@ app.get('/api/campaigns/creatives', async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
+
+// ── MCP SSE Server ──
+mountMcpEndpoints(app, { port: PORT });
 
 app.listen(PORT, () => {
   console.log(`✅ Dev API server running on http://localhost:${PORT}`);

@@ -703,6 +703,8 @@ const App: React.FC = () => {
           <AgenticPage />
         ) : mode === AppMode.CONNECTORS || mode === 'connectors' ? (
           <ConnectorsPage />
+        ) : mode === AppMode.EXPLORE ? (
+          null
         ) : (
           <div className="h-full overflow-y-auto">
             <ImageGallery

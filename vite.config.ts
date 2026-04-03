@@ -306,10 +306,18 @@ export default defineConfig(({ mode }) => {
           target: 'http://localhost:3002',
           changeOrigin: true,
         },
-        // MCP bridge proxy
+        // MCP SSE server proxy (SSE requires no response buffering)
         '/api/mcp': {
           target: 'http://localhost:3002',
           changeOrigin: true,
+          configure: (proxy: any) => {
+            proxy.on('proxyRes', (proxyRes: any) => {
+              if (proxyRes.headers['content-type']?.includes('text/event-stream')) {
+                proxyRes.headers['cache-control'] = 'no-cache';
+                proxyRes.headers['x-accel-buffering'] = 'no';
+              }
+            });
+          },
         },
         // Campaign management proxy
         '/api/campaigns': {
