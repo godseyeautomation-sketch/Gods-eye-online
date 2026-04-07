@@ -129,7 +129,7 @@ export const ChatInput: React.FC<Props> = ({
   return (
     <div className="flex-shrink-0 px-4 pb-4 pt-2">
       <div className="max-w-3xl mx-auto">
-        <div className="relative rounded-2xl border border-border-base bg-[#111] focus-within:border-brand/30 transition-colors">
+        <div className="relative rounded-2xl border border-border-base bg-white dark:bg-[#111] focus-within:border-brand/30 transition-colors">
           {/* Attached images */}
           {attachedImages.length > 0 && (
             <div className="flex gap-2 px-4 pt-3">
@@ -149,7 +149,7 @@ export const ChatInput: React.FC<Props> = ({
 
           {/* Slash command dropdown */}
           {showSlashMenu && (
-            <div className="absolute bottom-full left-0 right-0 mb-1 mx-4 rounded-xl border border-border-base bg-[#1a1a1a] shadow-2xl overflow-hidden z-50 max-h-[240px] overflow-y-auto">
+            <div className="absolute bottom-full left-0 right-0 mb-1 mx-4 rounded-xl border border-border-base bg-white dark:bg-[#1a1a1a] shadow-2xl overflow-hidden z-50 max-h-[240px] overflow-y-auto">
               <div className="px-3 py-2 border-b border-border-base">
                 <p className="text-[10px] text-text-secondary/50 font-medium uppercase tracking-widest">Skills & Agents</p>
               </div>
@@ -166,7 +166,7 @@ export const ChatInput: React.FC<Props> = ({
                     onChange(''); // clear the /slash text first
                     setTimeout(() => onSkillSelect?.(skill.slug), 10);
                   }}
-                  className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left hover:bg-white/5 transition-colors"
+                  className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left hover:bg-zinc-100 dark:hover:bg-white/5 transition-colors"
                 >
                   <span className="text-base">{skill.icon}</span>
                   <div className="flex-1 min-w-0">
@@ -196,7 +196,7 @@ export const ChatInput: React.FC<Props> = ({
             <div className="flex items-center gap-1">
               <button
                 onClick={onFileUpload}
-                className="p-2 rounded-lg hover:bg-white/5 text-text-secondary hover:text-text-primary transition-colors"
+                className="p-2 rounded-lg hover:bg-zinc-100 dark:hover:bg-white/5 text-text-secondary hover:text-text-primary transition-colors"
                 title="Attach image"
               >
                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -210,7 +210,7 @@ export const ChatInput: React.FC<Props> = ({
                   <button
                     onClick={() => setShowBrandPicker(!showBrandPicker)}
                     className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs transition-colors ${
-                      selectedBrand ? 'bg-brand/10 text-brand border border-brand/20' : 'hover:bg-white/5 text-text-secondary/50'
+                      selectedBrand ? 'bg-brand/10 text-brand border border-brand/20' : 'hover:bg-zinc-100 dark:hover:bg-white/5 text-text-secondary/50'
                     }`}
                     title="Select brand context"
                   >
@@ -222,13 +222,13 @@ export const ChatInput: React.FC<Props> = ({
                     </span>
                   </button>
                   {showBrandPicker && (
-                    <div className="absolute bottom-full left-0 mb-2 w-48 rounded-xl border border-border-base bg-[#1a1a1a] shadow-2xl overflow-hidden z-50">
+                    <div className="absolute bottom-full left-0 mb-2 w-48 rounded-xl border border-border-base bg-white dark:bg-[#1a1a1a] shadow-2xl overflow-hidden z-50">
                       <div className="px-3 py-2 border-b border-border-base">
                         <p className="text-[10px] text-text-secondary/50 font-medium uppercase tracking-widest">Brand Context</p>
                       </div>
                       <button
                         onClick={() => { onBrandChange?.(null); setShowBrandPicker(false); }}
-                        className={`w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-white/5 text-sm ${!selectedBrand ? 'text-brand' : 'text-text-secondary'}`}
+                        className={`w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-zinc-100 dark:hover:bg-white/5 text-sm ${!selectedBrand ? 'text-brand' : 'text-text-secondary'}`}
                       >
                         None (general)
                       </button>
@@ -236,7 +236,7 @@ export const ChatInput: React.FC<Props> = ({
                         <button
                           key={b.id}
                           onClick={() => { onBrandChange?.(b.id); setShowBrandPicker(false); }}
-                          className={`w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-white/5 text-sm ${selectedBrand === b.id ? 'text-brand font-medium' : 'text-text-primary'}`}
+                          className={`w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-zinc-100 dark:hover:bg-white/5 text-sm ${selectedBrand === b.id ? 'text-brand font-medium' : 'text-text-primary'}`}
                         >
                           {selectedBrand === b.id && <div className="w-1.5 h-1.5 rounded-full bg-brand" />}
                           {b.name}
@@ -253,7 +253,7 @@ export const ChatInput: React.FC<Props> = ({
                   <button
                     onClick={() => setShowSkillsPicker(!showSkillsPicker)}
                     className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs transition-colors ${
-                      showSkillsPicker ? 'bg-brand/10 text-brand border border-brand/20' : 'hover:bg-white/5 text-text-secondary/50'
+                      showSkillsPicker ? 'bg-brand/10 text-brand border border-brand/20' : 'hover:bg-zinc-100 dark:hover:bg-white/5 text-text-secondary/50'
                     }`}
                     title="Skills & Agents"
                   >
@@ -263,7 +263,7 @@ export const ChatInput: React.FC<Props> = ({
                     <span>Skills</span>
                   </button>
                   {showSkillsPicker && (
-                    <div className="absolute bottom-full left-0 mb-2 w-56 rounded-xl border border-border-base bg-[#1a1a1a] shadow-2xl overflow-hidden z-50 max-h-[280px] overflow-y-auto">
+                    <div className="absolute bottom-full left-0 mb-2 w-56 rounded-xl border border-border-base bg-white dark:bg-[#1a1a1a] shadow-2xl overflow-hidden z-50 max-h-[280px] overflow-y-auto">
                       <div className="px-3 py-2 border-b border-border-base">
                         <p className="text-[10px] text-text-secondary/50 font-medium uppercase tracking-widest">Activate a Skill</p>
                       </div>
@@ -275,7 +275,7 @@ export const ChatInput: React.FC<Props> = ({
                             setShowSkillsPicker(false);
                             onSkillSelect?.(skill.slug);
                           }}
-                          className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left hover:bg-white/5 transition-colors"
+                          className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left hover:bg-zinc-100 dark:hover:bg-white/5 transition-colors"
                         >
                           <span className="text-sm">{skill.icon}</span>
                           <div className="flex-1 min-w-0">
@@ -297,7 +297,7 @@ export const ChatInput: React.FC<Props> = ({
               <div className="relative" ref={pickerRef}>
                 <button
                   onClick={() => setShowModelPicker(!showModelPicker)}
-                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg hover:bg-white/5 transition-colors group"
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-white/5 transition-colors group"
                 >
                   <svg className="w-3.5 h-3.5 text-text-secondary/50 group-hover:text-brand transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456z" />
@@ -321,7 +321,7 @@ export const ChatInput: React.FC<Props> = ({
 
                 {/* Dropdown */}
                 {showModelPicker && (
-                  <div className="absolute bottom-full right-0 mb-2 w-56 rounded-xl border border-border-base bg-[#1a1a1a] shadow-2xl overflow-hidden z-50">
+                  <div className="absolute bottom-full right-0 mb-2 w-56 rounded-xl border border-border-base bg-white dark:bg-[#1a1a1a] shadow-2xl overflow-hidden z-50">
                     <div className="px-3 py-2 border-b border-border-base">
                       <p className="text-[10px] text-text-secondary/50 font-medium uppercase tracking-widest">Chat Model</p>
                     </div>
@@ -333,7 +333,7 @@ export const ChatInput: React.FC<Props> = ({
                             onModelChange?.(model.id);
                             setShowModelPicker(false);
                           }}
-                          className={`w-full flex items-center justify-between px-3 py-2 text-left hover:bg-white/5 transition-colors ${
+                          className={`w-full flex items-center justify-between px-3 py-2 text-left hover:bg-zinc-100 dark:hover:bg-white/5 transition-colors ${
                             selectedModel === model.id ? 'bg-brand/10' : ''
                           }`}
                         >

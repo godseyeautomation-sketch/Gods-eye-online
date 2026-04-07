@@ -27,14 +27,14 @@ export const VideoProjectGrid: React.FC = () => {
       {!isCreating ? (
         <div
           onClick={() => setIsCreating(true)}
-          className="relative rounded-2xl overflow-hidden border-2 border-dashed border-white/10 aspect-[4/5] cursor-pointer
+          className="relative rounded-2xl overflow-hidden border-2 border-dashed border-zinc-300 dark:border-white/10 aspect-[4/5] cursor-pointer
                      hover:border-[#c8ff00]/40 hover:bg-[#c8ff00]/[0.03] transition-all group flex flex-col items-center justify-center gap-3"
         >
-          <div className="w-14 h-14 rounded-full bg-white/[0.04] border border-white/10 flex items-center justify-center
+          <div className="w-14 h-14 rounded-full bg-zinc-100 dark:bg-white/[0.04] border border-zinc-200 dark:border-white/10 flex items-center justify-center
                           group-hover:bg-[#c8ff00]/10 group-hover:border-[#c8ff00]/30 transition-all">
-            <Plus size={24} className="text-white/30 group-hover:text-[#c8ff00] transition-colors" />
+            <Plus size={24} className="text-zinc-400 dark:text-white/30 group-hover:text-[#c8ff00] transition-colors" />
           </div>
-          <p className="text-white/30 text-[12px] font-medium group-hover:text-white/50 transition-colors">New Project</p>
+          <p className="text-zinc-400 dark:text-white/30 text-[12px] font-medium group-hover:text-zinc-600 dark:group-hover:text-white/50 transition-colors">New Project</p>
         </div>
       ) : (
         <div className="relative rounded-2xl overflow-hidden border-2 border-[#c8ff00]/40 bg-[#c8ff00]/[0.03] aspect-[4/5]
@@ -46,8 +46,8 @@ export const VideoProjectGrid: React.FC = () => {
             onChange={e => setNewName(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter') handleCreate(); if (e.key === 'Escape') { setIsCreating(false); setNewName(''); } }}
             placeholder="Project name..."
-            className="w-full bg-white/[0.06] border border-white/10 rounded-lg px-3 py-2 text-[13px] text-white/80
-                       placeholder:text-white/25 outline-none focus:border-[#c8ff00]/40 transition-colors text-center"
+            className="w-full bg-zinc-100 dark:bg-white/[0.06] border border-zinc-200 dark:border-white/10 rounded-lg px-3 py-2 text-[13px] text-zinc-800 dark:text-white/80
+                       placeholder:text-zinc-400 dark:placeholder:text-white/25 outline-none focus:border-[#c8ff00]/40 transition-colors text-center"
             maxLength={40}
           />
           <div className="flex gap-2">
@@ -61,7 +61,7 @@ export const VideoProjectGrid: React.FC = () => {
             </button>
             <button
               onClick={() => { setIsCreating(false); setNewName(''); }}
-              className="px-3 py-1.5 bg-white/[0.06] text-white/40 text-[12px] rounded-full hover:bg-white/10 transition-colors"
+              className="px-3 py-1.5 bg-zinc-100 dark:bg-white/[0.06] text-zinc-400 dark:text-white/40 text-[12px] rounded-full hover:bg-zinc-200 dark:hover:bg-white/10 transition-colors"
             >
               <X size={14} />
             </button>
@@ -74,21 +74,21 @@ export const VideoProjectGrid: React.FC = () => {
         <div
           key={project.id}
           onClick={() => openProject(project.id)}
-          className="relative group cursor-pointer rounded-2xl overflow-hidden border border-white/[0.06] bg-[#111] aspect-[4/5]
-                     hover:border-white/15 hover:bg-[#161616] transition-all"
+          className="relative group cursor-pointer rounded-2xl overflow-hidden border border-zinc-200 dark:border-white/[0.06] bg-zinc-50 dark:bg-[#111] aspect-[4/5]
+                     hover:border-zinc-300 dark:hover:border-white/15 hover:bg-zinc-100 dark:hover:bg-[#161616] transition-all"
         >
           {/* Folder visual */}
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
-            <div className="w-16 h-16 rounded-xl bg-white/[0.04] border border-white/8 flex items-center justify-center
+            <div className="w-16 h-16 rounded-xl bg-zinc-100 dark:bg-white/[0.04] border border-zinc-200 dark:border-white/8 flex items-center justify-center
                             group-hover:bg-[#c8ff00]/[0.06] group-hover:border-[#c8ff00]/20 transition-all">
-              <Film size={28} className="text-white/20 group-hover:text-[#c8ff00]/60 transition-colors" />
+              <Film size={28} className="text-zinc-300 dark:text-white/20 group-hover:text-[#c8ff00]/60 transition-colors" />
             </div>
           </div>
 
           {/* Bottom info */}
-          <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/80 to-transparent">
-            <p className="text-white text-[13px] font-bold truncate">{project.name}</p>
-            <p className="text-white/30 text-[10px] mt-0.5">
+          <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-zinc-200/90 dark:from-black/80 to-transparent">
+            <p className="text-zinc-900 dark:text-white text-[13px] font-bold truncate">{project.name}</p>
+            <p className="text-zinc-500 dark:text-white/30 text-[10px] mt-0.5">
               {new Date(project.createdAt).toLocaleDateString()}
             </p>
           </div>

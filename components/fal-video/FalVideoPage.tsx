@@ -752,17 +752,17 @@ export const FalVideoPage: React.FC<FalVideoPageProps> = ({ initialImage }) => {
   const filteredGroups = MODEL_GROUPS.filter(g => !modelSearch || g.name.toLowerCase().includes(modelSearch.toLowerCase()) || CREATE_MODELS.filter(m => m.group === g.name).some(m => m.name.toLowerCase().includes(modelSearch.toLowerCase())));
   const getGroupModels = (g: string) => CREATE_MODELS.filter(m => m.group === g);
 
-  const optBtn = (active: boolean) => `flex-1 py-2 rounded-xl text-[11px] font-semibold border transition-all cursor-pointer ${active ? 'border-brand/70 bg-brand/15 text-brand' : 'border-white/8 bg-white/[0.03] text-text-secondary hover:border-white/20 hover:text-text-primary'}`;
+  const optBtn = (active: boolean) => `flex-1 py-2 rounded-xl text-[11px] font-semibold border transition-all cursor-pointer ${active ? 'border-brand/70 bg-brand/15 text-brand' : 'border-zinc-200 dark:border-white/8 bg-white dark:bg-white/[0.03] text-text-secondary hover:border-zinc-300 dark:hover:border-white/20 hover:text-text-primary'}`;
 
   // ═══════════════════════════════════════════════════════════════════════
   // RENDER
   // ═══════════════════════════════════════════════════════════════════════
 
   return (
-    <div className="h-screen w-full flex flex-col overflow-hidden pt-[72px] bg-[#0a0a0a]">
+    <div className="h-screen w-full flex flex-col overflow-hidden pt-[72px] bg-white dark:bg-[#0a0a0a]">
 
       {/* ══ TOP BAR — tabs left, featured models center, search right ══ */}
-      <div className="flex items-center px-5 h-12 flex-shrink-0 border-b border-white/[0.06] bg-[#0a0a0a]">
+      <div className="flex items-center px-5 h-12 flex-shrink-0 border-b border-zinc-200 dark:border-white/[0.06] bg-white dark:bg-[#0a0a0a]">
         {/* Tabs */}
         <div className="flex items-center gap-4 mr-8">
           {([
@@ -771,7 +771,7 @@ export const FalVideoPage: React.FC<FalVideoPageProps> = ({ initialImage }) => {
             { id: 'motion', label: 'Motion Control' },
           ] as const).map(tab => (
             <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-              className={`text-[13px] font-medium transition-colors whitespace-nowrap ${activeTab === tab.id ? 'text-white' : 'text-white/40 hover:text-white/70'}`}>
+              className={`text-[13px] font-medium transition-colors whitespace-nowrap ${activeTab === tab.id ? 'text-zinc-900 dark:text-white' : 'text-zinc-400 dark:text-white/40 hover:text-zinc-700 dark:hover:text-white/70'}`}>
               {tab.label}
             </button>
           ))}
@@ -784,8 +784,8 @@ export const FalVideoPage: React.FC<FalVideoPageProps> = ({ initialImage }) => {
               const isActive = createModelKey === ft.key;
               return (
                 <button key={ft.key} onClick={() => selectModel(ft.key)}
-                  className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[12px] font-medium whitespace-nowrap transition-all ${isActive ? 'bg-white/10 text-white' : 'text-white/40 hover:text-white/70'}`}>
-                  <span className="text-white/30">&#9675;</span>
+                  className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[12px] font-medium whitespace-nowrap transition-all ${isActive ? 'bg-zinc-100 dark:bg-white/10 text-zinc-900 dark:text-white' : 'text-zinc-400 dark:text-white/40 hover:text-zinc-700 dark:hover:text-white/70'}`}>
+                  <span className="text-zinc-300 dark:text-white/30">&#9675;</span>
                   {ft.label}
                 </button>
               );
@@ -796,12 +796,12 @@ export const FalVideoPage: React.FC<FalVideoPageProps> = ({ initialImage }) => {
         {/* Search + Close for model selector */}
         <div className="flex items-center gap-2 ml-auto">
           {showModelSelector && (
-            <button onClick={() => setShowModelSelector(false)} className="w-8 h-8 rounded-lg flex items-center justify-center text-white/40 hover:text-white hover:bg-white/5 transition-all">
+            <button onClick={() => setShowModelSelector(false)} className="w-8 h-8 rounded-lg flex items-center justify-center text-zinc-400 dark:text-white/40 hover:text-zinc-700 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-white/5 transition-all">
               <X size={18} />
             </button>
           )}
           {!showModelSelector && (
-            <button onClick={() => setShowModelSelector(true)} className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-white/30 hover:text-white/60 hover:bg-white/5 transition-all text-[13px]">
+            <button onClick={() => setShowModelSelector(true)} className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-zinc-400 dark:text-white/30 hover:text-zinc-600 dark:hover:text-white/60 hover:bg-zinc-100 dark:hover:bg-white/5 transition-all text-[13px]">
               Search
             </button>
           )}
@@ -812,7 +812,7 @@ export const FalVideoPage: React.FC<FalVideoPageProps> = ({ initialImage }) => {
       <div className="flex-1 flex overflow-hidden relative">
 
         {/* ══ LEFT SIDEBAR ══ */}
-        <aside className="w-[320px] flex-shrink-0 flex flex-col overflow-hidden border-r border-white/[0.06] bg-[#0d0d0d]">
+        <aside className="w-[320px] flex-shrink-0 flex flex-col overflow-hidden border-r border-zinc-200 dark:border-white/[0.06] bg-zinc-50 dark:bg-[#0d0d0d]">
           <div className="flex-1 overflow-y-auto px-5 py-5 space-y-5 scrollbar-hide">
 
             {activeTab === 'create' && (<>
@@ -832,17 +832,17 @@ export const FalVideoPage: React.FC<FalVideoPageProps> = ({ initialImage }) => {
                 </div>
               ) : (
                 <div
-                  className={`aspect-[4/3] rounded-2xl border-2 border-dashed flex flex-col items-center justify-center gap-3 cursor-pointer transition-all ${createImageDrag ? 'border-brand bg-brand/5 scale-[1.01]' : 'border-white/10 hover:border-white/20 bg-white/[0.02]'}`}
+                  className={`aspect-[4/3] rounded-2xl border-2 border-dashed flex flex-col items-center justify-center gap-3 cursor-pointer transition-all ${createImageDrag ? 'border-brand bg-brand/5 scale-[1.01]' : 'border-zinc-300 dark:border-white/10 hover:border-zinc-400 dark:hover:border-white/20 bg-zinc-100 dark:bg-white/[0.02]'}`}
                   onDragOver={e => { e.preventDefault(); setCreateImageDrag(true); }}
                   onDragLeave={() => setCreateImageDrag(false)}
                   onDrop={e => { e.preventDefault(); setCreateImageDrag(false); const f = e.dataTransfer.files[0]; if (f) handleCreateImageFile(f); }}
                   onClick={() => createImageRef.current?.click()}>
-                  <div className="w-12 h-12 rounded-2xl bg-white/[0.04] border border-white/8 flex items-center justify-center">
-                    <ImageIcon size={22} className="text-white/30" />
+                  <div className="w-12 h-12 rounded-2xl bg-zinc-200 dark:bg-white/[0.04] border border-zinc-300 dark:border-white/8 flex items-center justify-center">
+                    <ImageIcon size={22} className="text-zinc-400 dark:text-white/30" />
                   </div>
                   <div className="text-center">
-                    <p className="text-[13px] text-white/80">Upload image or <span className="text-white font-bold">generate it</span></p>
-                    <p className="text-[11px] text-white/30 mt-1">PNG, JPG or Paste from clipboard</p>
+                    <p className="text-[13px] text-zinc-700 dark:text-white/80">Upload image or <span className="text-zinc-900 dark:text-white font-bold">generate it</span></p>
+                    <p className="text-[11px] text-zinc-400 dark:text-white/30 mt-1">PNG, JPG or Paste from clipboard</p>
                   </div>
                   <input ref={createImageRef} type="file" accept="image/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) handleCreateImageFile(f); }} />
                 </div>
@@ -851,18 +851,18 @@ export const FalVideoPage: React.FC<FalVideoPageProps> = ({ initialImage }) => {
               {/* End frame */}
               {effectiveCreateMode === 'i2v' && createImage && (
                 <div>
-                  <p className="text-[10px] text-white/30 mb-1.5 font-medium">End Frame <span className="opacity-60">(optional)</span></p>
+                  <p className="text-[10px] text-zinc-400 dark:text-white/30 mb-1.5 font-medium">End Frame <span className="opacity-60">(optional)</span></p>
                   {createEndImage ? (
                     <div className="relative group rounded-xl overflow-hidden border border-white/8 h-16">
                       <img src={createEndImage} alt="End" className="w-full h-full object-cover" />
                       <button onClick={() => setCreateEndImage(null)} className="absolute top-1 right-1 w-5 h-5 bg-black/70 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 text-white hover:bg-red-600 transition-all"><X size={9} /></button>
                     </div>
                   ) : (
-                    <div className={`h-16 rounded-xl border border-dashed flex items-center justify-center gap-2 cursor-pointer transition-all ${createEndImageDrag ? 'border-brand bg-brand/5' : 'border-white/8 hover:border-white/15'}`}
+                    <div className={`h-16 rounded-xl border border-dashed flex items-center justify-center gap-2 cursor-pointer transition-all ${createEndImageDrag ? 'border-brand bg-brand/5' : 'border-zinc-300 dark:border-white/8 hover:border-zinc-400 dark:hover:border-white/15'}`}
                       onDragOver={e => { e.preventDefault(); setCreateEndImageDrag(true); }} onDragLeave={() => setCreateEndImageDrag(false)}
                       onDrop={e => { e.preventDefault(); setCreateEndImageDrag(false); const f = e.dataTransfer.files[0]; if (f) handleCreateEndImageFile(f); }}
                       onClick={() => createEndImageRef.current?.click()}>
-                      <Upload size={12} className="text-white/20" /><span className="text-[10px] text-white/30">Drop end frame</span>
+                      <Upload size={12} className="text-zinc-300 dark:text-white/20" /><span className="text-[10px] text-zinc-400 dark:text-white/30">Drop end frame</span>
                       <input ref={createEndImageRef} type="file" accept="image/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) handleCreateEndImageFile(f); }} />
                     </div>
                   )}
@@ -871,54 +871,54 @@ export const FalVideoPage: React.FC<FalVideoPageProps> = ({ initialImage }) => {
 
               {/* Prompt */}
               <div>
-                <p className="text-[11px] text-white/40 font-medium mb-1.5">Prompt</p>
-                <p className="text-[11px] text-white/20 mb-2">Describe the scene you imagine, with details.</p>
-                <textarea className="w-full bg-white/[0.03] border border-white/8 rounded-xl px-3 py-2.5 text-[12px] text-white/80 placeholder-white/20 outline-none resize-none focus:border-white/20 transition-colors" rows={3} placeholder="A golden retriever runs through a field..." value={createPrompt} onChange={e => setCreatePrompt(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleGenerate(); } e.stopPropagation(); }} />
+                <p className="text-[11px] text-zinc-500 dark:text-white/40 font-medium mb-1.5">Prompt</p>
+                <p className="text-[11px] text-zinc-400 dark:text-white/20 mb-2">Describe the scene you imagine, with details.</p>
+                <textarea className="w-full bg-white dark:bg-white/[0.03] border border-zinc-200 dark:border-white/8 rounded-xl px-3 py-2.5 text-[12px] text-zinc-800 dark:text-white/80 placeholder-zinc-300 dark:placeholder-white/20 outline-none resize-none focus:border-zinc-400 dark:focus:border-white/20 transition-colors" rows={3} placeholder="A golden retriever runs through a field..." value={createPrompt} onChange={e => setCreatePrompt(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleGenerate(); } e.stopPropagation(); }} />
                 <div className="flex items-center gap-1.5 mt-2">
                   <Sparkles size={12} className="text-[#c8ff00]" />
-                  <span className="text-[11px] text-white/50 font-medium">Enhance on</span>
+                  <span className="text-[11px] text-zinc-500 dark:text-white/50 font-medium">Enhance on</span>
                 </div>
                 {/* Negative prompt toggle */}
-                <button onClick={() => setShowNegPrompt(v => !v)} className="mt-2 text-[10px] text-white/25 hover:text-white/40 transition-colors flex items-center gap-1">
+                <button onClick={() => setShowNegPrompt(v => !v)} className="mt-2 text-[10px] text-zinc-400 dark:text-white/25 hover:text-zinc-500 dark:hover:text-white/40 transition-colors flex items-center gap-1">
                   Negative prompt {showNegPrompt ? <ChevronUp size={9} /> : <ChevronDown size={9} />}
                 </button>
                 {showNegPrompt && (
-                  <input className="w-full mt-1.5 bg-white/[0.03] border border-white/8 rounded-xl px-3 py-2 text-white/50 text-[11px] placeholder-white/15 outline-none focus:border-white/20 transition-colors" placeholder="blur, shaky, low quality, watermark" value={createNegPrompt} onChange={e => setCreateNegPrompt(e.target.value)} onKeyDown={e => e.stopPropagation()} />
+                  <input className="w-full mt-1.5 bg-white dark:bg-white/[0.03] border border-zinc-200 dark:border-white/8 rounded-xl px-3 py-2 text-zinc-600 dark:text-white/50 text-[11px] placeholder-zinc-300 dark:placeholder-white/15 outline-none focus:border-zinc-400 dark:focus:border-white/20 transition-colors" placeholder="blur, shaky, low quality, watermark" value={createNegPrompt} onChange={e => setCreateNegPrompt(e.target.value)} onKeyDown={e => e.stopPropagation()} />
                 )}
               </div>
 
               {/* Model selector button */}
               <div>
-                <p className="text-[11px] text-white/40 font-medium mb-1.5">Model</p>
+                <p className="text-[11px] text-zinc-500 dark:text-white/40 font-medium mb-1.5">Model</p>
                 <button onClick={() => setShowModelSelector(true)}
-                  className="w-full flex items-center justify-between px-4 py-3 rounded-xl border border-white/8 bg-white/[0.02] hover:bg-white/[0.04] hover:border-white/15 transition-all">
+                  className="w-full flex items-center justify-between px-4 py-3 rounded-xl border border-zinc-200 dark:border-white/8 bg-white dark:bg-white/[0.02] hover:bg-zinc-50 dark:hover:bg-white/[0.04] hover:border-zinc-300 dark:hover:border-white/15 transition-all">
                   <div>
-                    <p className="text-[13px] text-white font-medium">{selectedCreate.name}</p>
+                    <p className="text-[13px] text-zinc-900 dark:text-white font-medium">{selectedCreate.name}</p>
                   </div>
-                  <ChevronDown size={14} className="text-white/30" />
+                  <ChevronDown size={14} className="text-zinc-400 dark:text-white/30" />
                 </button>
               </div>
 
               {/* Resolution + Ratio row */}
               <div className="flex gap-3">
-                <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-white/8 bg-white/[0.02]">
+                <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-zinc-200 dark:border-white/8 bg-white dark:bg-white/[0.02]">
                   <span className="text-[10px] text-[#c8ff00]">&#9670;</span>
-                  <select value={createResolution} onChange={e => setCreateResolution(e.target.value)} className="bg-transparent text-white text-[12px] font-medium outline-none cursor-pointer">
-                    <option value="720p" className="bg-[#151515]">720p</option>
-                    <option value="1080p" className="bg-[#151515]">1080p</option>
+                  <select value={createResolution} onChange={e => setCreateResolution(e.target.value)} className="bg-transparent text-zinc-800 dark:text-white text-[12px] font-medium outline-none cursor-pointer">
+                    <option value="720p" className="bg-white dark:bg-[#151515]">720p</option>
+                    <option value="1080p" className="bg-white dark:bg-[#151515]">1080p</option>
                   </select>
                 </div>
-                <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-white/8 bg-white/[0.02]">
-                  <MonitorPlay size={12} className="text-white/30" />
-                  <select value={createAspectRatio} onChange={e => setCreateAspectRatio(e.target.value)} className="bg-transparent text-white text-[12px] font-medium outline-none cursor-pointer">
-                    {selectedCreate.aspectRatios.map(ar => <option key={ar} value={ar} className="bg-[#151515]">{ar}</option>)}
+                <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-zinc-200 dark:border-white/8 bg-white dark:bg-white/[0.02]">
+                  <MonitorPlay size={12} className="text-zinc-400 dark:text-white/30" />
+                  <select value={createAspectRatio} onChange={e => setCreateAspectRatio(e.target.value)} className="bg-transparent text-zinc-800 dark:text-white text-[12px] font-medium outline-none cursor-pointer">
+                    {selectedCreate.aspectRatios.map(ar => <option key={ar} value={ar} className="bg-white dark:bg-[#151515]">{ar}</option>)}
                   </select>
                 </div>
                 {selectedCreate.durationOptions.length > 1 && (
-                  <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-white/8 bg-white/[0.02]">
-                    <Clock size={12} className="text-white/30" />
-                    <select value={createDuration} onChange={e => setCreateDuration(Number(e.target.value))} className="bg-transparent text-white text-[12px] font-medium outline-none cursor-pointer">
-                      {selectedCreate.durationOptions.map(d => <option key={d} value={d} className="bg-[#151515]">{d}s</option>)}
+                  <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-zinc-200 dark:border-white/8 bg-white dark:bg-white/[0.02]">
+                    <Clock size={12} className="text-zinc-400 dark:text-white/30" />
+                    <select value={createDuration} onChange={e => setCreateDuration(Number(e.target.value))} className="bg-transparent text-zinc-800 dark:text-white text-[12px] font-medium outline-none cursor-pointer">
+                      {selectedCreate.durationOptions.map(d => <option key={d} value={d} className="bg-white dark:bg-[#151515]">{d}s</option>)}
                     </select>
                   </div>
                 )}
@@ -929,7 +929,7 @@ export const FalVideoPage: React.FC<FalVideoPageProps> = ({ initialImage }) => {
                 <div className="flex items-center justify-between px-1">
                   <div className="flex items-center gap-2">
                     <Volume2 size={14} className={createAudio ? 'text-[#c8ff00]' : 'text-white/25'} />
-                    <span className="text-[12px] font-medium text-white/70">Generate Audio</span>
+                    <span className="text-[12px] font-medium text-zinc-600 dark:text-white/70">Generate Audio</span>
                   </div>
                   <button onClick={() => setCreateAudio(v => !v)}
                     className={`relative w-9 h-5 rounded-full transition-all ${createAudio ? 'bg-[#c8ff00]' : 'bg-white/10'}`}>
@@ -947,34 +947,34 @@ export const FalVideoPage: React.FC<FalVideoPageProps> = ({ initialImage }) => {
 
             {/* ──── EDIT TAB ──── */}
             {activeTab === 'edit' && (<>
-              <div className="px-4 py-3 rounded-2xl border border-white/10 bg-white/[0.02]">
-                <p className="text-[13px] font-bold text-white">Kling O1 Edit</p>
-                <p className="text-[10px] text-white/30 mt-1">Text-guided video editing</p>
+              <div className="px-4 py-3 rounded-2xl border border-zinc-200 dark:border-white/10 bg-white dark:bg-white/[0.02]">
+                <p className="text-[13px] font-bold text-zinc-900 dark:text-white">Kling O1 Edit</p>
+                <p className="text-[10px] text-zinc-400 dark:text-white/30 mt-1">Text-guided video editing</p>
               </div>
               <div>
-                <p className="text-[11px] text-white/40 font-medium mb-2">Source Video</p>
+                <p className="text-[11px] text-zinc-500 dark:text-white/40 font-medium mb-2">Source Video</p>
                 {editVideo ? (
                   <div className="relative group rounded-xl overflow-hidden border border-white/8">
                     <video src={editVideo} className="w-full h-32 object-cover" muted />
                     <button onClick={() => setEditVideo(null)} className="absolute top-2 right-2 w-6 h-6 bg-black/80 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 text-white hover:bg-red-600 transition-all"><X size={12} /></button>
                   </div>
                 ) : (
-                  <div className={`h-32 rounded-xl border-2 border-dashed flex flex-col items-center justify-center gap-2 cursor-pointer transition-all ${editVideoDrag ? 'border-brand bg-brand/5' : 'border-white/10 hover:border-white/20'}`}
+                  <div className={`h-32 rounded-xl border-2 border-dashed flex flex-col items-center justify-center gap-2 cursor-pointer transition-all ${editVideoDrag ? 'border-brand bg-brand/5' : 'border-zinc-300 dark:border-white/10 hover:border-zinc-400 dark:hover:border-white/20'}`}
                     onDragOver={e => { e.preventDefault(); setEditVideoDrag(true); }} onDragLeave={() => setEditVideoDrag(false)}
                     onDrop={e => { e.preventDefault(); setEditVideoDrag(false); const f = e.dataTransfer.files[0]; if (f) handleEditVideoFile(f); }}
                     onClick={() => editVideoRef.current?.click()}>
-                    <Video size={18} className="text-white/20" /><p className="text-[10px] text-white/30">Drop video or click</p>
+                    <Video size={18} className="text-zinc-300 dark:text-white/20" /><p className="text-[10px] text-zinc-400 dark:text-white/30">Drop video or click</p>
                     <input ref={editVideoRef} type="file" accept="video/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) handleEditVideoFile(f); }} />
                   </div>
                 )}
                 <div className="mt-2 flex items-center gap-1.5">
-                  <Link size={11} className="text-white/20 flex-shrink-0" />
-                  <input className="flex-1 bg-white/[0.03] border border-white/8 rounded-xl px-3 py-2 text-[11px] text-white/50 placeholder-white/15 outline-none focus:border-white/20 transition-colors" placeholder="Or paste video URL" value={editVideoUrl} onChange={e => { setEditVideoUrl(e.target.value); if (e.target.value) setEditVideo(null); }} onKeyDown={e => e.stopPropagation()} />
+                  <Link size={11} className="text-zinc-300 dark:text-white/20 flex-shrink-0" />
+                  <input className="flex-1 bg-white dark:bg-white/[0.03] border border-zinc-200 dark:border-white/8 rounded-xl px-3 py-2 text-[11px] text-zinc-600 dark:text-white/50 placeholder-zinc-300 dark:placeholder-white/15 outline-none focus:border-zinc-400 dark:focus:border-white/20 transition-colors" placeholder="Or paste video URL" value={editVideoUrl} onChange={e => { setEditVideoUrl(e.target.value); if (e.target.value) setEditVideo(null); }} onKeyDown={e => e.stopPropagation()} />
                 </div>
               </div>
               <div>
-                <p className="text-[11px] text-white/40 font-medium mb-1.5">Edit Instruction</p>
-                <textarea className="w-full bg-white/[0.03] border border-white/8 rounded-xl px-3 py-2.5 text-[12px] text-white/80 placeholder-white/20 outline-none resize-none focus:border-white/20 transition-colors" rows={3} placeholder="Change the sky to a sunset..." value={editPrompt} onChange={e => setEditPrompt(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleGenerate(); } e.stopPropagation(); }} />
+                <p className="text-[11px] text-zinc-500 dark:text-white/40 font-medium mb-1.5">Edit Instruction</p>
+                <textarea className="w-full bg-white dark:bg-white/[0.03] border border-zinc-200 dark:border-white/8 rounded-xl px-3 py-2.5 text-[12px] text-zinc-800 dark:text-white/80 placeholder-zinc-300 dark:placeholder-white/20 outline-none resize-none focus:border-zinc-400 dark:focus:border-white/20 transition-colors" rows={3} placeholder="Change the sky to a sunset..." value={editPrompt} onChange={e => setEditPrompt(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleGenerate(); } e.stopPropagation(); }} />
               </div>
               <button onClick={handleGenerate} disabled={!canStartNew || !editPrompt.trim()}
                 className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-[#c8ff00] text-black font-bold text-[14px] disabled:opacity-30 hover:brightness-110 active:scale-[0.98] transition-all">
@@ -985,64 +985,64 @@ export const FalVideoPage: React.FC<FalVideoPageProps> = ({ initialImage }) => {
             {/* ──── MOTION TAB ──── */}
             {activeTab === 'motion' && (<>
               <div>
-                <p className="text-[11px] text-white/40 font-medium mb-2">Model</p>
+                <p className="text-[11px] text-zinc-500 dark:text-white/40 font-medium mb-2">Model</p>
                 <div className="space-y-1.5">
                   {MOTION_MODELS.map(m => (
                     <button key={m.key} onClick={() => { setMotionModelKey(m.key); setMotionMedia(null); setMotionMediaUrl(''); setMotionCharImage(null); }}
-                      className={`w-full text-left px-3.5 py-2.5 rounded-xl border transition-all ${motionModelKey === m.key ? 'border-brand/40 bg-brand/5' : 'border-white/8 bg-white/[0.02] hover:border-white/15'}`}>
+                      className={`w-full text-left px-3.5 py-2.5 rounded-xl border transition-all ${motionModelKey === m.key ? 'border-brand/40 bg-brand/5' : 'border-zinc-200 dark:border-white/8 bg-white dark:bg-white/[0.02] hover:border-zinc-300 dark:hover:border-white/15'}`}>
                       <div className="flex items-center justify-between">
-                        <span className={`text-[12px] font-medium ${motionModelKey === m.key ? 'text-brand' : 'text-white/80'}`}>{m.name}</span>
+                        <span className={`text-[12px] font-medium ${motionModelKey === m.key ? 'text-brand' : 'text-zinc-700 dark:text-white/80'}`}>{m.name}</span>
                         <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded uppercase ${m.badgeColor}`}>{m.badge}</span>
                       </div>
-                      <p className="text-[10px] text-white/30 mt-0.5">{m.description}</p>
+                      <p className="text-[10px] text-zinc-400 dark:text-white/30 mt-0.5">{m.description}</p>
                     </button>
                   ))}
                 </div>
               </div>
               {/* Media upload for motion */}
               <div>
-                <p className="text-[11px] text-white/40 font-medium mb-2">{selectedMotion.acceptsVideo ? 'Reference Video' : 'Reference Image'}</p>
+                <p className="text-[11px] text-zinc-500 dark:text-white/40 font-medium mb-2">{selectedMotion.acceptsVideo ? 'Reference Video' : 'Reference Image'}</p>
                 {motionMedia ? (
                   <div className="relative group rounded-xl overflow-hidden border border-white/8 h-24">
                     {selectedMotion.acceptsVideo ? <video src={motionMedia} className="w-full h-full object-cover" muted /> : <img src={motionMedia} alt="Ref" className="w-full h-full object-cover" />}
                     <button onClick={() => setMotionMedia(null)} className="absolute top-1.5 right-1.5 w-5 h-5 bg-black/70 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 text-white hover:bg-red-600 transition-all"><X size={9} /></button>
                   </div>
                 ) : (
-                  <div className={`h-24 rounded-xl border-2 border-dashed flex flex-col items-center justify-center gap-1.5 cursor-pointer transition-all ${motionMediaDrag ? 'border-brand bg-brand/5' : 'border-white/10 hover:border-white/20'}`}
+                  <div className={`h-24 rounded-xl border-2 border-dashed flex flex-col items-center justify-center gap-1.5 cursor-pointer transition-all ${motionMediaDrag ? 'border-brand bg-brand/5' : 'border-zinc-300 dark:border-white/10 hover:border-zinc-400 dark:hover:border-white/20'}`}
                     onDragOver={e => { e.preventDefault(); setMotionMediaDrag(true); }} onDragLeave={() => setMotionMediaDrag(false)}
                     onDrop={e => { e.preventDefault(); setMotionMediaDrag(false); const f = e.dataTransfer.files[0]; if (f) handleMotionMediaFile(f); }}
                     onClick={() => motionMediaRef.current?.click()}>
-                    <Upload size={16} className="text-white/20" /><p className="text-[10px] text-white/30">Drop file or click</p>
+                    <Upload size={16} className="text-zinc-300 dark:text-white/20" /><p className="text-[10px] text-zinc-400 dark:text-white/30">Drop file or click</p>
                     <input ref={motionMediaRef} type="file" accept={selectedMotion.acceptsVideo ? 'video/*' : 'image/*'} className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) handleMotionMediaFile(f); }} />
                   </div>
                 )}
               </div>
               {motionModelKey === 'kling-motion' && (
                 <div>
-                  <p className="text-[11px] text-white/40 font-medium mb-2">Character Image</p>
+                  <p className="text-[11px] text-zinc-500 dark:text-white/40 font-medium mb-2">Character Image</p>
                   {motionCharImage ? (
                     <div className="relative group rounded-xl overflow-hidden border border-white/8 h-20">
                       <img src={motionCharImage} alt="Char" className="w-full h-full object-cover" />
                       <button onClick={() => setMotionCharImage(null)} className="absolute top-1 right-1 w-5 h-5 bg-black/70 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 text-white hover:bg-red-600 transition-all"><X size={9} /></button>
                     </div>
                   ) : (
-                    <div className={`h-20 rounded-xl border-2 border-dashed flex flex-col items-center justify-center gap-1.5 cursor-pointer transition-all ${motionCharImageDrag ? 'border-brand bg-brand/5' : 'border-white/10 hover:border-white/20'}`}
+                    <div className={`h-20 rounded-xl border-2 border-dashed flex flex-col items-center justify-center gap-1.5 cursor-pointer transition-all ${motionCharImageDrag ? 'border-brand bg-brand/5' : 'border-zinc-300 dark:border-white/10 hover:border-zinc-400 dark:hover:border-white/20'}`}
                       onDragOver={e => { e.preventDefault(); setMotionCharImageDrag(true); }} onDragLeave={() => setMotionCharImageDrag(false)}
                       onDrop={e => { e.preventDefault(); setMotionCharImageDrag(false); const f = e.dataTransfer.files[0]; if (f) handleMotionCharImageFile(f); }}
                       onClick={() => motionCharImageRef.current?.click()}>
-                      <ImageIcon size={14} className="text-white/20" /><p className="text-[10px] text-white/30">Drop character image</p>
+                      <ImageIcon size={14} className="text-zinc-300 dark:text-white/20" /><p className="text-[10px] text-zinc-400 dark:text-white/30">Drop character image</p>
                       <input ref={motionCharImageRef} type="file" accept="image/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) handleMotionCharImageFile(f); }} />
                     </div>
                   )}
                 </div>
               )}
               <div>
-                <p className="text-[11px] text-white/40 font-medium mb-1.5">Motion Prompt</p>
-                <textarea className="w-full bg-white/[0.03] border border-white/8 rounded-xl px-3 py-2.5 text-[12px] text-white/80 placeholder-white/20 outline-none resize-none focus:border-white/20 transition-colors" rows={3} placeholder="Slow cinematic zoom..." value={motionPrompt} onChange={e => setMotionPrompt(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleGenerate(); } e.stopPropagation(); }} />
+                <p className="text-[11px] text-zinc-500 dark:text-white/40 font-medium mb-1.5">Motion Prompt</p>
+                <textarea className="w-full bg-white dark:bg-white/[0.03] border border-zinc-200 dark:border-white/8 rounded-xl px-3 py-2.5 text-[12px] text-zinc-800 dark:text-white/80 placeholder-zinc-300 dark:placeholder-white/20 outline-none resize-none focus:border-zinc-400 dark:focus:border-white/20 transition-colors" rows={3} placeholder="Slow cinematic zoom..." value={motionPrompt} onChange={e => setMotionPrompt(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleGenerate(); } e.stopPropagation(); }} />
                 {/* Presets */}
                 <div className="flex flex-wrap gap-1.5 mt-2">
                   {MOTION_PRESETS.map(p => (
-                    <button key={p.label} onClick={() => appendPreset(p.text)} className="px-2.5 py-1 rounded-full text-[9px] font-medium border border-white/8 text-white/30 hover:text-white/60 hover:border-white/20 transition-all">{p.label}</button>
+                    <button key={p.label} onClick={() => appendPreset(p.text)} className="px-2.5 py-1 rounded-full text-[9px] font-medium border border-zinc-200 dark:border-white/8 text-zinc-400 dark:text-white/30 hover:text-zinc-600 dark:hover:text-white/60 hover:border-zinc-300 dark:hover:border-white/20 transition-all">{p.label}</button>
                   ))}
                 </div>
               </div>
@@ -1055,17 +1055,17 @@ export const FalVideoPage: React.FC<FalVideoPageProps> = ({ initialImage }) => {
 
           {/* Status bar at bottom of sidebar — shows all active jobs */}
           {activeJobs.length > 0 && (
-            <div className="flex-shrink-0 border-t border-white/[0.06] max-h-[140px] overflow-y-auto scrollbar-hide">
+            <div className="flex-shrink-0 border-t border-zinc-200 dark:border-white/[0.06] max-h-[140px] overflow-y-auto scrollbar-hide">
               {activeJobs.map(job => {
                 const cfg = getStatusCfg(job);
                 return (
-                  <div key={job.id} className="flex items-center gap-2 px-5 py-2.5 border-b border-white/[0.03]">
+                  <div key={job.id} className="flex items-center gap-2 px-5 py-2.5 border-b border-zinc-100 dark:border-white/[0.03]">
                     <span className="w-1.5 h-1.5 rounded-full bg-brand animate-pulse flex-shrink-0" />
                     <div className="flex-1 min-w-0">
                       <span className={`text-[11px] font-medium ${cfg?.color || 'text-white/50'} truncate block`}>{cfg?.label || 'Processing...'}</span>
-                      <span className="text-[9px] text-white/20 truncate block">{job.modelName} — {job.prompt.slice(0, 30)}{job.prompt.length > 30 ? '...' : ''}</span>
+                      <span className="text-[9px] text-zinc-400 dark:text-white/20 truncate block">{job.modelName} — {job.prompt.slice(0, 30)}{job.prompt.length > 30 ? '...' : ''}</span>
                     </div>
-                    <button onClick={() => handleCancel(job.id)} className="text-[10px] text-white/25 hover:text-red-400 transition-colors flex-shrink-0">Cancel</button>
+                    <button onClick={() => handleCancel(job.id)} className="text-[10px] text-zinc-400 dark:text-white/25 hover:text-red-400 transition-colors flex-shrink-0">Cancel</button>
                   </div>
                 );
               })}
@@ -1109,7 +1109,7 @@ export const FalVideoPage: React.FC<FalVideoPageProps> = ({ initialImage }) => {
                 const cfg = getStatusCfg(job);
                 const progressW = job.status === 'done' ? '100%' : job.status === 'processing' ? '75%' : job.status === 'queued' ? '35%' : job.status === 'submitting' ? '10%' : '15%';
                 return (
-                  <div key={job.id} className="flex items-center gap-4 px-5 py-4 rounded-2xl bg-white/[0.02] border border-white/[0.06]">
+                  <div key={job.id} className="flex items-center gap-4 px-5 py-4 rounded-2xl bg-zinc-50 dark:bg-white/[0.02] border border-zinc-200 dark:border-white/[0.06]">
                     <div className="relative flex-shrink-0">
                       <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[#c8ff00]/20 to-[#c8ff00]/5 border border-[#c8ff00]/30 flex items-center justify-center">
                         <Film size={20} className="text-[#c8ff00]" />
@@ -1120,12 +1120,12 @@ export const FalVideoPage: React.FC<FalVideoPageProps> = ({ initialImage }) => {
                       <div className={`flex items-center gap-2 text-[12px] font-medium ${cfg?.color || 'text-white/50'}`}>
                         <Loader2 size={12} className="animate-spin" />{cfg?.label || 'Processing...'}
                       </div>
-                      <p className="text-[10px] text-white/25 mt-0.5 truncate">{job.modelName} — {job.prompt.slice(0, 50)}</p>
-                      <div className="w-full h-0.5 bg-white/8 rounded-full overflow-hidden mt-1.5">
+                      <p className="text-[10px] text-zinc-400 dark:text-white/25 mt-0.5 truncate">{job.modelName} — {job.prompt.slice(0, 50)}</p>
+                      <div className="w-full h-0.5 bg-zinc-200 dark:bg-white/8 rounded-full overflow-hidden mt-1.5">
                         <div className="h-full bg-gradient-to-r from-[#c8ff00]/60 to-[#c8ff00]" style={{ width: progressW, transition: 'width 1s ease' }} />
                       </div>
                     </div>
-                    <button onClick={() => handleCancel(job.id)} className="text-[10px] text-white/20 hover:text-red-400 transition-colors border border-white/8 rounded-full px-3 py-1 hover:border-red-500/30 flex-shrink-0">Cancel</button>
+                    <button onClick={() => handleCancel(job.id)} className="text-[10px] text-zinc-400 dark:text-white/20 hover:text-red-400 transition-colors border border-zinc-200 dark:border-white/8 rounded-full px-3 py-1 hover:border-red-500/30 flex-shrink-0">Cancel</button>
                   </div>
                 );
               })}
@@ -1140,8 +1140,8 @@ export const FalVideoPage: React.FC<FalVideoPageProps> = ({ initialImage }) => {
             /* ── Projects-only view: must create/open a project to generate ── */
             <div className="flex-1 overflow-y-auto p-4">
               <div className="mb-3">
-                <p className="text-[11px] text-white/25 font-medium uppercase tracking-wider mb-2">Projects</p>
-                <p className="text-white/15 text-[11px] mb-4">Create or open a project to start generating videos</p>
+                <p className="text-[11px] text-zinc-400 dark:text-white/25 font-medium uppercase tracking-wider mb-2">Projects</p>
+                <p className="text-zinc-400 dark:text-white/15 text-[11px] mb-4">Create or open a project to start generating videos</p>
               </div>
               <VideoProjectGrid />
             </div>
@@ -1154,31 +1154,31 @@ export const FalVideoPage: React.FC<FalVideoPageProps> = ({ initialImage }) => {
         {showModelSelector && (
           <>
             {/* Backdrop */}
-            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm z-40" onClick={() => setShowModelSelector(false)} />
+            <div className="absolute inset-0 bg-black/30 dark:bg-black/60 backdrop-blur-sm z-40" onClick={() => setShowModelSelector(false)} />
 
             {/* Selector panel */}
-            <div ref={selectorRef} className="absolute left-1/2 top-4 -translate-x-1/2 z-50 w-[680px] max-h-[calc(100%-32px)] flex flex-col rounded-2xl bg-[#151515] border border-white/10 shadow-[0_40px_80px_-20px_rgba(0,0,0,0.9)] overflow-hidden">
+            <div ref={selectorRef} className="absolute left-1/2 top-4 -translate-x-1/2 z-50 w-[680px] max-h-[calc(100%-32px)] flex flex-col rounded-2xl bg-white dark:bg-[#151515] border border-zinc-200 dark:border-white/10 shadow-[0_40px_80px_-20px_rgba(0,0,0,0.2)] dark:shadow-[0_40px_80px_-20px_rgba(0,0,0,0.9)] overflow-hidden">
 
               {/* Search bar */}
-              <div className="px-4 pt-4 pb-3 flex-shrink-0 border-b border-white/[0.06]">
-                <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl bg-white/[0.04] border border-white/8">
-                  <Search size={15} className="text-white/25" />
-                  <input className="flex-1 bg-transparent text-[13px] text-white placeholder-white/25 outline-none" placeholder="Search..." value={modelSearch} onChange={e => setModelSearch(e.target.value)} onKeyDown={e => e.stopPropagation()} autoFocus />
-                  {modelSearch && <button onClick={() => setModelSearch('')} className="text-white/20 hover:text-white/50"><X size={14} /></button>}
+              <div className="px-4 pt-4 pb-3 flex-shrink-0 border-b border-zinc-200 dark:border-white/[0.06]">
+                <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl bg-zinc-100 dark:bg-white/[0.04] border border-zinc-200 dark:border-white/8">
+                  <Search size={15} className="text-zinc-400 dark:text-white/25" />
+                  <input className="flex-1 bg-transparent text-[13px] text-zinc-800 dark:text-white placeholder-zinc-400 dark:placeholder-white/25 outline-none" placeholder="Search..." value={modelSearch} onChange={e => setModelSearch(e.target.value)} onKeyDown={e => e.stopPropagation()} autoFocus />
+                  {modelSearch && <button onClick={() => setModelSearch('')} className="text-zinc-400 dark:text-white/20 hover:text-zinc-600 dark:hover:text-white/50"><X size={14} /></button>}
                 </div>
               </div>
 
               {/* All models label */}
               <div className="px-5 py-2 flex items-center gap-2 flex-shrink-0">
-                <MonitorPlay size={13} className="text-white/20" />
-                <span className="text-[11px] text-white/30 font-medium">All models</span>
+                <MonitorPlay size={13} className="text-zinc-400 dark:text-white/20" />
+                <span className="text-[11px] text-zinc-400 dark:text-white/30 font-medium">All models</span>
               </div>
 
               {/* Two-column layout: groups left, variants right */}
               <div className="flex-1 flex overflow-hidden min-h-0" style={{ maxHeight: '460px' }}>
 
                 {/* Left: Group list */}
-                <div className="w-[300px] flex-shrink-0 overflow-y-auto scrollbar-hide border-r border-white/[0.06]">
+                <div className="w-[300px] flex-shrink-0 overflow-y-auto scrollbar-hide border-r border-zinc-200 dark:border-white/[0.06]">
                   {filteredGroups.map(g => {
                     const models = getGroupModels(g.name);
                     const isHovered = hoveredGroup === g.name;
@@ -1186,23 +1186,23 @@ export const FalVideoPage: React.FC<FalVideoPageProps> = ({ initialImage }) => {
                     return (
                       <div key={g.name}
                         onMouseEnter={() => setHoveredGroup(g.name)}
-                        className={`flex items-center gap-3 px-5 py-3.5 cursor-pointer transition-all ${isHovered ? 'bg-white/[0.04]' : 'hover:bg-white/[0.02]'}`}
+                        className={`flex items-center gap-3 px-5 py-3.5 cursor-pointer transition-all ${isHovered ? 'bg-zinc-100 dark:bg-white/[0.04]' : 'hover:bg-zinc-50 dark:hover:bg-white/[0.02]'}`}
                         onClick={() => { if (models.length === 1) selectModel(models[0].key); }}>
-                        <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${isHovered || hasSelected ? 'bg-white/8' : 'bg-white/[0.03]'}`}>
-                          <Film size={16} className={isHovered || hasSelected ? 'text-white/60' : 'text-white/20'} />
+                        <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${isHovered || hasSelected ? 'bg-zinc-200 dark:bg-white/8' : 'bg-zinc-100 dark:bg-white/[0.03]'}`}>
+                          <Film size={16} className={isHovered || hasSelected ? 'text-zinc-500 dark:text-white/60' : 'text-zinc-300 dark:text-white/20'} />
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className={`text-[13px] font-medium ${isHovered || hasSelected ? 'text-white' : 'text-white/70'}`}>{g.name}</p>
-                          <p className="text-[10px] text-white/25 truncate">{g.description}</p>
+                          <p className={`text-[13px] font-medium ${isHovered || hasSelected ? 'text-zinc-900 dark:text-white' : 'text-zinc-600 dark:text-white/70'}`}>{g.name}</p>
+                          <p className="text-[10px] text-zinc-400 dark:text-white/25 truncate">{g.description}</p>
                           {/* Show resolution/duration for single-model groups */}
                           {models.length === 1 && (
                             <div className="flex items-center gap-2 mt-0.5">
-                              <span className="flex items-center gap-1 text-[9px] text-white/20"><span className="w-1 h-1 rounded-full bg-[#c8ff00]/50" />{models[0].resolution}</span>
-                              <span className="flex items-center gap-1 text-[9px] text-white/20"><Clock size={8} />{models[0].durationRange}</span>
+                              <span className="flex items-center gap-1 text-[9px] text-zinc-400 dark:text-white/20"><span className="w-1 h-1 rounded-full bg-[#c8ff00]/50" />{models[0].resolution}</span>
+                              <span className="flex items-center gap-1 text-[9px] text-zinc-400 dark:text-white/20"><Clock size={8} />{models[0].durationRange}</span>
                             </div>
                           )}
                         </div>
-                        {models.length > 1 && <ChevronDown size={13} className="text-white/15 -rotate-90 flex-shrink-0" />}
+                        {models.length > 1 && <ChevronDown size={13} className="text-zinc-300 dark:text-white/15 -rotate-90 flex-shrink-0" />}
                       </div>
                     );
                   })}
@@ -1214,7 +1214,7 @@ export const FalVideoPage: React.FC<FalVideoPageProps> = ({ initialImage }) => {
                     const group = hoveredGroup || selectedCreate.group;
                     const models = getGroupModels(group);
                     if (models.length <= 1) return (
-                      <div className="flex items-center justify-center h-full text-white/15 text-[12px]">
+                      <div className="flex items-center justify-center h-full text-zinc-300 dark:text-white/15 text-[12px]">
                         Hover a group to see models
                       </div>
                     );
@@ -1224,24 +1224,24 @@ export const FalVideoPage: React.FC<FalVideoPageProps> = ({ initialImage }) => {
                           const isSelected = createModelKey === m.key;
                           return (
                             <button key={m.key} onClick={() => selectModel(m.key)}
-                              className={`w-full flex items-start gap-3 px-5 py-3 text-left transition-all ${isSelected ? 'bg-white/[0.04]' : 'hover:bg-white/[0.03]'}`}>
+                              className={`w-full flex items-start gap-3 px-5 py-3 text-left transition-all ${isSelected ? 'bg-zinc-100 dark:bg-white/[0.04]' : 'hover:bg-zinc-50 dark:hover:bg-white/[0.03]'}`}>
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2 flex-wrap">
-                                  <span className={`text-[13px] font-medium ${isSelected ? 'text-white' : 'text-white/80'}`}>{m.name}</span>
-                                  {m.hasAudio && <Volume2 size={12} className="text-white/30" />}
+                                  <span className={`text-[13px] font-medium ${isSelected ? 'text-zinc-900 dark:text-white' : 'text-zinc-700 dark:text-white/80'}`}>{m.name}</span>
+                                  {m.hasAudio && <Volume2 size={12} className="text-zinc-400 dark:text-white/30" />}
                                   {m.isExclusive && (
                                     <span className="text-[8px] font-black px-1.5 py-0.5 rounded bg-[#c8ff00] text-black uppercase tracking-wider">EXCLUSIVE</span>
                                   )}
                                 </div>
                                 <div className="flex items-center gap-3 mt-1">
-                                  <span className="flex items-center gap-1 text-[10px] text-white/25">
+                                  <span className="flex items-center gap-1 text-[10px] text-zinc-400 dark:text-white/25">
                                     <span className="w-1.5 h-1.5 rounded-full bg-[#c8ff00]/50" />{m.resolution}
                                   </span>
-                                  <span className="flex items-center gap-1 text-[10px] text-white/25">
+                                  <span className="flex items-center gap-1 text-[10px] text-zinc-400 dark:text-white/25">
                                     <Clock size={9} />{m.durationRange}
                                   </span>
                                   {m.isEditModel && (
-                                    <span className="flex items-center gap-1 text-[8px] font-bold px-1.5 py-0.5 rounded bg-white/8 text-white/50 uppercase">
+                                    <span className="flex items-center gap-1 text-[8px] font-bold px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-white/8 text-zinc-500 dark:text-white/50 uppercase">
                                       <Scissors size={8} /> Edit Video
                                     </span>
                                   )}

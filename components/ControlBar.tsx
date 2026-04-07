@@ -322,7 +322,7 @@ export const ControlBar: React.FC<ControlBarProps> = ({
 
             {/* Model popup */}
             {activePopup === 'model' && (
-              <div className="absolute bottom-0 left-0 bg-[#1a1a1a] border border-border-base rounded-[24px] w-80 shadow-2xl overflow-hidden animate-scale-in origin-bottom-left">
+              <div className="absolute bottom-0 left-0 bg-white dark:bg-[#1a1a1a] border border-border-base rounded-[24px] w-80 shadow-2xl overflow-hidden animate-scale-in origin-bottom-left">
                 <div className="flex justify-between items-center p-4 border-b border-border-base bg-surface/50">
                   <span className="text-xs font-bold uppercase tracking-wider text-text-secondary">Select model</span>
                   <button onClick={() => setActivePopup(null)} className="p-1 rounded-full"><X size={14} className="text-text-secondary" /></button>
@@ -350,7 +350,7 @@ export const ControlBar: React.FC<ControlBarProps> = ({
 
             {/* Aspect popup */}
             {activePopup === 'aspect' && showAspectRatio && (
-              <div className="absolute bottom-0 left-44 bg-[#1a1a1a] border border-border-base rounded-[20px] w-48 shadow-2xl animate-scale-in origin-bottom-left p-2">
+              <div className="absolute bottom-0 left-44 bg-white dark:bg-[#1a1a1a] border border-border-base rounded-[20px] w-48 shadow-2xl animate-scale-in origin-bottom-left p-2">
                 <div className="text-[10px] font-bold uppercase text-text-secondary px-3 py-2">Aspect ratio</div>
                 {filteredAspectRatios.map(ratio => (
                   <button key={ratio.value} onClick={() => { setConfig(prev => ({ ...prev, aspectRatio: ratio.value })); setActivePopup(null); }}
@@ -364,7 +364,7 @@ export const ControlBar: React.FC<ControlBarProps> = ({
 
             {/* Brand Context popup */}
             {activePopup === 'brand' && onSwitchBrand && (
-              <div className="absolute bottom-0 right-32 bg-[#1a1a1a] border border-brand/30 rounded-[20px] w-64 shadow-2xl animate-scale-in origin-bottom-right p-2">
+              <div className="absolute bottom-0 right-32 bg-white dark:bg-[#1a1a1a] border border-brand/30 rounded-[20px] w-64 shadow-2xl animate-scale-in origin-bottom-right p-2">
                 <div className="text-[10px] font-bold uppercase text-brand px-3 py-2 tracking-widest flex items-center gap-2">
                   <Sparkles size={12} /> Inject Brand DNA
                 </div>
@@ -388,7 +388,7 @@ export const ControlBar: React.FC<ControlBarProps> = ({
 
             {/* Character selector popup */}
             {activePopup === 'character' && (
-              <div className="absolute bottom-0 right-48 bg-[#1a1a1a] border border-white/10 rounded-[20px] w-64 shadow-2xl animate-scale-in origin-bottom-right p-2">
+              <div className="absolute bottom-0 right-48 bg-white dark:bg-[#1a1a1a] border border-border-base rounded-[20px] w-64 shadow-2xl animate-scale-in origin-bottom-right p-2">
                 <div className="text-[10px] font-bold uppercase text-text-secondary px-3 py-2 tracking-widest flex items-center gap-2">
                   <Users size={12} /> Select Character
                 </div>
@@ -409,7 +409,7 @@ export const ControlBar: React.FC<ControlBarProps> = ({
 
             {/* Product selector popup */}
             {activePopup === 'product' && activeBrandProducts.length > 0 && (
-              <div className="absolute bottom-0 right-64 bg-[#1a1a1a] border border-white/10 rounded-[20px] w-64 shadow-2xl animate-scale-in origin-bottom-right p-2">
+              <div className="absolute bottom-0 right-64 bg-white dark:bg-[#1a1a1a] border border-border-base rounded-[20px] w-64 shadow-2xl animate-scale-in origin-bottom-right p-2">
                 <div className="text-[10px] font-bold uppercase text-text-secondary px-3 py-2 tracking-widest flex items-center gap-2">
                   📦 Select Product
                 </div>
@@ -428,11 +428,11 @@ export const ControlBar: React.FC<ControlBarProps> = ({
 
             {/* Quality popup */}
             {activePopup === 'quality' && (
-              <div className="absolute bottom-0 left-64 bg-[#1a1a1a] border border-white/10 rounded-[20px] w-40 shadow-2xl animate-scale-in origin-bottom-left p-2">
+              <div className="absolute bottom-0 left-64 bg-white dark:bg-[#1a1a1a] border border-border-base rounded-[20px] w-40 shadow-2xl animate-scale-in origin-bottom-left p-2">
                 <div className="text-[10px] font-bold uppercase text-brand px-3 py-2">Quality</div>
                 {(['1K', '2K', '4K'] as const).map(q => (
                   <button key={q} onClick={() => { setConfig(prev => ({ ...prev, quality: q })); setActivePopup(null); }}
-                    className={`w-full text-left px-3 py-2.5 rounded-lg flex items-center justify-between text-xs font-medium transition-colors ${config.quality === q ? 'bg-white/10 text-white' : 'text-white/60 hover:bg-white/5 hover:text-white'}`}>
+                    className={`w-full text-left px-3 py-2.5 rounded-lg flex items-center justify-between text-xs font-medium transition-colors ${config.quality === q ? 'bg-surface text-text-primary' : 'text-text-secondary hover:bg-surface hover:text-text-primary'}`}>
                     {q}
                     {config.quality === q && <Check size={12} className="text-brand" />}
                   </button>
@@ -442,7 +442,7 @@ export const ControlBar: React.FC<ControlBarProps> = ({
 
             {/* Saved Prompts popup */}
             {activePopup === 'prompts' && (
-              <div className="absolute bottom-0 left-[350px] bg-[#1a1a1a] border border-border-base rounded-[24px] w-80 shadow-2xl overflow-hidden animate-scale-in origin-bottom-left">
+              <div className="absolute bottom-0 left-[350px] bg-white dark:bg-[#1a1a1a] border border-border-base rounded-[24px] w-80 shadow-2xl overflow-hidden animate-scale-in origin-bottom-left">
                 <div className="flex justify-between items-center p-4 border-b border-border-base bg-surface/50">
                   <span className="text-xs font-bold uppercase tracking-wider text-text-secondary flex items-center gap-2">
                     <Bookmark size={14} /> Saved Prompts
@@ -485,7 +485,7 @@ export const ControlBar: React.FC<ControlBarProps> = ({
             {/* Object Orientation popup */}
             {activePopup === 'object-rotate' && (
               <div
-                className="absolute bottom-0 left-[280px] bg-[#1a1a1a] border border-border-base rounded-[24px] w-[320px] shadow-2xl animate-scale-in origin-bottom-left"
+                className="absolute bottom-0 left-[280px] bg-white dark:bg-[#1a1a1a] border border-border-base rounded-[24px] w-[320px] shadow-2xl animate-scale-in origin-bottom-left"
                 style={{ bottom: `${popupPosition.bottom}px`, left: `${popupPosition.left}px`, width: `320px` }}
               >
                 <div className="flex justify-between items-center p-4 border-b border-border-base bg-surface/50">
@@ -533,7 +533,7 @@ export const ControlBar: React.FC<ControlBarProps> = ({
             {/* ✨ Perspective popup */}
             {activePopup === 'perspective' && (
               <div
-                className="absolute bottom-0 right-0 bg-[#1a1a1a] border border-brand/30 rounded-[24px] shadow-2xl animate-scale-in origin-bottom-right overflow-hidden"
+                className="absolute bottom-0 right-0 bg-white dark:bg-[#1a1a1a] border border-brand/30 rounded-[24px] shadow-2xl animate-scale-in origin-bottom-right overflow-hidden"
                 style={{ width: 380 }}
                 onMouseDown={e => e.stopPropagation()}
               >
@@ -656,7 +656,7 @@ export const ControlBar: React.FC<ControlBarProps> = ({
         </div>
 
         {/* ── Main bar ── */}
-        <div ref={visualBarRef} className="relative bg-panel/80 dark:bg-[#111]/90 backdrop-blur-2xl border border-black/5 dark:border-white/10 rounded-[28px] p-1.5 shadow-[0_20px_40px_-10px_rgba(0,0,0,0.3)]">
+        <div ref={visualBarRef} className="relative bg-white/90 dark:bg-[#111]/90 backdrop-blur-2xl border border-zinc-200 dark:border-white/10 rounded-[28px] p-1.5 shadow-[0_20px_40px_-10px_rgba(0,0,0,0.08)] dark:shadow-[0_20px_40px_-10px_rgba(0,0,0,0.3)]">
           <div className="flex flex-col gap-1.5">
 
             {/* Top row: images + textarea + generate */}
