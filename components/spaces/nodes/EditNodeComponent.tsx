@@ -1,17 +1,22 @@
 import React from 'react';
 import { Handle, Position, NodeProps, useReactFlow } from '@xyflow/react';
 import { EditNodeData } from '../../../types/spaces.types';
-import { Pencil } from 'lucide-react';
+import { Pencil, X } from 'lucide-react';
 import { NodeStatusBadge } from '../NodeStatusBadge';
 
 const ASPECT_RATIOS = ['1:1', '16:9', '9:16', '4:3'];
 
 export const EditNodeComponent: React.FC<NodeProps> = ({ id, data, selected }) => {
   const d = data as unknown as EditNodeData;
-  const { setNodes } = useReactFlow();
+  const { setNodes, setEdges } = useReactFlow();
 
   const update = (patch: Partial<EditNodeData>) =>
     setNodes(ns => ns.map(n => n.id === id ? { ...n, data: { ...n.data, ...patch } } : n));
+
+  const removeNode = () => {
+    setNodes(ns => ns.filter(n => n.id !== id));
+    setEdges(es => es.filter(e => e.source !== id && e.target !== id));
+  };
 
   return (
     <div className={`space-node w-72 ${selected ? 'space-node-selected' : ''}`}>
@@ -19,6 +24,9 @@ export const EditNodeComponent: React.FC<NodeProps> = ({ id, data, selected }) =
         <Pencil size={14} className="text-brand" />
         <span>Edit Image</span>
         <NodeStatusBadge status={d.status} />
+        <button onClick={removeNode} className="ml-auto p-0.5 rounded hover:bg-red-500/20 text-text-secondary hover:text-red-400 transition-colors" title="Remove node">
+          <X size={12} />
+        </button>
       </div>
 
       <div className="space-node-body">

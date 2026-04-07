@@ -5,11 +5,16 @@ import { Upload, X, ImageIcon } from 'lucide-react';
 
 export const ImageUploadNode: React.FC<NodeProps> = ({ id, data, selected }) => {
   const d = data as unknown as ImageUploadNodeData;
-  const { setNodes } = useReactFlow();
+  const { setNodes, setEdges } = useReactFlow();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const update = (patch: Partial<ImageUploadNodeData>) =>
     setNodes(ns => ns.map(n => n.id === id ? { ...n, data: { ...n.data, ...patch } } : n));
+
+  const removeNode = () => {
+    setNodes(ns => ns.filter(n => n.id !== id));
+    setEdges(es => es.filter(e => e.source !== id && e.target !== id));
+  };
 
   const handleFile = (file: File) => {
     if (!file.type.startsWith('image/')) return;
@@ -62,6 +67,9 @@ export const ImageUploadNode: React.FC<NodeProps> = ({ id, data, selected }) => 
             Ready
           </span>
         )}
+        <button onClick={removeNode} className={`${d.outputImage ? '' : 'ml-auto'} p-0.5 rounded hover:bg-red-500/20 text-text-secondary hover:text-red-400 transition-colors`} title="Remove node">
+          <X size={12} />
+        </button>
       </div>
 
       <div className="space-node-body">

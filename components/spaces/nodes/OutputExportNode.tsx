@@ -1,15 +1,20 @@
 import React from 'react';
 import { Handle, Position, NodeProps, useReactFlow } from '@xyflow/react';
 import { OutputExportNodeData } from '../../../types/spaces.types';
-import { Download } from 'lucide-react';
+import { Download, X } from 'lucide-react';
 import { NodeStatusBadge } from '../NodeStatusBadge';
 
 export const OutputExportNode: React.FC<NodeProps> = ({ id, data, selected }) => {
   const d = data as unknown as OutputExportNodeData;
-  const { setNodes } = useReactFlow();
+  const { setNodes, setEdges } = useReactFlow();
 
   const update = (patch: Partial<OutputExportNodeData>) =>
     setNodes(ns => ns.map(n => n.id === id ? { ...n, data: { ...n.data, ...patch } } : n));
+
+  const removeNode = () => {
+    setNodes(ns => ns.filter(n => n.id !== id));
+    setEdges(es => es.filter(e => e.source !== id && e.target !== id));
+  };
 
   return (
     <div className={`space-node w-56 ${selected ? 'space-node-selected' : ''}`}>
@@ -17,6 +22,9 @@ export const OutputExportNode: React.FC<NodeProps> = ({ id, data, selected }) =>
         <Download size={14} className="text-brand" />
         <span>Export</span>
         <NodeStatusBadge status={d.status} />
+        <button onClick={removeNode} className="ml-auto p-0.5 rounded hover:bg-red-500/20 text-text-secondary hover:text-red-400 transition-colors" title="Remove node">
+          <X size={12} />
+        </button>
       </div>
 
       <div className="space-node-body">

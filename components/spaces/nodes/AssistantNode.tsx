@@ -1,15 +1,20 @@
 import React from 'react';
 import { Handle, Position, NodeProps, useReactFlow } from '@xyflow/react';
 import { AssistantNodeData } from '../../../types/spaces.types';
-import { BrainCircuit, ImageIcon } from 'lucide-react';
+import { BrainCircuit, ImageIcon, X } from 'lucide-react';
 import { NodeStatusBadge } from '../NodeStatusBadge';
 
 export const AssistantNode: React.FC<NodeProps> = ({ id, data, selected }) => {
   const d = data as unknown as AssistantNodeData;
-  const { setNodes, getEdges, getNodes } = useReactFlow();
+  const { setNodes, setEdges, getEdges, getNodes } = useReactFlow();
 
   const update = (patch: Partial<AssistantNodeData>) =>
     setNodes(ns => ns.map(n => n.id === id ? { ...n, data: { ...n.data, ...patch } } : n));
+
+  const removeNode = () => {
+    setNodes(ns => ns.filter(n => n.id !== id));
+    setEdges(es => es.filter(e => e.source !== id && e.target !== id));
+  };
 
   // Check if an image is connected to idea-in (for the UI hint)
   const edges = getEdges();
@@ -33,6 +38,9 @@ export const AssistantNode: React.FC<NodeProps> = ({ id, data, selected }) => {
         <BrainCircuit size={14} className="text-brand" />
         <span>Creative Director</span>
         <NodeStatusBadge status={d.status} />
+        <button onClick={removeNode} className="ml-auto p-0.5 rounded hover:bg-red-500/20 text-text-secondary hover:text-red-400 transition-colors" title="Remove node">
+          <X size={12} />
+        </button>
       </div>
 
       <div className="space-node-body">

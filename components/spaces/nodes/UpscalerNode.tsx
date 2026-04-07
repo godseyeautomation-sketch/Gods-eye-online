@@ -1,15 +1,20 @@
 import React from 'react';
 import { Handle, Position, NodeProps, useReactFlow } from '@xyflow/react';
 import { UpscalerNodeData } from '../../../types/spaces.types';
-import { ArrowUpFromLine } from 'lucide-react';
+import { ArrowUpFromLine, X } from 'lucide-react';
 import { NodeStatusBadge } from '../NodeStatusBadge';
 
 export const UpscalerNode: React.FC<NodeProps> = ({ id, data, selected }) => {
   const d = data as unknown as UpscalerNodeData;
-  const { setNodes } = useReactFlow();
+  const { setNodes, setEdges } = useReactFlow();
 
   const update = (patch: Partial<UpscalerNodeData>) =>
     setNodes(ns => ns.map(n => n.id === id ? { ...n, data: { ...n.data, ...patch } } : n));
+
+  const removeNode = () => {
+    setNodes(ns => ns.filter(n => n.id !== id));
+    setEdges(es => es.filter(e => e.source !== id && e.target !== id));
+  };
 
   return (
     <div className={`space-node w-64 ${selected ? 'space-node-selected' : ''}`}>
@@ -17,6 +22,9 @@ export const UpscalerNode: React.FC<NodeProps> = ({ id, data, selected }) => {
         <ArrowUpFromLine size={14} className="text-brand" />
         <span>Upscaler</span>
         <NodeStatusBadge status={d.status} />
+        <button onClick={removeNode} className="ml-auto p-0.5 rounded hover:bg-red-500/20 text-text-secondary hover:text-red-400 transition-colors" title="Remove node">
+          <X size={12} />
+        </button>
       </div>
 
       <div className="space-node-body">
