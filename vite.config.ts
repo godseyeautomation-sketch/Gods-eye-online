@@ -324,6 +324,23 @@ export default defineConfig(({ mode }) => {
           target: 'http://localhost:3002',
           changeOrigin: true,
         },
+        // Autopilot pipeline proxy — long timeout for multi-stage agent runs (Scout/Priya)
+        '/api/pipeline': {
+          target: 'http://localhost:3002',
+          changeOrigin: true,
+          timeout: 300000, // 5 minutes
+          proxyTimeout: 300000,
+          configure: (proxy) => {
+            proxy.on('proxyReq', (_proxyReq, req) => {
+              (req as any).setTimeout?.(300000);
+            });
+          },
+        },
+        // Approval queue proxy
+        '/api/approval-queue': {
+          target: 'http://localhost:3002',
+          changeOrigin: true,
+        },
         // Local bridge server proxy (WebSocket + HTTP)
         '/bridge': {
           target: 'http://localhost:3456',

@@ -34,6 +34,7 @@ export const Header: React.FC<HeaderProps> = ({ currentMode, setMode, theme, tog
         { id: AppMode.BRAND, label: 'Brand', badge: 'NEW' },
         { id: AppMode.ADMIN, label: 'Admin' }, // Only visible to admins
         { id: AppMode.APPS, label: 'Apps', badge: 'NEW' },
+        { id: AppMode.AUTOPILOT, label: 'Agents', badge: 'NEW' },
         { id: AppMode.CONNECTORS, label: 'Connectors' },
     ];
 

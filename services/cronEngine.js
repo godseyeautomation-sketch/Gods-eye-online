@@ -16,6 +16,7 @@ import cron from 'node-cron';
 import { createClient } from '@supabase/supabase-js';
 import fs from 'fs';
 import path from 'path';
+import { executePipelineCycle, executeAutoApproveCheck } from './pipelineOrchestrator.js';
 
 // ── Supabase Admin Client (server-side, uses anon key) ──────────────────────
 const supabaseUrl = process.env.VITE_SUPABASE_URL;
@@ -68,6 +69,18 @@ const AGENT_TASKS = {
     description: 'Run a custom AI prompt on schedule',
     defaultCron: '0 12 * * *',
     executor: executeCustomAgent,
+  },
+  'autopilot-cycle': {
+    name: 'Autopilot Cycle',
+    description: 'Full autonomous pipeline: Scout → Create → Review → Approve Queue',
+    defaultCron: '0 6 * * *', // 6am daily
+    executor: executePipelineCycle,
+  },
+  'auto-approve-check': {
+    name: 'Auto-Approve Check',
+    description: 'Check approval queue for items past auto-approve deadline',
+    defaultCron: '*/15 * * * *', // every 15 min
+    executor: executeAutoApproveCheck,
   },
 };
 
@@ -700,4 +713,9 @@ export {
   listJobs,
   runNow,
   AGENT_TASKS,
+  // Shared helpers (used by pipelineOrchestrator)
+  callGemini,
+  loadBrandContext,
+  logExecution,
+  pushCronResultToChat,
 };

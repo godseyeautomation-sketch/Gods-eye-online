@@ -1,11 +1,33 @@
 export type ContentFormat = 'post' | 'story' | 'reel';
-export type SlotStatus = 'empty' | 'ideated' | 'briefed' | 'generated' | 'approved';
+export type SlotStatus = 'empty' | 'ideated' | 'briefed' | 'generated' | 'reviewed' | 'approved';
 
 /** A specific product/service the brand wants to promote, with a photo the user uploaded or confirmed. */
 export interface BrandProduct {
   id: string;
   name: string;           // user-assigned name e.g. "Signature Latte"
   imageDataUrl: string;   // base64 data URL — the locked reference photo
+}
+
+/** A competitor the Scout agent researches for this brand. */
+export interface BrandCompetitor {
+  id: string;
+  name: string;               // "Adidas"
+  instagram?: string;         // "adidas" (no @)
+  website?: string;           // "adidas.com"
+  notes?: string;
+}
+
+/** Scout agent's research output — consumed by Priya to generate calendar content. */
+export interface ScoutReport {
+  filename: string;           // downloadable .docx filename
+  generated_at: string;       // ISO date
+  scan_data: any;             // brand + competitor intel
+  weakness_data: any;         // opportunities & positioning
+  strategy_data: any;         // content pillars, calendar, hooks, scripts (Priya consumes this)
+  sources: { title: string; url: string }[];
+  competitors_analyzed: number;
+  content_pillars: number;
+  hooks_generated: number;
 }
 
 export interface BrandProfile {
@@ -36,6 +58,15 @@ export interface BrandProfile {
   overview: string;
   /** Background Extracted Rules — the Visual RAG text extracted from discarded Lifestyle Images */
   visual_style_rules?: string;
+  /** Brand's own Instagram handle, e.g. "nike" (no @) */
+  instagram_handle?: string;
+  /** Optional additional social presence */
+  facebook_url?: string;
+  tiktok_handle?: string;
+  /** Competitors the Scout agent researches (persisted with brand) */
+  competitors?: BrandCompetitor[];
+  /** Latest Scout research report — consumed by Priya */
+  scout_report?: ScoutReport | null;
   created_at: string;
   updated_at: string;
 }
@@ -68,6 +99,12 @@ export interface BrandDNA {
   visual_style_rules?: string;
   /** Auto-detected products from website scraping (Shopify API, JSON-LD, HTML cards) */
   _detected_products?: Array<{ name: string; imageUrl: string }>;
+  /** Brand's own Instagram handle, e.g. "nike" (no @) */
+  instagram_handle?: string;
+  facebook_url?: string;
+  tiktok_handle?: string;
+  /** Competitors the Scout agent researches (persisted with brand) */
+  competitors?: BrandCompetitor[];
 }
 
 export interface ContentBrief {
@@ -99,8 +136,124 @@ export interface ContentSlot {
   published_at?: string;
   /** Upload-Post request ID for tracking */
   publish_request_id?: string;
+  /** Pipeline integration fields (set by autopilot) */
+  pipeline_run_id?: string;
+  quality_scores?: QualityScores | null;
+  guardrail_flags?: GuardrailFlags | null;
+  dedup_score?: number;
+  variant_of?: string;
+  performance_data?: PostPerformanceData | null;
   created_at: string;
   updated_at: string;
+}
+
+// ── Autopilot Pipeline Types ─────────────────────────────────────────────────
+
+export interface QualityScores {
+  hook: number;
+  brand_voice: number;
+  cta_clarity: number;
+  uniqueness: number;
+  overall: number;
+  feedback?: string;
+}
+
+export interface GuardrailFlags {
+  compliance_ok: boolean;
+  issues: string[];
+}
+
+export interface PostPerformanceData {
+  likes?: number;
+  comments?: number;
+  shares?: number;
+  saves?: number;
+  impressions?: number;
+  reach?: number;
+  engagement_rate?: number;
+  [key: string]: any;
+}
+
+export type PipelineStage = 'scout' | 'create' | 'review' | 'approve' | 'publish' | 'analyze';
+export type PipelineStatus = 'running' | 'completed' | 'failed' | 'paused';
+export type ApprovalStatus = 'pending' | 'approved' | 'rejected' | 'auto_approved' | 'expired';
+
+export interface PipelineRun {
+  id: string;
+  user_id: string;
+  brand_id: string;
+  status: PipelineStatus;
+  current_stage: PipelineStage;
+  config: PipelineConfig;
+  stage_summary: Record<string, any>;
+  error_message?: string;
+  started_at: string;
+  completed_at?: string;
+  created_at: string;
+}
+
+export interface PipelineConfig {
+  platforms: SocialPlatform[];
+  post_count: number;
+  auto_approve_hours: number;
+  enable_ab_test: boolean;
+  competitors: { handle: string; platform?: string }[];
+}
+
+export interface PipelineStageLog {
+  id: string;
+  pipeline_run_id: string;
+  stage: PipelineStage;
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
+  input: Record<string, any>;
+  output: Record<string, any>;
+  duration_ms: number;
+  started_at?: string;
+  completed_at?: string;
+}
+
+export interface ApprovalQueueItem {
+  id: string;
+  user_id: string;
+  brand_id: string;
+  pipeline_run_id?: string;
+  slot_id?: string;
+  slot_date: string;
+  format: ContentFormat;
+  variant_group?: string;
+  variant_label?: 'A' | 'B' | null;
+  brief: ContentBrief | null;
+  generated_image?: string;
+  caption_preview?: string;
+  quality_scores: QualityScores | null;
+  guardrail_flags: GuardrailFlags | null;
+  dedup_score: number;
+  status: ApprovalStatus;
+  auto_approve_at?: string;
+  reviewer_notes?: string;
+  publish_platforms?: string[];
+  publish_scheduled_at?: string;
+  created_at: string;
+  resolved_at?: string;
+}
+
+export interface PerformanceSignal {
+  id: string;
+  user_id: string;
+  brand_id: string;
+  period_start: string;
+  period_end: string;
+  top_posts: any[];
+  bottom_posts: any[];
+  signals: {
+    what_worked: string[];
+    do_more: string[];
+    stop_doing: string[];
+    best_formats: string[];
+    best_themes: string[];
+  };
+  generated_briefs: any[];
+  created_at: string;
 }
 
 // ── Upload-Post / Social Media Types ─────────────────────────────────────────

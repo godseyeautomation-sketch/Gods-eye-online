@@ -5,6 +5,7 @@ import { generateBrief, upsertSlot } from '../../services/brandService';
 import { generateImage } from '../../services/geminiService';
 import { getUserGenerations } from '../../services/generationsService';
 import { SocialPublishPanel } from './SocialPublishPanel';
+import QualityScoreBadge from './QualityScoreBadge';
 
 interface Props {
   brand: BrandProfile;
@@ -485,6 +486,25 @@ export const SlotPanel: React.FC<Props> = ({ brand, userId, slotDate, format, ex
                   : <><ImageIcon size={14} /> Generate Image</>}
               </button>
             )}
+          </section>
+        )}
+
+        {/* ── Quality Scores (from Autopilot pipeline) ────────────────────── */}
+        {existing?.quality_scores && (
+          <section className="p-3 rounded-xl bg-zinc-800/50 border border-zinc-700/30 space-y-2">
+            <div className="flex items-center justify-between">
+              <h4 className="text-xs font-semibold text-zinc-300">Quality Review</h4>
+              {existing.pipeline_run_id && (
+                <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-violet-500/20 text-violet-400 border border-violet-500/20">
+                  Autopilot
+                </span>
+              )}
+            </div>
+            <QualityScoreBadge
+              scores={existing.quality_scores}
+              guardrails={existing.guardrail_flags}
+              dedupScore={existing.dedup_score}
+            />
           </section>
         )}
 

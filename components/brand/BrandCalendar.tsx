@@ -24,6 +24,7 @@ const STATUS_COLORS: Record<SlotStatus, string> = {
   ideated: 'bg-yellow-500/10 backdrop-blur-md border border-yellow-500/20 text-yellow-400',
   briefed: 'bg-blue-500/10 backdrop-blur-md border border-blue-500/20 text-blue-400',
   generated: 'bg-violet-500/10 backdrop-blur-md border border-violet-500/20 text-violet-400',
+  reviewed: 'bg-cyan-500/10 backdrop-blur-md border border-cyan-500/20 text-cyan-400',
   approved: 'bg-emerald-500/10 backdrop-blur-md border border-emerald-500/20 text-emerald-400',
 };
 
@@ -121,6 +122,7 @@ export const BrandCalendar: React.FC<Props> = ({ year, month, slots, onMonthChan
                         <span className="flex items-center gap-1 w-full">
                           <span className="flex-shrink-0">{FORMAT_ICONS[format]}</span>
                           <span className="capitalize">{format}</span>
+                          {slot?.pipeline_run_id && <span title="Autopilot generated" className="ml-auto text-[8px] text-violet-400">⚡</span>}
                         </span>
                         {slot?.idea && (
                           <span className="w-full mt-0.5 leading-tight opacity-75 line-clamp-2" style={{ fontSize: '8px', whiteSpace: 'normal', wordBreak: 'break-word' }}>

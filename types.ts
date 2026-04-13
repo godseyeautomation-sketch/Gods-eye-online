@@ -16,6 +16,7 @@ export enum AppMode {
   ANALYTICS = 'analytics',
   CRON_JOBS = 'cron_jobs',
   CONNECTORS = 'connectors',
+  AUTOPILOT = 'autopilot',
 }
 
 export enum ModelType {

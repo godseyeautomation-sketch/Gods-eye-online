@@ -33,6 +33,7 @@ import { AppsPage } from './components/apps/AppsPage';
 import { ReelStudioApp } from './components/apps/ReelStudioApp';
 import { ReelStudioProvider } from './context/ReelStudioContext';
 import { ImageToPromptApp } from './components/apps/ImageToPromptApp';
+import { AutopilotPage } from './components/AutopilotPage';
 
 // ─── Realism pipeline constants ───────────────────────────────────────────────
 // Appended invisibly to every user prompt (skip for utility models like Topaz/Qwen).
@@ -46,6 +47,13 @@ const NEGATIVE_PROMPT =
 const App: React.FC = () => {
   const [mode, setMode] = useState<AppMode>(AppMode.EXPLORE);
   const { session, loading, isAdmin, profile, refreshProfile } = useAuth(); // Use Global Admin State
+
+  // Listen for agentic flow navigation (fired by BrandWizard on save)
+  useEffect(() => {
+    const handler = () => setMode(AppMode.AUTOPILOT);
+    window.addEventListener('navigate-to-autopilot', handler);
+    return () => window.removeEventListener('navigate-to-autopilot', handler);
+  }, []);
 
   // const [isAdmin, setIsAdmin] = useState(true); // REMOVED local state
   const [isDrawMode, setIsDrawMode] = useState(false);
@@ -701,6 +709,8 @@ const App: React.FC = () => {
           <CronJobsPage />
         ) : mode === AppMode.AGENTIC || mode === 'agentic' ? (
           <AgenticPage />
+        ) : mode === AppMode.AUTOPILOT || mode === 'autopilot' ? (
+          <AutopilotPage />
         ) : mode === AppMode.CONNECTORS || mode === 'connectors' ? (
           <ConnectorsPage />
         ) : mode === AppMode.EXPLORE ? (

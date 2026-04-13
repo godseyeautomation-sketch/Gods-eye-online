@@ -44,6 +44,12 @@ const dnaToProfile = (dna: BrandDNA): Omit<BrandProfile, 'id' | 'user_id' | 'cre
   products: dna.products || [],
   brand_values: dna.brand_values || [],
   aesthetic: dna.aesthetic || [], overview: dna.overview || '',
+  visual_style_rules: dna.visual_style_rules,
+  // Agentic flow fields
+  instagram_handle: dna.instagram_handle,
+  facebook_url: dna.facebook_url,
+  tiktok_handle: dna.tiktok_handle,
+  competitors: dna.competitors || [],
 });
 
 const profileToDNA = (p: BrandProfile): BrandDNA => ({
@@ -57,6 +63,12 @@ const profileToDNA = (p: BrandProfile): BrandDNA => ({
   products: p.products || [],
   brand_values: p.brand_values || [],
   aesthetic: p.aesthetic || [], overview: p.overview || '',
+  visual_style_rules: p.visual_style_rules,
+  // Agentic flow fields
+  instagram_handle: p.instagram_handle,
+  facebook_url: p.facebook_url,
+  tiktok_handle: p.tiktok_handle,
+  competitors: p.competitors || [],
 });
 
 interface CampaignSuggestion {
@@ -455,7 +467,17 @@ export const BrandPage: React.FC = () => {
       localStorage.setItem(`klint_active_brand_${userId}`, saved.id);
 
       setShowWizard(false);
-      setShowCampaignAgent(true);
+
+      // NEW AGENTIC FLOW: Instead of auto-opening Campaign Agent (which runs generateMonthPlan),
+      // navigate to the Agents page and auto-trigger Scout. Scout will research, then Priya
+      // will generate the calendar based on Scout's research.
+      localStorage.setItem('autopilot_auto_run', JSON.stringify({
+        brandId: saved.id,
+        agent: 'scout',
+        timestamp: Date.now(),
+      }));
+      // Tell the top-level App to switch modes
+      window.dispatchEvent(new CustomEvent('navigate-to-autopilot', { detail: { brandId: saved.id } }));
     }
   };
 

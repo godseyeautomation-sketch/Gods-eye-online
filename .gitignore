@@ -16,3 +16,4 @@ Thumbs.db
 # Temporary/test files
 tmp_*.js
 test_*.js
+.klint/

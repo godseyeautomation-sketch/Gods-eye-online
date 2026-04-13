@@ -7,6 +7,12 @@ import { createProxyMiddleware } from 'http-proxy-middleware';
 import dotenv from 'dotenv';
 import { registerCronRoutes, loadAndScheduleAll } from './services/cronEngine.js';
 import { mountMcpEndpoints } from './services/mcpServer.js';
+import { executeScout } from './services/scoutAgent.js';
+import {
+  approveItem, rejectItem, getApprovalQueue, bulkApprove,
+  getPipelineRuns, getPipelineStageLogs, distillPerformanceSignals,
+  runSingleAgent,
+} from './services/pipelineOrchestrator.js';
 
 dotenv.config();
 
@@ -650,6 +656,125 @@ app.use('/bridge', createProxyMiddleware({
 // Register cron API routes and load scheduled jobs from Supabase
 registerCronRoutes(app);
 loadAndScheduleAll().catch(err => console.error('[Cron] Startup error:', err.message));
+
+// ── Autopilot Pipeline & Approval Queue Routes ─────────────────────────────
+// Approval Queue
+app.get('/api/approval-queue', async (req, res) => {
+  try {
+    const userId = req.headers['x-user-id'];
+    if (!userId) return res.status(401).json({ error: 'x-user-id header required' });
+    const { brand_id, status, limit } = req.query;
+    const items = await getApprovalQueue(userId, { brandId: brand_id, status: status || 'pending', limit: parseInt(limit) || 50 });
+    res.json({ ok: true, items });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/approval-queue/:id/approve', async (req, res) => {
+  try {
+    const userId = req.headers['x-user-id'];
+    if (!userId) return res.status(401).json({ error: 'x-user-id header required' });
+    const { platforms, scheduled_at } = req.body || {};
+    const result = await approveItem(req.params.id, userId, { platforms, scheduledAt: scheduled_at });
+    res.json({ ok: true, ...result });
+  } catch (err) { res.status(400).json({ error: err.message }); }
+});
+
+app.put('/api/approval-queue/:id/reject', async (req, res) => {
+  try {
+    const userId = req.headers['x-user-id'];
+    if (!userId) return res.status(401).json({ error: 'x-user-id header required' });
+    const result = await rejectItem(req.params.id, userId, req.body?.reason || '');
+    res.json({ ok: true, ...result });
+  } catch (err) { res.status(400).json({ error: err.message }); }
+});
+
+app.post('/api/approval-queue/bulk-approve', async (req, res) => {
+  try {
+    const userId = req.headers['x-user-id'];
+    if (!userId) return res.status(401).json({ error: 'x-user-id header required' });
+    const { ids, platforms, scheduled_at } = req.body;
+    if (!ids?.length) return res.status(400).json({ error: 'ids[] required' });
+    const results = await bulkApprove(ids, userId, { platforms, scheduledAt: scheduled_at });
+    res.json({ ok: true, results });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Pipeline Runs
+app.get('/api/pipeline/runs', async (req, res) => {
+  try {
+    const userId = req.headers['x-user-id'];
+    if (!userId) return res.status(401).json({ error: 'x-user-id header required' });
+    const runs = await getPipelineRuns(userId, { brandId: req.query.brand_id, limit: parseInt(req.query.limit) || 10 });
+    res.json({ ok: true, runs });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/pipeline/runs/:runId/stages', async (req, res) => {
+  try {
+    const logs = await getPipelineStageLogs(req.params.runId);
+    res.json({ ok: true, stages: logs });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/pipeline/distill-signals', async (req, res) => {
+  try {
+    const userId = req.headers['x-user-id'];
+    if (!userId) return res.status(401).json({ error: 'x-user-id header required' });
+    const { brand_id } = req.body;
+    if (!brand_id) return res.status(400).json({ error: 'brand_id required' });
+    const signals = await distillPerformanceSignals(userId, brand_id);
+    res.json({ ok: true, signals });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Run a single agent independently
+app.post('/api/pipeline/run-agent', async (req, res) => {
+  try {
+    const userId = req.headers['x-user-id'];
+    if (!userId) return res.status(401).json({ error: 'x-user-id header required' });
+    const { agent_id, brand_id, config } = req.body;
+    if (!agent_id || !brand_id) return res.status(400).json({ error: 'agent_id and brand_id required' });
+    const result = await runSingleAgent(agent_id, userId, brand_id, config || {});
+    res.json({ ok: true, ...result });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Run individual agent
+app.post('/api/pipeline/run-agent', async (req, res) => {
+  try {
+    const userId = req.headers['x-user-id'];
+    if (!userId) return res.status(401).json({ error: 'x-user-id header required' });
+    const { agent_id, brand_id, config } = req.body;
+    if (!brand_id) return res.status(400).json({ error: 'brand_id required' });
+    if (!agent_id) return res.status(400).json({ error: 'agent_id required' });
+
+    if (agent_id === 'scout') {
+      const result = await executeScout(userId, brand_id, config || {});
+      res.json({ ok: true, text: `Scout completed: ${result.filename}`, result });
+    } else {
+      res.json({ ok: true, text: `Agent ${agent_id} is not yet implemented. Coming soon!` });
+    }
+  } catch (err) {
+    console.error(`[Pipeline] Agent error:`, err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Download scout report
+app.get('/api/pipeline/scout-report/:filename', (req, res) => {
+  try {
+    const docsDir = path.join(process.env.HOME || process.env.USERPROFILE || '', '.klint', 'scout-reports');
+    const filepath = path.join(docsDir, req.params.filename);
+    if (!fs.existsSync(filepath)) return res.status(404).json({ error: 'Report not found' });
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    res.setHeader('Content-Disposition', `attachment; filename="${req.params.filename}"`);
+    res.sendFile(filepath);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+console.log('[Pipeline] 🤖 Autopilot & approval queue routes registered');
 
 
 

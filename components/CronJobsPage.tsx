@@ -31,6 +31,8 @@ const TASK_TYPE_INFO: Record<string, { icon: string; label: string; color: strin
   'auto-publish': { icon: '🚀', label: 'Auto Publisher', color: 'text-orange-400' },
   'competitor-scan': { icon: '🔍', label: 'Competitor Scan', color: 'text-pink-400' },
   'custom': { icon: '⚡', label: 'Custom Task', color: 'text-yellow-400' },
+  'autopilot-cycle': { icon: '🤖', label: 'Autopilot Cycle', color: 'text-violet-400' },
+  'auto-approve-check': { icon: '✅', label: 'Auto-Approve Check', color: 'text-teal-400' },
 };
 
 const CRON_PRESETS = [

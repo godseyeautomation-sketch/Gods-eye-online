@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
-import { Link, Globe, Loader2, Check, Upload, X, Plus, Edit2, Sparkles, ArrowRight, Package, ImageIcon, Tag } from 'lucide-react';
-import { BrandDNA, BrandProduct } from '../../types/brand.types';
+import { Link, Globe, Loader2, Check, Upload, X, Plus, Edit2, Sparkles, ArrowRight, Package, ImageIcon, Tag, Instagram, Target } from 'lucide-react';
+import { BrandDNA, BrandProduct, BrandCompetitor } from '../../types/brand.types';
 import { scanWebsiteForBrandDNA, saveProductImages, extractVisualAesthetic } from '../../services/brandService';
 
 type WizardStep = 'url' | 'scanning' | 'dna';
@@ -93,6 +93,11 @@ export const BrandWizard: React.FC<Props> = ({ userId, onComplete, initialDNA })
   // Product naming state — each scraped product image gets a user-assigned name
   // { imageDataUrl, name } — named ones become BrandProduct on save
   const [productEntries, setProductEntries] = useState<Array<{ imageDataUrl: string; name: string }>>([]);
+
+  // ── Social presence + Competitors (new fields for Scout agent) ────────────
+  const [instagramHandle, setInstagramHandle] = useState(initialDNA?.instagram_handle || '');
+  const [competitors, setCompetitors] = useState<BrandCompetitor[]>(initialDNA?.competitors || []);
+  const [newComp, setNewComp] = useState({ name: '', instagram: '', website: '' });
 
   // Product entries are now populated directly in handleScan — no useEffect needed
 
@@ -226,6 +231,9 @@ export const BrandWizard: React.FC<Props> = ({ userId, onComplete, initialDNA })
         lifestyle_images: [],
         example_images: [...productUrls],
         visual_style_rules: visualRules,
+        // Social presence + competitors (for Scout agent)
+        instagram_handle: instagramHandle.replace('@', '').trim() || undefined,
+        competitors: competitors.length ? competitors : undefined,
       };
       await onComplete(finalDna);
     } catch (err: any) {
@@ -602,6 +610,103 @@ export const BrandWizard: React.FC<Props> = ({ userId, onComplete, initialDNA })
                   <input ref={lifestyleFileRef} type="file" accept="image/*" multiple className="hidden" onChange={handleFileUpload('lifestyle')} />
                 </div>
               </div>
+
+              {/* ── Social Presence + Competitors (for Scout agent) ──────── */}
+              <div className="pt-6 mt-6 border-t border-white/[0.05] space-y-5">
+                {/* Instagram Handle */}
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Instagram size={14} className="text-brand" />
+                    <h3 className="text-sm font-bold text-text-primary">Your Instagram</h3>
+                  </div>
+                  <p className="text-xs text-text-secondary/60 mb-3">Scout agent will research your existing Instagram to understand your current strategy.</p>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary/40 text-sm">@</span>
+                    <input
+                      type="text"
+                      value={instagramHandle}
+                      onChange={e => setInstagramHandle(e.target.value)}
+                      placeholder="your_brand_handle"
+                      className="w-full pl-8 pr-3 py-2.5 rounded-xl bg-surface border border-border text-text-primary text-sm placeholder-text-secondary/40 focus:outline-none focus:border-brand/50 transition"
+                    />
+                  </div>
+                </div>
+
+                {/* Competitors */}
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Target size={14} className="text-brand" />
+                    <h3 className="text-sm font-bold text-text-primary">Competitors</h3>
+                    <span className="text-[10px] text-text-secondary/40">({competitors.length} added)</span>
+                  </div>
+                  <p className="text-xs text-text-secondary/60 mb-3">Scout agent will scrape these competitors to find gaps and opportunities your brand can exploit.</p>
+
+                  {/* Existing competitors */}
+                  {competitors.length > 0 && (
+                    <div className="space-y-2 mb-3">
+                      {competitors.map((c) => (
+                        <div key={c.id} className="flex items-center gap-3 p-3 rounded-xl bg-surface border border-border">
+                          <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center text-xs">🏢</div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-text-primary truncate">{c.name}</p>
+                            <div className="flex items-center gap-3 mt-0.5">
+                              {c.instagram && <span className="text-[10px] text-text-secondary/60">@{c.instagram}</span>}
+                              {c.website && <span className="text-[10px] text-text-secondary/40 truncate">{c.website}</span>}
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => setCompetitors(prev => prev.filter(x => x.id !== c.id))}
+                            className="text-text-secondary/60 hover:text-red-400 transition p-1"
+                          >
+                            <X size={14} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Add competitor form */}
+                  <div className="grid grid-cols-3 gap-2 mb-2">
+                    <input
+                      type="text"
+                      value={newComp.name}
+                      onChange={e => setNewComp(prev => ({ ...prev, name: e.target.value }))}
+                      placeholder="Brand name *"
+                      className="px-3 py-2 rounded-lg bg-surface border border-border text-text-primary text-xs placeholder-text-secondary/40 focus:outline-none focus:border-brand/50 transition"
+                    />
+                    <input
+                      type="text"
+                      value={newComp.instagram}
+                      onChange={e => setNewComp(prev => ({ ...prev, instagram: e.target.value }))}
+                      placeholder="@instagram"
+                      className="px-3 py-2 rounded-lg bg-surface border border-border text-text-primary text-xs placeholder-text-secondary/40 focus:outline-none focus:border-brand/50 transition"
+                    />
+                    <input
+                      type="text"
+                      value={newComp.website}
+                      onChange={e => setNewComp(prev => ({ ...prev, website: e.target.value }))}
+                      placeholder="website.com"
+                      className="px-3 py-2 rounded-lg bg-surface border border-border text-text-primary text-xs placeholder-text-secondary/40 focus:outline-none focus:border-brand/50 transition"
+                    />
+                  </div>
+                  <button
+                    onClick={() => {
+                      if (!newComp.name.trim()) return;
+                      setCompetitors(prev => [...prev, {
+                        id: crypto.randomUUID(),
+                        name: newComp.name.trim(),
+                        instagram: newComp.instagram.replace('@', '').trim() || undefined,
+                        website: newComp.website.trim() || undefined,
+                      }]);
+                      setNewComp({ name: '', instagram: '', website: '' });
+                    }}
+                    disabled={!newComp.name.trim()}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand/10 text-brand text-xs font-bold hover:bg-brand/20 disabled:opacity-40 disabled:cursor-not-allowed transition"
+                  >
+                    <Plus size={12} /> Add Competitor
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -616,9 +721,9 @@ export const BrandWizard: React.FC<Props> = ({ userId, onComplete, initialDNA })
           )}
           <div className="flex items-center justify-between">
             <div className="space-y-0.5">
-              <span className="text-text-secondary text-xs">Next we'll use your Business DNA to plan your content calendar</span>
+              <span className="text-text-secondary text-xs">Scout agent will research your brand + competitors next</span>
               <p className="text-text-secondary text-[10px] opacity-60">
-                {namedCount} product{namedCount !== 1 ? 's' : ''} named · {selectedLifestyle.size} lifestyle images
+                {namedCount} product{namedCount !== 1 ? 's' : ''} · {competitors.length} competitor{competitors.length !== 1 ? 's' : ''} · {instagramHandle ? '@' + instagramHandle : 'No IG'}
               </p>
             </div>
             <button

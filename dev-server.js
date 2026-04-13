@@ -3324,10 +3324,135 @@ app.get('/api/campaigns/creatives', async (req, res) => {
 
 // ═══════════════════════════════════════════════════════════════════════
 
+// ── Agent Pipeline Routes ──────────────────────────────────────────
+import { executeScout } from './services/scoutAgent.js';
+import { executePriya } from './services/priyaAgent.js';
+import { executeReview, handleSlackAction, getReviewStatus } from './services/reviewAgent.js';
+
+// Run individual agent
+app.post('/api/pipeline/run-agent', async (req, res) => {
+  try {
+    const userId = req.headers['x-user-id'] || req.body.user_id;
+    if (!userId) return res.status(401).json({ error: 'x-user-id header required' });
+    const { agent_id, brand_id, brand, config } = req.body;
+    if (!brand_id) return res.status(400).json({ error: 'brand_id required' });
+    if (!agent_id) return res.status(400).json({ error: 'agent_id required' });
+
+    console.log(`[Pipeline] Running agent: ${agent_id} for brand ${brand_id} (brand payload: ${brand ? 'yes' : 'no'})`);
+
+    // If frontend sent the brand directly, persist it to the sync file NOW so downstream agents can find it
+    if (brand && brand.id) {
+      try {
+        const brandsFile = path.join(SYNC_DIR, 'brand_profiles.json');
+        let syncData = { _updatedAt: new Date().toISOString(), data: [] };
+        if (fs.existsSync(brandsFile)) {
+          try {
+            const existing = JSON.parse(fs.readFileSync(brandsFile, 'utf-8'));
+            syncData = Array.isArray(existing?.data) ? existing : { _updatedAt: new Date().toISOString(), data: Array.isArray(existing) ? existing : [] };
+          } catch {}
+        }
+        const idx = syncData.data.findIndex(b => b.id === brand.id);
+        // Merge: preserve scout_report if it exists, update everything else
+        const merged = { ...(idx >= 0 ? syncData.data[idx] : {}), ...brand, user_id: brand.user_id || userId, updated_at: new Date().toISOString() };
+        if (idx >= 0) syncData.data[idx] = merged;
+        else syncData.data.push(merged);
+        syncData._updatedAt = new Date().toISOString();
+        fs.writeFileSync(brandsFile, JSON.stringify(syncData, null, 2), 'utf-8');
+        console.log(`[Pipeline] Synced brand "${brand.name}" (${brand.id}) to local file`);
+      } catch (e) {
+        console.warn('[Pipeline] Brand sync failed:', e.message);
+      }
+    }
+
+    if (agent_id === 'scout') {
+      const result = await executeScout(userId, brand_id, config || {});
+      res.json({ ok: true, text: `Scout completed: ${result.filename}`, result });
+    } else if (agent_id === 'creative' || agent_id === 'priya') {
+      const result = await executePriya(userId, brand_id, config || {});
+      res.json({ ok: true, text: `Priya created ${result.slots_created}/${result.slots_total} slots`, result });
+    } else if (agent_id === 'reviewer' || agent_id === 'review') {
+      const result = await executeReview(userId, brand_id, config || {});
+      res.json({ ok: true, text: `Review: ${result.decision} (${result.approved_count} approved, ${result.rejected_count} rejected)`, result });
+    } else if (agent_id === 'dispatcher' || agent_id === 'dispatch') {
+      res.json({ ok: true, text: 'Dispatch agent: not yet implemented. Content will be publishable manually from the Calendar tab.' });
+    } else if (agent_id === 'analyst' || agent_id === 'karma') {
+      res.json({ ok: true, text: 'Karma agent: not yet implemented. Analytics coming soon.' });
+    } else {
+      res.json({ ok: true, text: `Unknown agent ${agent_id}` });
+    }
+  } catch (err) {
+    console.error(`[Pipeline] Agent error:`, err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Download scout report
+app.get('/api/pipeline/scout-report/:filename', (req, res) => {
+  try {
+    const docsDir = path.join(process.env.HOME || process.env.USERPROFILE || '', '.klint', 'scout-reports');
+    const filepath = path.join(docsDir, req.params.filename);
+    if (!fs.existsSync(filepath)) return res.status(404).json({ error: 'Report not found' });
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    res.setHeader('Content-Disposition', `attachment; filename="${req.params.filename}"`);
+    res.sendFile(filepath);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get pipeline runs (placeholder — reads from content_briefs for now)
+app.get('/api/pipeline/runs', async (req, res) => {
+  try {
+    const userId = req.headers['x-user-id'] || req.query.user_id;
+    if (!userId) return res.status(401).json({ error: 'x-user-id required' });
+    const brandId = req.query.brand_id;
+    let query = `content_briefs?user_id=eq.${userId}&created_by=eq.scout_agent&order=created_at.desc&limit=10`;
+    if (brandId) query += `&brand_id=eq.${brandId}`;
+    const briefs = await supabaseRest(query);
+    const runs = (briefs || []).map(b => {
+      let summary = {};
+      try { summary = JSON.parse(b.trend_summary || '{}'); } catch {}
+      return {
+        id: b.id, user_id: b.user_id, brand_id: b.brand_id,
+        status: b.status === 'completed' ? 'completed' : 'running',
+        current_stage: 'scout', started_at: b.created_at, completed_at: b.created_at,
+        stage_summary: { scout: { briefs: summary.content_pillars || 0, filename: summary.filename } },
+        created_at: b.created_at,
+      };
+    });
+    res.json({ ok: true, runs });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/pipeline/runs/:runId/stages', (req, res) => {
+  res.json({ ok: true, stages: [] });
+});
+
+// ── Review status polling (frontend polls this after starting review) ──────
+app.get('/api/pipeline/review-status/:reviewId', (req, res) => {
+  const status = getReviewStatus(req.params.reviewId);
+  res.json({ ok: true, ...status });
+});
+
+// ── Slack Interactions Webhook (receives button clicks via ngrok) ──────────
+// Slack sends application/x-www-form-urlencoded with a `payload` field containing JSON
+import { urlencoded } from 'express';
+app.post('/api/slack/interactions', urlencoded({ extended: false }), (req, res) => {
+  try {
+    const payload = JSON.parse(req.body.payload || '{}');
+    console.log(`[Slack] Button click from @${payload.user?.username || '?'}: ${payload.actions?.[0]?.action_id || '?'}`);
+    handleSlackAction(payload);
+    res.status(200).send(''); // Slack expects 200 within 3 seconds
+  } catch (err) {
+    console.error('[Slack] Interaction error:', err.message);
+    res.status(200).send('');
+  }
+});
+
 // ── MCP SSE Server ──
 mountMcpEndpoints(app, { port: PORT });
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`✅ Dev API server running on http://localhost:${PORT}`);
   console.log(`✅ Gemini API key loaded:`, !!apiKey);
   console.log(`✅ fal.ai API key loaded:`, !!falKey);
@@ -3335,7 +3460,22 @@ app.listen(PORT, () => {
   console.log(`✅ Social API: /api/social/*`);
   console.log(`✅ Cron API: /api/cron/*`);
   console.log(`✅ Connectors API: /api/connectors/*`);
+  console.log(`✅ Pipeline API: /api/pipeline/*`);
   // Load cron jobs after server starts
   setTimeout(loadCronJobs, 2000);
+});
+
+// Extend HTTP timeouts so long-running agent calls (Priya 3-min Gemini) don't get killed
+server.headersTimeout = 600000;      // 10 min
+server.requestTimeout = 600000;       // 10 min
+server.keepAliveTimeout = 120000;     // 2 min
+server.timeout = 600000;              // 10 min socket timeout (not 0 — that can hang on some Node versions)
+
+// Global error handler to prevent server crash on unhandled promises
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[UnhandledRejection]', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[UncaughtException]', err);
 });
 
