@@ -10,7 +10,7 @@
  * Uses Supabase REST API (same approach as dev-server.js) to bypass RLS.
  */
 
-import { scrapeInstagramProfiles, extractProfileStats } from './apifyService.js';
+import { scrapeInstagramProfiles, extractProfileStats, scrapeAllPlatforms } from './apifyService.js';
 import {
   Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell,
   HeadingLevel, AlignmentType, BorderStyle, WidthType, ShadingType,
@@ -128,7 +128,8 @@ async function scanBrandAndCompetitors(brand, competitors, platforms = ['instagr
     .map(p => `${p}: ${brandHandles[p.toLowerCase()] ? '@' + brandHandles[p.toLowerCase()].replace('@', '') : 'not provided'}`)
     .join(', ');
 
-  // ── REAL DATA: Scrape Instagram via Apify ──────────────────────────────
+  // ── REAL DATA: Scrape ALL platforms via Apify ──────────────────────────
+  let allScrapedData = {};
   let apifyData = {};
   const allUsernames = [];
   if (brand.instagram_handle) allUsernames.push(brand.instagram_handle.replace('@', ''));
@@ -137,61 +138,134 @@ async function scanBrandAndCompetitors(brand, competitors, platforms = ['instagr
     if (ig) allUsernames.push(ig);
   }
 
-  if (allUsernames.length && process.env.APIFY_TOKEN) {
+  // Multi-platform scrape (runs all platforms in parallel)
+  if (process.env.APIFY_TOKEN) {
     try {
-      console.log(`[Scout] Scraping ${allUsernames.length} Instagram profiles via Apify: ${allUsernames.join(', ')}`);
+      console.log(`[Scout] Running multi-platform scrape via Apify...`);
+      allScrapedData = await scrapeAllPlatforms(brand, competitors);
+      const platformsWithData = Object.keys(allScrapedData).filter(p => {
+        const d = allScrapedData[p];
+        return d && Object.keys(d).filter(k => k !== '_error').length > 0;
+      });
+      console.log(`[Scout] Apify returned data for platforms: ${platformsWithData.join(', ') || 'none'}`);
+      // Maintain legacy apifyData for backward compat (Instagram stats in prompt JSON)
+      if (allScrapedData.instagram) apifyData = allScrapedData.instagram;
+    } catch (err) {
+      console.warn(`[Scout] Multi-platform scrape failed (falling back to Gemini): ${err.message}`);
+    }
+  } else {
+    console.log(`[Scout] No Apify token — using Gemini web search only`);
+  }
+
+  // Legacy Instagram-only fallback: if multi-platform didn't get IG data, try standalone
+  if (!Object.keys(apifyData).length && allUsernames.length && process.env.APIFY_TOKEN) {
+    try {
+      console.log(`[Scout] Fallback: scraping ${allUsernames.length} Instagram profiles directly`);
       const rawProfiles = await scrapeInstagramProfiles(allUsernames, 12);
       for (const raw of rawProfiles) {
         apifyData[raw.username?.toLowerCase()] = extractProfileStats(raw);
       }
-      console.log(`[Scout] Apify returned ${Object.keys(apifyData).length} profiles with real data`);
     } catch (err) {
-      console.warn(`[Scout] Apify scrape failed (falling back to Gemini): ${err.message}`);
+      console.warn(`[Scout] Instagram fallback also failed: ${err.message}`);
     }
-  } else {
-    console.log(`[Scout] No Apify token or no IG handles — using Gemini web search only`);
   }
 
-  // Build real data context for the Gemini prompt
+  // Build real data context for the Gemini prompt (all platforms)
   const brandIG = brand.instagram_handle ? apifyData[brand.instagram_handle.replace('@', '').toLowerCase()] : null;
   const competitorIGs = competitors.map(c => {
     const ig = (c.instagram || c.handle || '').replace('@', '').toLowerCase();
     return { ...c, scraped: apifyData[ig] || null };
   });
 
-  const realDataSection = brandIG ? `
-═══ REAL SCRAPED DATA (from Instagram API — these numbers are ACCURATE, do NOT change them) ═══
+  // ── Helper: format a profile stats block for the prompt ─────────────────
+  function formatProfileBlock(stats, label) {
+    if (!stats || !stats.username) return '';
+    const lines = [
+      `${label} [${(stats.platform || 'instagram').toUpperCase()}] @${stats.username}:`,
+      `- Followers: ${(stats.followers || 0).toLocaleString()}`,
+      `- Following: ${(stats.following || 0).toLocaleString()}`,
+      `- Posts/Videos: ${(stats.posts_count || 0).toLocaleString()}`,
+      `- Engagement Rate: ${stats.engagement_rate || 'N/A'}`,
+      `- Avg Likes: ${(stats.avg_likes || 0).toLocaleString()}`,
+      `- Avg Comments: ${(stats.avg_comments || 0).toLocaleString()}`,
+    ];
+    if (stats.avg_views) lines.push(`- Avg Views: ${stats.avg_views.toLocaleString()}`);
+    if (stats.avg_retweets) lines.push(`- Avg Retweets: ${stats.avg_retweets.toLocaleString()}`);
+    if (stats.total_likes) lines.push(`- Total Likes: ${stats.total_likes.toLocaleString()}`);
+    if (stats.total_views) lines.push(`- Total Views: ${stats.total_views.toLocaleString()}`);
+    if (stats.employees) lines.push(`- Employees on LinkedIn: ${stats.employees.toLocaleString()}`);
+    if (stats.page_likes) lines.push(`- Page Likes: ${stats.page_likes.toLocaleString()}`);
+    lines.push(`- Bio: "${(stats.bio || '').slice(0, 200)}"`);
+    lines.push(`- Verified: ${stats.verified || false}`);
+    if (stats.business_category) lines.push(`- Business Category: ${stats.business_category}`);
+    if (stats.industry) lines.push(`- Industry: ${stats.industry}`);
+    if (stats.content_types) {
+      lines.push(`- Content Mix: ${stats.content_types.videos || 0} videos, ${stats.content_types.images || 0} images, ${stats.content_types.carousels || 0} carousels`);
+    }
+    if (stats.top_posts?.length) {
+      lines.push('- Top Posts:');
+      stats.top_posts.slice(0, 5).forEach(p => {
+        lines.push(`  ${p.type}: ${(p.likes || 0).toLocaleString()} likes, ${(p.comments || 0).toLocaleString()} comments${p.video_views ? ', ' + p.video_views.toLocaleString() + ' views' : ''}${p.retweets ? ', ' + p.retweets.toLocaleString() + ' retweets' : ''} — "${(p.caption || '').slice(0, 80)}"`);
+      });
+    }
+    return lines.join('\n');
+  }
 
-OUR BRAND @${brand.instagram_handle}:
-- Followers: ${brandIG.followers.toLocaleString()}
-- Following: ${brandIG.following.toLocaleString()}
-- Posts: ${brandIG.posts_count.toLocaleString()}
-- Engagement Rate: ${brandIG.engagement_rate}
-- Avg Likes: ${brandIG.avg_likes.toLocaleString()}
-- Avg Comments: ${brandIG.avg_comments.toLocaleString()}
-- Bio: "${brandIG.bio}"
-- Verified: ${brandIG.verified}
-- Business Category: ${brandIG.business_category || 'N/A'}
-- Top Posts:
-${brandIG.top_posts.map(p => `  ${p.type}: ${p.likes.toLocaleString()} likes, ${p.comments.toLocaleString()} comments${p.video_views ? ', ' + p.video_views.toLocaleString() + ' views' : ''} — "${p.caption.slice(0, 80)}"`).join('\n')}
+  // ── Build brand real data across all scraped platforms ───────────────────
+  const brandPlatformBlocks = [];
+  for (const [platform, profileMap] of Object.entries(allScrapedData)) {
+    if (!profileMap || typeof profileMap !== 'object') continue;
+    const handleKey = platform === 'twitter' ? 'x' : platform;
+    const brandHandle = (brandHandles[handleKey] || '').replace('@', '').toLowerCase();
+    if (!brandHandle) continue;
+    // Try exact match first, then first non-error entry
+    const brandProfile = profileMap[brandHandle]
+      || Object.values(profileMap).find(p => p && !p._error && p.username);
+    if (brandProfile && brandProfile.username) {
+      brandPlatformBlocks.push(formatProfileBlock(brandProfile, 'OUR BRAND'));
+    }
+  }
+
+  const realDataSection = brandPlatformBlocks.length ? `
+═══ REAL SCRAPED DATA (from platform APIs — these numbers are ACCURATE, do NOT change them) ═══
+
+${brandPlatformBlocks.join('\n\n')}
 ` : '';
 
-  const competitorDataSection = competitorIGs.filter(c => c.scraped).map(c => `
-COMPETITOR @${c.scraped.username}:
-- Followers: ${c.scraped.followers.toLocaleString()}
-- Following: ${c.scraped.following.toLocaleString()}
-- Posts: ${c.scraped.posts_count.toLocaleString()}
-- Engagement Rate: ${c.scraped.engagement_rate}
-- Avg Likes: ${c.scraped.avg_likes.toLocaleString()}
-- Avg Comments: ${c.scraped.avg_comments.toLocaleString()}
-- Bio: "${c.scraped.bio}"
-- Verified: ${c.scraped.verified}
-- Content Mix: ${c.scraped.content_types.videos} videos, ${c.scraped.content_types.images} images, ${c.scraped.content_types.carousels} carousels
-- Top Posts:
-${c.scraped.top_posts.map(p => `  ${p.type}: ${p.likes.toLocaleString()} likes, ${p.comments.toLocaleString()} comments${p.video_views ? ', ' + p.video_views.toLocaleString() + ' views' : ''} — "${p.caption.slice(0, 80)}"`).join('\n')}
-`).join('\n');
+  // ── Build competitor data across all scraped platforms ───────────────────
+  const competitorDataBlocks = [];
+  for (const comp of competitors) {
+    const compBlocks = [];
+    const compHandles = {
+      instagram: (comp.instagram || comp.handle || '').replace('@', '').toLowerCase(),
+      tiktok: (comp.tiktok || '').replace('@', '').toLowerCase(),
+      facebook: (comp.facebook || '').toLowerCase(),
+      youtube: (comp.youtube || '').replace('@', '').toLowerCase(),
+      twitter: (comp.x || comp.twitter || '').replace('@', '').toLowerCase(),
+      linkedin: (comp.linkedin || '').toLowerCase(),
+    };
+    for (const [platform, profileMap] of Object.entries(allScrapedData)) {
+      if (!profileMap || typeof profileMap !== 'object') continue;
+      const handle = compHandles[platform];
+      if (!handle) continue;
+      const profile = profileMap[handle];
+      if (profile && profile.username) {
+        compBlocks.push(formatProfileBlock(profile, 'COMPETITOR'));
+      }
+    }
+    if (compBlocks.length) {
+      competitorDataBlocks.push(compBlocks.join('\n\n'));
+    }
+  }
+  const competitorDataSection = competitorDataBlocks.join('\n\n---\n\n');
 
-  const prompt = `You are an elite social media intelligence analyst. Analyze this brand AND its competitors.
+  // ── Summarize which platforms have real data for the JSON schema ─────────
+  const scrapedPlatformsList = Object.keys(allScrapedData).filter(p => {
+    const d = allScrapedData[p];
+    return d && Object.keys(d).filter(k => k !== '_error').length > 0;
+  });
+
+  const prompt = `You are an elite social media intelligence analyst. Analyze this brand AND its competitors across ALL platforms.
 
 ═══ OUR BRAND ═══
 Name: ${brand.name}
@@ -204,9 +278,9 @@ Products: ${(brand.products || []).map(p => p.name).join(', ') || 'Not specified
 ${realDataSection}
 ${competitorDataSection}
 
-IMPORTANT: The numbers above are REAL scraped data. Use them EXACTLY as provided. Do NOT make up different numbers.
+IMPORTANT: The numbers above are REAL scraped data from ${scrapedPlatformsList.length ? scrapedPlatformsList.join(', ') : 'APIs'}. Use them EXACTLY as provided. Do NOT make up different numbers.
 
-Use web search ONLY for: website content analysis, positioning insights, content strategy analysis, and visual aesthetic description. NOT for follower counts or engagement rates (those are already provided above).
+Use web search ONLY for: website content analysis, positioning insights, content strategy analysis, visual aesthetic description, and platforms without scraped data above (e.g. Pinterest, Threads). NOT for follower counts or engagement rates that are already provided above.
 
 ═══ PLATFORM-SPECIFIC STRATEGY ═══
 Generate platform-specific strategies for: ${platforms.join(', ')}
@@ -220,6 +294,15 @@ For each platform, provide:
 Return detailed JSON:
 {
   "brand_analysis": {
+    "platform_stats": {
+      ${scrapedPlatformsList.map(p => {
+        const handleKey = p === 'twitter' ? 'x' : p;
+        const brandHandle = (brandHandles[handleKey] || '').replace('@', '').toLowerCase();
+        const profile = allScrapedData[p]?.[brandHandle];
+        if (!profile) return `"${p}": {}`;
+        return `"${p}": { "followers": "${profile.followers || '?'}", "posts": "${profile.posts_count || '?'}", "engagement_rate": "${profile.engagement_rate || '?'}", "avg_likes": "${profile.avg_likes || '?'}", "avg_comments": "${profile.avg_comments || '?'}", "verified": ${profile.verified || false} }`;
+      }).join(',\n      ')}
+    },
     "instagram_stats": { "followers": "${brandIG?.followers || '?'}", "posts": "${brandIG?.posts_count || '?'}", "engagement_rate": "${brandIG?.engagement_rate || '?'}", "avg_likes": "${brandIG?.avg_likes || '?'}", "avg_comments": "${brandIG?.avg_comments || '?'}", "verified": ${brandIG?.verified || false}, "bio": "${brandIG?.bio || ''}" },
     "website_insights": "analyze their website positioning, products, messaging",
     "current_content_strategy": "based on the real post data above, describe their strategy",
@@ -230,9 +313,28 @@ Return detailed JSON:
   "platform_strategies": {
     ${platforms.map(p => `"${p}": { "best_formats": ["..."], "optimal_posting_times": ["..."], "caption_length": "...", "hashtag_strategy": "...", "posting_frequency": "...", "key_tactics": ["..."] }`).join(',\n    ')}
   },
-  "competitors": [${competitorIGs.map(c => `
+  "competitors": [${competitorIGs.map(c => {
+    // Collect all platform stats for this competitor
+    const compHandle = (c.instagram || c.handle || '').replace('@', '').toLowerCase();
+    const compHandlesMap = {
+      instagram: compHandle,
+      tiktok: (c.tiktok || '').replace('@', '').toLowerCase(),
+      facebook: (c.facebook || '').toLowerCase(),
+      youtube: (c.youtube || '').replace('@', '').toLowerCase(),
+      twitter: (c.x || c.twitter || '').replace('@', '').toLowerCase(),
+      linkedin: (c.linkedin || '').toLowerCase(),
+    };
+    const compPlatformStats = {};
+    for (const [plat, handle] of Object.entries(compHandlesMap)) {
+      if (handle && allScrapedData[plat]?.[handle]) {
+        const p = allScrapedData[plat][handle];
+        compPlatformStats[plat] = { followers: p.followers, posts: p.posts_count, engagement_rate: p.engagement_rate };
+      }
+    }
+    return `
     {
       "handle": "@${c.scraped?.username || c.instagram || c.handle}",
+      "platform_stats": ${JSON.stringify(compPlatformStats)},
       "stats": { "followers": "${c.scraped?.followers || '?'}", "posts": "${c.scraped?.posts_count || '?'}", "engagement_rate": "${c.scraped?.engagement_rate || '?'}", "avg_likes": "${c.scraped?.avg_likes || '?'}", "avg_comments": "${c.scraped?.avg_comments || '?'}" },
       "bio": "${c.scraped?.bio || ''}",
       "positioning_summary": "analyze based on bio and content...",
@@ -242,15 +344,17 @@ Return detailed JSON:
       "caption_strategy": { "hook_style": "...", "cta_pattern": "...", "hashtag_strategy": "..." },
       "visual_aesthetic": "...",
       "posting_frequency": "..."
-    }`).join(',')}
+    }`;
+  }).join(',')}
   ],
   "scrape_date": "${new Date().toLocaleDateString()}",
-  "data_source": "apify_instagram_scraper"
+  "data_source": "apify_multi_platform_scraper",
+  "platforms_scraped": ${JSON.stringify(scrapedPlatformsList)}
 }`;
 
-  const { text, sources } = await callGemini(prompt, { useSearch: true, maxTokens: 16384 });
+  const { text, sources } = await callGemini(prompt, { useSearch: true, maxTokens: 20480 });
   const result = parseJSON(text);
-  console.log(`[Scout] Step 1 complete: brand analyzed + ${result?.competitors?.length || 0} competitors`);
+  console.log(`[Scout] Step 1 complete: brand analyzed + ${result?.competitors?.length || 0} competitors across ${scrapedPlatformsList.length} platforms`);
   return { data: result, rawText: text, sources };
 }
 
