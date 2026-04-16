@@ -810,8 +810,7 @@ app.get('/api/pipeline/scout-report/:filename', (req, res) => {
 });
 
 // Slack interactions webhook
-import { urlencoded } from 'express';
-app.post('/api/slack/interactions', urlencoded({ extended: false }), (req, res) => {
+app.post('/api/slack/interactions', express.urlencoded({ extended: false }), (req, res) => {
   try {
     const payload = JSON.parse(req.body.payload || '{}');
     console.log(`[Slack] Button click from @${payload.user?.username || '?'}`);
