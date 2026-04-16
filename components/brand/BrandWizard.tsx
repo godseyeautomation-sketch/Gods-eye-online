@@ -666,16 +666,21 @@ export const BrandWizard: React.FC<Props> = ({ userId, onComplete, initialDNA })
 
                 {/* Competitors */}
                 <div>
-                  <div className="flex items-center gap-2 mb-2">
-                    <Target size={14} className="text-brand" />
-                    <h3 className="text-sm font-bold text-text-primary">Competitors</h3>
-                    <span className="text-[10px] text-text-secondary/40">({competitors.length} added)</span>
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <h3 className="text-sm font-bold text-text-primary">Competitors</h3>
+                      <p className="text-xs text-text-secondary/50 mt-0.5">Scout will scrape these to find gaps and opportunities.</p>
+                    </div>
+                    {competitors.length > 0 && (
+                      <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-brand/10 text-brand tabular-nums">
+                        {competitors.length} added
+                      </span>
+                    )}
                   </div>
-                  <p className="text-xs text-text-secondary/60 mb-3">Scout agent will scrape these competitors to find gaps and opportunities your brand can exploit.</p>
 
-                  {/* Existing competitors */}
+                  {/* Saved competitors */}
                   {competitors.length > 0 && (
-                    <div className="space-y-2 mb-3">
+                    <div className="space-y-2 mb-4">
                       {competitors.map((c) => {
                         const handles = [
                           c.instagram && `@${c.instagram}`,
@@ -688,19 +693,19 @@ export const BrandWizard: React.FC<Props> = ({ userId, onComplete, initialDNA })
                           c.threads && `@${c.threads}`,
                         ].filter(Boolean);
                         return (
-                          <div key={c.id} className="flex items-center gap-3 p-3 rounded-xl bg-surface border border-border">
+                          <div key={c.id} className="flex items-center gap-3 px-4 py-3 rounded-xl bg-white/[0.02] border border-white/[0.06] hover:border-white/[0.1] transition-all group">
+                            <div className="w-8 h-8 rounded-lg bg-white/[0.04] flex items-center justify-center text-xs font-bold text-text-secondary/60 uppercase">{c.name.charAt(0)}</div>
                             <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium text-text-primary truncate">{c.name}</p>
-                              <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                                {c.website && <span className="text-[10px] text-text-secondary/40 truncate">{c.website}</span>}
-                                {handles.length > 0 && <span className="text-[10px] text-text-secondary/50">{handles.join(' · ')}</span>}
-                              </div>
+                              <p className="text-sm font-semibold text-text-primary truncate">{c.name}</p>
+                              <p className="text-[10px] text-text-secondary/40 mt-0.5 truncate">
+                                {[c.website, ...handles].filter(Boolean).join(' · ') || 'No details added'}
+                              </p>
                             </div>
                             <button
                               onClick={() => setCompetitors(prev => prev.filter(x => x.id !== c.id))}
-                              className="text-text-secondary/60 hover:text-red-400 transition p-1"
+                              className="opacity-0 group-hover:opacity-100 text-text-secondary/40 hover:text-red-400 transition-all p-1.5 rounded-lg hover:bg-red-500/10"
                             >
-                              <X size={14} />
+                              <X size={12} />
                             </button>
                           </div>
                         );
@@ -708,105 +713,87 @@ export const BrandWizard: React.FC<Props> = ({ userId, onComplete, initialDNA })
                     </div>
                   )}
 
-                  {/* Add competitor form */}
-                  <div className="space-y-2 mb-2">
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        value={newComp.name}
-                        onChange={e => setNewComp(prev => ({ ...prev, name: e.target.value }))}
-                        placeholder="Brand name *"
-                        className="flex-1 px-3 py-2 rounded-lg bg-surface border border-border text-text-primary text-xs placeholder-text-secondary/40 focus:outline-none focus:border-brand/50 transition"
-                      />
-                      <input
-                        type="text"
-                        value={newComp.website}
-                        onChange={e => setNewComp(prev => ({ ...prev, website: e.target.value }))}
-                        placeholder="website.com"
-                        className="flex-1 px-3 py-2 rounded-lg bg-surface border border-border text-text-primary text-xs placeholder-text-secondary/40 focus:outline-none focus:border-brand/50 transition"
-                      />
-                      <button
-                        onClick={() => {
-                          if (!newComp.name.trim()) return;
-                          setCompetitors(prev => [...prev, {
-                            id: crypto.randomUUID(),
-                            name: newComp.name.trim(),
-                            website: newComp.website.trim() || undefined,
-                            instagram: newComp.instagram.replace('@', '').trim() || undefined,
-                            tiktok: newComp.tiktok.replace('@', '').trim() || undefined,
-                            facebook: newComp.facebook.trim() || undefined,
-                            youtube: newComp.youtube.replace('@', '').trim() || undefined,
-                            linkedin: newComp.linkedin.trim() || undefined,
-                            x: newComp.x.replace('@', '').trim() || undefined,
-                            pinterest: newComp.pinterest.replace('@', '').trim() || undefined,
-                            threads: newComp.threads.replace('@', '').trim() || undefined,
-                          }]);
-                          setNewComp({ name: '', website: '', instagram: '', tiktok: '', facebook: '', youtube: '', linkedin: '', x: '', pinterest: '', threads: '' });
-                          setCompSocialOpen(false);
-                        }}
-                        disabled={!newComp.name.trim()}
-                        className="px-4 py-2 rounded-lg bg-brand text-bg text-xs font-bold hover:bg-brand-hover disabled:opacity-30 disabled:cursor-not-allowed transition-all whitespace-nowrap"
-                      >
-                        Add
-                      </button>
-                    </div>
-                    {/* Collapsible social handles */}
-                    <button
-                      type="button"
-                      onClick={() => setCompSocialOpen(prev => !prev)}
-                      className="flex items-center gap-1.5 text-[10px] text-text-secondary/60 hover:text-text-secondary transition"
-                    >
-                      <ChevronDown size={10} className={`transition-transform ${compSocialOpen ? 'rotate-180' : ''}`} />
-                      Social Handles {!compSocialOpen && '(expand)'}
-                    </button>
-                    {compSocialOpen && (
-                      <div className="grid grid-cols-2 gap-1.5">
-                        {([
-                          { key: 'instagram' as const, placeholder: 'Instagram @handle' },
-                          { key: 'tiktok' as const, placeholder: 'TikTok @handle' },
-                          { key: 'facebook' as const, placeholder: 'Facebook URL' },
-                          { key: 'youtube' as const, placeholder: 'YouTube @channel' },
-                          { key: 'linkedin' as const, placeholder: 'LinkedIn URL' },
-                          { key: 'x' as const, placeholder: 'X @handle' },
-                          { key: 'pinterest' as const, placeholder: 'Pinterest @handle' },
-                          { key: 'threads' as const, placeholder: 'Threads @handle' },
-                        ] as const).map(p => (
-                          <input
-                            key={p.key}
-                            type="text"
-                            value={newComp[p.key]}
-                            onChange={e => setNewComp(prev => ({ ...prev, [p.key]: e.target.value }))}
-                            placeholder={p.placeholder}
-                            className="w-full px-3 py-1.5 rounded-md bg-surface border border-border text-text-primary text-xs placeholder-text-secondary/40 focus:outline-none focus:border-brand/50 transition"
-                          />
-                        ))}
+                  {/* Competitor form — visible when compSocialOpen is true */}
+                  {compSocialOpen ? (
+                    <div className="rounded-2xl border border-white/[0.06] bg-white/[0.015] p-4 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs font-semibold text-text-primary">New Competitor</p>
+                        <button onClick={() => { setCompSocialOpen(false); setNewComp({ name: '', website: '', instagram: '', tiktok: '', facebook: '', youtube: '', linkedin: '', x: '', pinterest: '', threads: '' }); }} className="text-text-secondary/40 hover:text-text-secondary transition p-1">
+                          <X size={12} />
+                        </button>
                       </div>
-                    )}
-                  </div>
-                  <button
-                    onClick={() => {
-                      if (!newComp.name.trim()) return;
-                      setCompetitors(prev => [...prev, {
-                        id: crypto.randomUUID(),
-                        name: newComp.name.trim(),
-                        website: newComp.website.trim() || undefined,
-                        instagram: newComp.instagram.replace('@', '').trim() || undefined,
-                        tiktok: newComp.tiktok.replace('@', '').trim() || undefined,
-                        facebook: newComp.facebook.trim() || undefined,
-                        youtube: newComp.youtube.replace('@', '').trim() || undefined,
-                        linkedin: newComp.linkedin.trim() || undefined,
-                        x: newComp.x.replace('@', '').trim() || undefined,
-                        pinterest: newComp.pinterest.replace('@', '').trim() || undefined,
-                        threads: newComp.threads.replace('@', '').trim() || undefined,
-                      }]);
-                      setNewComp({ name: '', website: '', instagram: '', tiktok: '', facebook: '', youtube: '', linkedin: '', x: '', pinterest: '', threads: '' });
-                      setCompSocialOpen(false);
-                    }}
-                    disabled={!newComp.name.trim()}
-                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-brand text-bg text-sm font-bold hover:bg-brand-hover disabled:opacity-30 disabled:cursor-not-allowed transition-all"
-                  >
-                    <Plus size={14} /> Add Competitor
-                  </button>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <input type="text" value={newComp.name} onChange={e => setNewComp(prev => ({ ...prev, name: e.target.value }))} placeholder="Brand name *"
+                          className="px-3 py-2 rounded-lg bg-surface border border-white/[0.06] text-text-primary text-xs placeholder-text-secondary/30 focus:outline-none focus:border-brand/40 transition" />
+                        <input type="text" value={newComp.website} onChange={e => setNewComp(prev => ({ ...prev, website: e.target.value }))} placeholder="website.com"
+                          className="px-3 py-2 rounded-lg bg-surface border border-white/[0.06] text-text-primary text-xs placeholder-text-secondary/30 focus:outline-none focus:border-brand/40 transition" />
+                      </div>
+
+                      <div className="pt-2 border-t border-white/[0.04]">
+                        <p className="text-[10px] font-medium text-text-secondary/40 uppercase tracking-wider mb-2">Social Handles</p>
+                        <div className="grid grid-cols-2 gap-2">
+                          {([
+                            { key: 'instagram' as const, placeholder: 'Instagram @handle' },
+                            { key: 'tiktok' as const, placeholder: 'TikTok @handle' },
+                            { key: 'facebook' as const, placeholder: 'Facebook URL' },
+                            { key: 'youtube' as const, placeholder: 'YouTube @channel' },
+                            { key: 'linkedin' as const, placeholder: 'LinkedIn URL' },
+                            { key: 'x' as const, placeholder: 'X @handle' },
+                            { key: 'pinterest' as const, placeholder: 'Pinterest @handle' },
+                            { key: 'threads' as const, placeholder: 'Threads @handle' },
+                          ] as const).map(p => (
+                            <input key={p.key} type="text" value={newComp[p.key]}
+                              onChange={e => setNewComp(prev => ({ ...prev, [p.key]: e.target.value }))}
+                              placeholder={p.placeholder}
+                              className="px-3 py-1.5 rounded-lg bg-surface border border-white/[0.06] text-text-primary text-xs placeholder-text-secondary/30 focus:outline-none focus:border-brand/40 transition" />
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Action buttons */}
+                      <div className="flex gap-2 pt-1">
+                        <button
+                          onClick={() => {
+                            if (!newComp.name.trim()) return;
+                            setCompetitors(prev => [...prev, {
+                              id: crypto.randomUUID(),
+                              name: newComp.name.trim(),
+                              website: newComp.website.trim() || undefined,
+                              instagram: newComp.instagram.replace('@', '').trim() || undefined,
+                              tiktok: newComp.tiktok.replace('@', '').trim() || undefined,
+                              facebook: newComp.facebook.trim() || undefined,
+                              youtube: newComp.youtube.replace('@', '').trim() || undefined,
+                              linkedin: newComp.linkedin.trim() || undefined,
+                              x: newComp.x.replace('@', '').trim() || undefined,
+                              pinterest: newComp.pinterest.replace('@', '').trim() || undefined,
+                              threads: newComp.threads.replace('@', '').trim() || undefined,
+                            }]);
+                            setNewComp({ name: '', website: '', instagram: '', tiktok: '', facebook: '', youtube: '', linkedin: '', x: '', pinterest: '', threads: '' });
+                            setCompSocialOpen(false);
+                          }}
+                          disabled={!newComp.name.trim()}
+                          className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-brand text-bg text-xs font-bold hover:bg-brand-hover disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                        >
+                          <Check size={14} /> Save Competitor
+                        </button>
+                        <button
+                          onClick={() => { setCompSocialOpen(false); setNewComp({ name: '', website: '', instagram: '', tiktok: '', facebook: '', youtube: '', linkedin: '', x: '', pinterest: '', threads: '' }); }}
+                          className="px-4 py-2.5 rounded-xl text-xs font-medium text-text-secondary/60 hover:text-text-secondary hover:bg-white/[0.03] border border-white/[0.06] transition-all"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    /* "+ Add Competitor" button — opens the form */
+                    <button
+                      onClick={() => setCompSocialOpen(true)}
+                      className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-dashed border-white/[0.08] text-text-secondary/50 text-xs font-medium hover:border-brand/30 hover:text-brand hover:bg-brand/[0.03] transition-all"
+                    >
+                      <Plus size={14} /> Add Competitor
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
