@@ -637,31 +637,28 @@ export const BrandWizard: React.FC<Props> = ({ userId, onComplete, initialDNA })
                 {/* Social Presence — all platforms */}
                 <div>
                   <div className="flex items-center gap-2 mb-2">
-                    <span className="text-sm">📱</span>
                     <h3 className="text-sm font-bold text-text-primary">Your Social Presence</h3>
                   </div>
                   <p className="text-xs text-text-secondary/60 mb-3">Scout agent will research your social accounts to understand your current strategy across platforms.</p>
                   <div className="grid grid-cols-2 gap-2">
                     {([
-                      { key: 'instagram' as const, emoji: '📸', label: 'Instagram', placeholder: '@handle', prefix: '@' },
-                      { key: 'tiktok' as const, emoji: '🎵', label: 'TikTok', placeholder: '@handle', prefix: '@' },
-                      { key: 'facebook' as const, emoji: '👤', label: 'Facebook', placeholder: 'URL or page name', prefix: '' },
-                      { key: 'youtube' as const, emoji: '▶️', label: 'YouTube', placeholder: '@channel', prefix: '@' },
-                      { key: 'linkedin' as const, emoji: '💼', label: 'LinkedIn', placeholder: 'URL or company name', prefix: '' },
-                      { key: 'x' as const, emoji: '𝕏', label: 'X (Twitter)', placeholder: '@handle', prefix: '@' },
-                      { key: 'pinterest' as const, emoji: '📌', label: 'Pinterest', placeholder: '@handle', prefix: '@' },
-                      { key: 'threads' as const, emoji: '🧵', label: 'Threads', placeholder: '@handle', prefix: '@' },
+                      { key: 'instagram' as const, label: 'Instagram', placeholder: '@handle' },
+                      { key: 'tiktok' as const, label: 'TikTok', placeholder: '@handle' },
+                      { key: 'facebook' as const, label: 'Facebook', placeholder: 'URL or page name' },
+                      { key: 'youtube' as const, label: 'YouTube', placeholder: '@channel' },
+                      { key: 'linkedin' as const, label: 'LinkedIn', placeholder: 'URL or company' },
+                      { key: 'x' as const, label: 'X (Twitter)', placeholder: '@handle' },
+                      { key: 'pinterest' as const, label: 'Pinterest', placeholder: '@handle' },
+                      { key: 'threads' as const, label: 'Threads', placeholder: '@handle' },
                     ] as const).map(p => (
-                      <div key={p.key} className="relative">
-                        <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs">{p.emoji}</span>
-                        <input
-                          type="text"
-                          value={socialHandles[p.key]}
-                          onChange={e => setSocialHandles(prev => ({ ...prev, [p.key]: e.target.value }))}
-                          placeholder={`${p.label}: ${p.placeholder}`}
-                          className="w-full pl-8 pr-3 py-2 rounded-lg bg-surface border border-border text-text-primary text-xs placeholder-text-secondary/40 focus:outline-none focus:border-brand/50 transition"
-                        />
-                      </div>
+                      <input
+                        key={p.key}
+                        type="text"
+                        value={socialHandles[p.key]}
+                        onChange={e => setSocialHandles(prev => ({ ...prev, [p.key]: e.target.value }))}
+                        placeholder={`${p.label}: ${p.placeholder}`}
+                        className="w-full px-3 py-2 rounded-lg bg-surface border border-border text-text-primary text-xs placeholder-text-secondary/40 focus:outline-none focus:border-brand/50 transition"
+                      />
                     ))}
                   </div>
                   <p className="text-[10px] text-text-secondary/40 mt-1.5">All optional. Instagram recommended.</p>
@@ -681,23 +678,22 @@ export const BrandWizard: React.FC<Props> = ({ userId, onComplete, initialDNA })
                     <div className="space-y-2 mb-3">
                       {competitors.map((c) => {
                         const handles = [
-                          c.instagram && `📸 @${c.instagram}`,
-                          c.tiktok && `🎵 @${c.tiktok}`,
-                          c.facebook && `👤 ${c.facebook}`,
-                          c.youtube && `▶️ @${c.youtube}`,
-                          c.linkedin && `💼 ${c.linkedin}`,
-                          c.x && `𝕏 @${c.x}`,
-                          c.pinterest && `📌 @${c.pinterest}`,
-                          c.threads && `🧵 @${c.threads}`,
+                          c.instagram && `@${c.instagram}`,
+                          c.tiktok && `@${c.tiktok}`,
+                          c.facebook && c.facebook,
+                          c.youtube && `@${c.youtube}`,
+                          c.linkedin && c.linkedin,
+                          c.x && `@${c.x}`,
+                          c.pinterest && `@${c.pinterest}`,
+                          c.threads && `@${c.threads}`,
                         ].filter(Boolean);
                         return (
                           <div key={c.id} className="flex items-center gap-3 p-3 rounded-xl bg-surface border border-border">
-                            <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center text-xs">🏢</div>
                             <div className="flex-1 min-w-0">
                               <p className="text-sm font-medium text-text-primary truncate">{c.name}</p>
-                              <div className="flex items-center gap-3 mt-0.5 flex-wrap">
+                              <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                                 {c.website && <span className="text-[10px] text-text-secondary/40 truncate">{c.website}</span>}
-                                {handles.length > 0 && <span className="text-[10px] text-text-secondary/60">{handles.join(' · ')}</span>}
+                                {handles.length > 0 && <span className="text-[10px] text-text-secondary/50">{handles.join(' · ')}</span>}
                               </div>
                             </div>
                             <button
@@ -714,21 +710,45 @@ export const BrandWizard: React.FC<Props> = ({ userId, onComplete, initialDNA })
 
                   {/* Add competitor form */}
                   <div className="space-y-2 mb-2">
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="flex gap-2">
                       <input
                         type="text"
                         value={newComp.name}
                         onChange={e => setNewComp(prev => ({ ...prev, name: e.target.value }))}
                         placeholder="Brand name *"
-                        className="px-3 py-2 rounded-lg bg-surface border border-border text-text-primary text-xs placeholder-text-secondary/40 focus:outline-none focus:border-brand/50 transition"
+                        className="flex-1 px-3 py-2 rounded-lg bg-surface border border-border text-text-primary text-xs placeholder-text-secondary/40 focus:outline-none focus:border-brand/50 transition"
                       />
                       <input
                         type="text"
                         value={newComp.website}
                         onChange={e => setNewComp(prev => ({ ...prev, website: e.target.value }))}
                         placeholder="website.com"
-                        className="px-3 py-2 rounded-lg bg-surface border border-border text-text-primary text-xs placeholder-text-secondary/40 focus:outline-none focus:border-brand/50 transition"
+                        className="flex-1 px-3 py-2 rounded-lg bg-surface border border-border text-text-primary text-xs placeholder-text-secondary/40 focus:outline-none focus:border-brand/50 transition"
                       />
+                      <button
+                        onClick={() => {
+                          if (!newComp.name.trim()) return;
+                          setCompetitors(prev => [...prev, {
+                            id: crypto.randomUUID(),
+                            name: newComp.name.trim(),
+                            website: newComp.website.trim() || undefined,
+                            instagram: newComp.instagram.replace('@', '').trim() || undefined,
+                            tiktok: newComp.tiktok.replace('@', '').trim() || undefined,
+                            facebook: newComp.facebook.trim() || undefined,
+                            youtube: newComp.youtube.replace('@', '').trim() || undefined,
+                            linkedin: newComp.linkedin.trim() || undefined,
+                            x: newComp.x.replace('@', '').trim() || undefined,
+                            pinterest: newComp.pinterest.replace('@', '').trim() || undefined,
+                            threads: newComp.threads.replace('@', '').trim() || undefined,
+                          }]);
+                          setNewComp({ name: '', website: '', instagram: '', tiktok: '', facebook: '', youtube: '', linkedin: '', x: '', pinterest: '', threads: '' });
+                          setCompSocialOpen(false);
+                        }}
+                        disabled={!newComp.name.trim()}
+                        className="px-4 py-2 rounded-lg bg-brand text-bg text-xs font-bold hover:bg-brand-hover disabled:opacity-30 disabled:cursor-not-allowed transition-all whitespace-nowrap"
+                      >
+                        Add
+                      </button>
                     </div>
                     {/* Collapsible social handles */}
                     <button
@@ -742,25 +762,23 @@ export const BrandWizard: React.FC<Props> = ({ userId, onComplete, initialDNA })
                     {compSocialOpen && (
                       <div className="grid grid-cols-2 gap-1.5">
                         {([
-                          { key: 'instagram' as const, emoji: '📸', placeholder: '@instagram' },
-                          { key: 'tiktok' as const, emoji: '🎵', placeholder: '@tiktok' },
-                          { key: 'facebook' as const, emoji: '👤', placeholder: 'facebook URL' },
-                          { key: 'youtube' as const, emoji: '▶️', placeholder: '@youtube' },
-                          { key: 'linkedin' as const, emoji: '💼', placeholder: 'linkedin URL' },
-                          { key: 'x' as const, emoji: '𝕏', placeholder: '@x_handle' },
-                          { key: 'pinterest' as const, emoji: '📌', placeholder: '@pinterest' },
-                          { key: 'threads' as const, emoji: '🧵', placeholder: '@threads' },
+                          { key: 'instagram' as const, placeholder: 'Instagram @handle' },
+                          { key: 'tiktok' as const, placeholder: 'TikTok @handle' },
+                          { key: 'facebook' as const, placeholder: 'Facebook URL' },
+                          { key: 'youtube' as const, placeholder: 'YouTube @channel' },
+                          { key: 'linkedin' as const, placeholder: 'LinkedIn URL' },
+                          { key: 'x' as const, placeholder: 'X @handle' },
+                          { key: 'pinterest' as const, placeholder: 'Pinterest @handle' },
+                          { key: 'threads' as const, placeholder: 'Threads @handle' },
                         ] as const).map(p => (
-                          <div key={p.key} className="relative">
-                            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px]">{p.emoji}</span>
-                            <input
-                              type="text"
-                              value={newComp[p.key]}
-                              onChange={e => setNewComp(prev => ({ ...prev, [p.key]: e.target.value }))}
-                              placeholder={p.placeholder}
-                              className="w-full pl-7 pr-2 py-1.5 rounded-md bg-surface border border-border text-text-primary text-xs placeholder-text-secondary/40 focus:outline-none focus:border-brand/50 transition"
-                            />
-                          </div>
+                          <input
+                            key={p.key}
+                            type="text"
+                            value={newComp[p.key]}
+                            onChange={e => setNewComp(prev => ({ ...prev, [p.key]: e.target.value }))}
+                            placeholder={p.placeholder}
+                            className="w-full px-3 py-1.5 rounded-md bg-surface border border-border text-text-primary text-xs placeholder-text-secondary/40 focus:outline-none focus:border-brand/50 transition"
+                          />
                         ))}
                       </div>
                     )}
@@ -785,9 +803,9 @@ export const BrandWizard: React.FC<Props> = ({ userId, onComplete, initialDNA })
                       setCompSocialOpen(false);
                     }}
                     disabled={!newComp.name.trim()}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand/10 text-brand text-xs font-bold hover:bg-brand/20 disabled:opacity-40 disabled:cursor-not-allowed transition"
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-brand text-bg text-sm font-bold hover:bg-brand-hover disabled:opacity-30 disabled:cursor-not-allowed transition-all"
                   >
-                    <Plus size={12} /> Add Competitor
+                    <Plus size={14} /> Add Competitor
                   </button>
                 </div>
               </div>
