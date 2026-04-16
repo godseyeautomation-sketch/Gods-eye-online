@@ -134,7 +134,7 @@ const arr = (v) => Array.isArray(v) ? v : (v && typeof v === 'object' ? Object.v
 // Build the monthly calendar in ONE Gemini call
 // ══════════════════════════════════════════════════════════════════════════════
 
-async function generateMonthlyCalendar(brand, strategyData, postCount, year, month) {
+async function generateMonthlyCalendar(brand, strategyData, postCount, year, month, platforms = ['instagram']) {
   const daysInMonth = new Date(year, month, 0).getDate();
   const startDay = Math.max(1, new Date().getDate()); // Start from today if current month
 
@@ -160,6 +160,30 @@ async function generateMonthlyCalendar(brand, strategyData, postCount, year, mon
 
   const monthName = new Date(year, month - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 
+  // Build platform-specific instructions
+  const isMultiPlatform = platforms.length > 1;
+  const platformInstructions = isMultiPlatform ? `
+═══ MULTI-PLATFORM CONTENT ═══
+Generate content for these platforms: ${platforms.join(', ')}
+Instagram and Facebook share the same posts — reuse the same brief for both.
+For each slot, include a "platform" field indicating which platform it targets.
+Adapt tone and format per platform:
+- Instagram: posts, stories, reels with hashtags and visual hooks
+- TikTok: punchy hooks, trending sounds references, pattern-interrupt, short-form video scripts
+- Facebook: longer conversational posts, group engagement, community questions
+- LinkedIn: professional, thought leadership, longer form with industry insights
+- X: short & punchy (280 char limit), thread format for longer content
+- Pinterest: SEO keywords, aspirational descriptions, pin titles
+- YouTube: video descriptions with timestamps, shorts scripts
+- Threads: casual conversation starters, authentic voice
+
+Distribute the ${postCount} slots across platforms based on reach potential:
+${platforms.map(p => {
+    const weights = { instagram: 30, tiktok: 25, facebook: 15, youtube: 15, linkedin: 10, x: 10, pinterest: 10, threads: 5 };
+    return `- ${p}: ~${weights[p.toLowerCase()] || 10}% of posts`;
+  }).join('\n')}
+` : `Each slot targets platform: "instagram".`;
+
   const prompt = `You are Priya, a creative content generator for ${brand.name}. Generate a full monthly content calendar.
 
 ═══ BRAND ═══
@@ -182,6 +206,8 @@ ${weeklyTemplate.map(w => `  ${w.day || ''}: ${w.format || 'post'} — ${w.pilla
 Top Hooks (inspiration, vary style):
 ${allHooks.slice(0, 10).map((h, i) => `  ${i + 1}. "${h}"`).join('\n')}
 
+${platformInstructions}
+
 ═══ TASK ═══
 Generate EXACTLY ${postCount} content slots for ${monthName}.
 
@@ -193,18 +219,19 @@ RULES:
 5. ${hasProducts ? `Product rule: Feature ${productList}. Image prompt = background/setting ONLY.` : 'No products — brand values & lifestyle only. NO product objects in image prompts.'}
 6. Vary hooks — don't repeat
 7. Spread pillars proportionally
+8. Each slot MUST include a "platform" field (one of: ${platforms.join(', ')})
 
 KEEP BRIEFS CONCISE (important for response size):
 - hook: 1 line, max 15 words
 - caption: 1 paragraph only, max 60 words
-- hashtags: 8-10 tags max
+- hashtags: 8-10 tags max (or keywords for Pinterest/YouTube)
 - image_prompt: 1 sentence, max 25 words
 - visual_direction: 1 sentence, max 15 words
 - call_to_action: 1 short line
 - target_emotion: 1-2 words
 
 Return ONLY valid JSON (no markdown fences), exact schema:
-{"slots":[{"date":"${year}-${String(month).padStart(2, '0')}-01","format":"post","pillar":"NAME","idea":"1 line","brief":{"hook":"...","caption":"...","hashtags":["t1","t2"],"image_prompt":"...","visual_direction":"...","call_to_action":"...","target_emotion":"..."}}]}
+{"slots":[{"date":"${year}-${String(month).padStart(2, '0')}-01","format":"post","platform":"instagram","pillar":"NAME","idea":"1 line","brief":{"hook":"...","caption":"...","hashtags":["t1","t2"],"image_prompt":"...","visual_direction":"...","call_to_action":"...","target_emotion":"..."}}]}
 
 Generate exactly ${postCount} slots. NO commentary. JSON only.`;
 
@@ -282,11 +309,13 @@ async function executePriya(userId, brandId, config = {}) {
   const targetYear = config.year || today.getFullYear();
   const targetMonth = config.month || (today.getMonth() + 1); // 1-indexed
   const postCount = config.post_count || 15;
+  const platforms = config.platforms || ['instagram'];
 
   console.log(`[Priya] Target: ${postCount} slots for ${targetYear}-${String(targetMonth).padStart(2, '0')}`);
+  console.log(`[Priya] Platforms: ${platforms.join(', ')}`);
 
   // ── Generate the full calendar in ONE Gemini call ──────────────────────
-  const generatedSlots = await generateMonthlyCalendar(brand, strategyData, postCount, targetYear, targetMonth);
+  const generatedSlots = await generateMonthlyCalendar(brand, strategyData, postCount, targetYear, targetMonth, platforms);
 
   // ── Convert to ContentSlot format ───────────────────────────────────────
   const newSlots = [];
@@ -304,15 +333,23 @@ async function executePriya(userId, brandId, config = {}) {
       let format = String(g.format || 'post').toLowerCase();
       if (format.includes('reel') || format.includes('video')) format = 'reel';
       else if (format.includes('story')) format = 'story';
+      else if (format.includes('short')) format = 'short';
+      else if (format.includes('thread')) format = 'thread';
+      else if (format.includes('pin')) format = 'pin';
+      else if (format.includes('article')) format = 'article';
       else format = 'post';
 
-      const slotId = `${brandId}_${g.date}_${format}`;
+      // Normalize platform — default to instagram if missing
+      const platform = String(g.platform || 'instagram').toLowerCase();
+
+      const slotId = `${brandId}_${g.date}_${format}_${platform}`;
       const slot = {
         id: slotId,
         brand_id: brandId,
         user_id: userId,
         slot_date: g.date,
         format,
+        platform,
         status: 'briefed',
         idea: g.idea || g.brief?.hook || '',
         brief: g.brief || null,
@@ -351,6 +388,7 @@ async function executePriya(userId, brandId, config = {}) {
     slots_total: postCount,
     year: targetYear,
     month: targetMonth,
+    platforms,
     strategy_pillars: arr(strategyData.content_pillars).length,
     generated_at: new Date().toISOString(),
     slots: newSlots, // Frontend writes these to IndexedDB

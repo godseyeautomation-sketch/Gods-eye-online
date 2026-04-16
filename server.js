@@ -10,6 +10,8 @@ import { mountMcpEndpoints } from './services/mcpServer.js';
 import { executeScout } from './services/scoutAgent.js';
 import { executePriya } from './services/priyaAgent.js';
 import { executeReview, handleSlackAction, getReviewStatus } from './services/reviewAgent.js';
+import { executeDispatch } from './services/dispatchAgent.js';
+import { executeKarma } from './services/karmaAgent.js';
 import {
   approveItem, rejectItem, getApprovalQueue, bulkApprove,
   getPipelineRuns, getPipelineStageLogs, distillPerformanceSignals,
@@ -827,9 +829,11 @@ app.post('/api/pipeline/run-agent', async (req, res) => {
       const result = await executeReview(userId, brand_id, config || {});
       res.json({ ok: true, text: `Review: ${result.decision}`, result });
     } else if (agent_id === 'dispatcher' || agent_id === 'dispatch') {
-      res.json({ ok: true, text: 'Dispatch agent: not yet implemented.' });
+      const result = await executeDispatch(userId, brand_id, config || {});
+      res.json({ ok: true, text: `Published ${result.published_count} posts`, result });
     } else if (agent_id === 'analyst' || agent_id === 'karma') {
-      res.json({ ok: true, text: 'Karma agent: not yet implemented.' });
+      const result = await executeKarma(userId, brand_id, config || {});
+      res.json({ ok: true, text: `Analytics: ${result.insights_count} insights`, result });
     } else {
       res.json({ ok: true, text: `Unknown agent ${agent_id}` });
     }

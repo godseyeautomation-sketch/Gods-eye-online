@@ -93,8 +93,40 @@ function parseJSON(text) {
 // STEP 1: Brand + Competitor Intelligence Scan
 // ══════════════════════════════════════════════════════════════════════════════
 
-async function scanBrandAndCompetitors(brand, competitors) {
+async function scanBrandAndCompetitors(brand, competitors, platforms = ['instagram']) {
   console.log(`[Scout] Step 1: Scanning brand (${brand.website_url || 'no website'}, ${brand.instagram_handle || 'no IG'}) + ${competitors.length} competitors...`);
+  console.log(`[Scout] Target platforms: ${platforms.join(', ')}`);
+
+  // ── Collect social handles across platforms ────────────────────────────
+  const brandHandles = {
+    instagram: brand.instagram_handle || '',
+    tiktok: brand.tiktok_handle || '',
+    facebook: brand.facebook_handle || '',
+    youtube: brand.youtube_handle || '',
+    linkedin: brand.linkedin_handle || '',
+    x: brand.x_handle || brand.twitter_handle || '',
+    pinterest: brand.pinterest_handle || '',
+    threads: brand.threads_handle || '',
+  };
+
+  const competitorHandles = competitors.map(c => ({
+    ...c,
+    handles: {
+      instagram: c.instagram || c.handle || '',
+      tiktok: c.tiktok || '',
+      facebook: c.facebook || '',
+      youtube: c.youtube || '',
+      linkedin: c.linkedin || '',
+      x: c.x || c.twitter || '',
+      pinterest: c.pinterest || '',
+      threads: c.threads || '',
+    },
+  }));
+
+  // Build platform presence summary for the Gemini prompt
+  const brandPlatformSummary = platforms
+    .map(p => `${p}: ${brandHandles[p.toLowerCase()] ? '@' + brandHandles[p.toLowerCase()].replace('@', '') : 'not provided'}`)
+    .join(', ');
 
   // ── REAL DATA: Scrape Instagram via Apify ──────────────────────────────
   let apifyData = {};
@@ -165,6 +197,7 @@ ${c.scraped.top_posts.map(p => `  ${p.type}: ${p.likes.toLocaleString()} likes, 
 Name: ${brand.name}
 Website: ${brand.website_url || 'Not provided'}
 Instagram: ${brand.instagram_handle ? '@' + brand.instagram_handle : 'Not provided'}
+Platform Presence: ${brandPlatformSummary}
 Industry: ${brand.industry || 'General'}
 Audience: ${brand.audience || 'General'}
 Products: ${(brand.products || []).map(p => p.name).join(', ') || 'Not specified'}
@@ -175,6 +208,15 @@ IMPORTANT: The numbers above are REAL scraped data. Use them EXACTLY as provided
 
 Use web search ONLY for: website content analysis, positioning insights, content strategy analysis, and visual aesthetic description. NOT for follower counts or engagement rates (those are already provided above).
 
+═══ PLATFORM-SPECIFIC STRATEGY ═══
+Generate platform-specific strategies for: ${platforms.join(', ')}
+For each platform, provide:
+- Best content formats (e.g., reels for Instagram, shorts for YouTube, threads for X)
+- Optimal posting times for the brand's target audience
+- Caption/description length recommendations
+- Hashtag strategy (or keywords for Pinterest/YouTube)
+- Recommended posting frequency
+
 Return detailed JSON:
 {
   "brand_analysis": {
@@ -184,6 +226,9 @@ Return detailed JSON:
     "visual_aesthetic": "describe their visual identity",
     "strengths": ["based on real data..."],
     "weaknesses": ["based on real data..."]
+  },
+  "platform_strategies": {
+    ${platforms.map(p => `"${p}": { "best_formats": ["..."], "optimal_posting_times": ["..."], "caption_length": "...", "hashtag_strategy": "...", "posting_frequency": "...", "key_tactics": ["..."] }`).join(',\n    ')}
   },
   "competitors": [${competitorIGs.map(c => `
     {
@@ -255,8 +300,34 @@ Return JSON:
 // STEP 3: Content Strategy + Calendar + Hooks + Scripts
 // ══════════════════════════════════════════════════════════════════════════════
 
-async function generateStrategy(brand, scanData, weaknessData) {
-  console.log(`[Scout] Step 3: Generating content strategy...`);
+async function generateStrategy(brand, scanData, weaknessData, platforms = ['instagram']) {
+  console.log(`[Scout] Step 3: Generating content strategy for platforms: ${platforms.join(', ')}...`);
+
+  const isMultiPlatform = platforms.length > 1;
+
+  const platformStrategyBlock = isMultiPlatform ? `
+7. PLATFORM-SPECIFIC STRATEGIES for: ${platforms.join(', ')}
+   For each platform, provide:
+   - Best content formats
+   - Optimal posting times
+   - Caption/description length
+   - Hashtag strategy (or keywords for Pinterest/YouTube)
+   - Recommended posting frequency
+   - Content pillars adapted for that platform
+` : '';
+
+  const platformStrategySchema = isMultiPlatform ? `
+  "platform_strategies": {
+    ${platforms.map(p => `"${p}": {
+      "best_formats": ["..."],
+      "optimal_posting_times": ["..."],
+      "caption_length": "...",
+      "hashtag_or_keyword_strategy": "...",
+      "posting_frequency": "...",
+      "adapted_pillars": [{ "name": "...", "percentage": 25, "platform_specific_twist": "..." }],
+      "key_tactics": ["..."]
+    }`).join(',\n    ')}
+  },` : '';
 
   const prompt = `You are a world-class social media content strategist. Create a comprehensive content strategy.
 
@@ -270,6 +341,7 @@ DIFFERENTIATORS: ${JSON.stringify(weaknessData?.key_differentiators || [])}
 PRODUCTS: ${(brand.products || []).map(p => p.name).join(', ') || 'Not specified'}
 TONE: ${(brand.tone || []).join(', ')}
 GAPS TO EXPLOIT: ${(weaknessData?.weaknesses_opportunities || []).map(w => w.our_opportunity).join('; ')}
+TARGET PLATFORMS: ${platforms.join(', ')}
 
 Create:
 1. 5 CONTENT PILLARS with % distribution, purpose, examples
@@ -278,6 +350,7 @@ Create:
 4. 30 HOOKS (5 each: pattern_interrupt, curiosity, authority, social_proof, comparison, lifestyle)
 5. PROFILE OPTIMIZATION (bio rewrite, 6 highlights, grid strategy)
 6. ACTION PRIORITIES (immediate, this_week, next_week)
+${platformStrategyBlock}
 
 Return JSON:
 {
@@ -286,12 +359,15 @@ Return JSON:
   "reel_scripts": [{ "title": "...", "pillar": "...", "format": "...", "duration": "...", "hook": "...", "scenes": [{ "timestamp": "0-3s", "action": "...", "text_on_screen": "..." }], "caption": "...", "hashtags": ["..."] }],
   "hook_bank": { "pattern_interrupt": ["..."], "curiosity": ["..."], "authority": ["..."], "social_proof": ["..."], "comparison": ["..."], "lifestyle": ["..."] },
   "profile_optimization": { "bio": "...", "highlights": [{ "name": "...", "content": "..." }], "grid_strategy": "..." },
-  "action_priorities": { "immediate": [{ "task": "...", "timeline": "Today" }], "this_week": [{ "task": "...", "timeline": "Day 2-3" }], "next_week": [{ "task": "...", "timeline": "Week 2" }] }
+  "action_priorities": { "immediate": [{ "task": "...", "timeline": "Today" }], "this_week": [{ "task": "...", "timeline": "Day 2-3" }], "next_week": [{ "task": "...", "timeline": "Week 2" }] },
+  ${platformStrategySchema}
 }`;
 
-  const { text } = await callGemini(prompt, { temperature: 0.7, maxTokens: 16384 });
+  // Increase token budget when multi-platform to accommodate extra strategy content
+  const tokenBudget = isMultiPlatform ? 24576 : 16384;
+  const { text } = await callGemini(prompt, { temperature: 0.7, maxTokens: tokenBudget });
   const result = parseJSON(text);
-  console.log(`[Scout] Step 3 complete: ${result?.content_pillars?.length || 0} pillars, ${result?.reel_scripts?.length || 0} scripts`);
+  console.log(`[Scout] Step 3 complete: ${result?.content_pillars?.length || 0} pillars, ${result?.reel_scripts?.length || 0} scripts${isMultiPlatform ? `, ${Object.keys(result?.platform_strategies || {}).length} platform strategies` : ''}`);
   return result;
 }
 
@@ -468,6 +544,37 @@ function buildDocument(brand, scanData, weaknessData, strategyData) {
     if (prof.grid_strategy) children.push(h2('Grid Strategy'), p(prof.grid_strategy), spacer());
   }
 
+  // ── PLATFORM-SPECIFIC STRATEGIES ──
+  const platformStrats = strategyData?.platform_strategies;
+  if (platformStrats && typeof platformStrats === 'object' && Object.keys(platformStrats).length) {
+    children.push(h1('PLATFORM-SPECIFIC STRATEGIES'));
+    for (const [platform, strat] of Object.entries(platformStrats)) {
+      children.push(h2(platform.toUpperCase()));
+      if (strat.best_formats && arr(strat.best_formats).length) {
+        children.push(bullet(`Best Formats: ${arr(strat.best_formats).join(', ')}`));
+      }
+      if (strat.optimal_posting_times && arr(strat.optimal_posting_times).length) {
+        children.push(bullet(`Optimal Posting Times: ${arr(strat.optimal_posting_times).join(', ')}`));
+      }
+      if (strat.caption_length) children.push(bullet(`Caption Length: ${strat.caption_length}`));
+      if (strat.hashtag_or_keyword_strategy) children.push(bullet(`Hashtag/Keyword Strategy: ${strat.hashtag_or_keyword_strategy}`));
+      if (strat.hashtag_strategy) children.push(bullet(`Hashtag Strategy: ${strat.hashtag_strategy}`));
+      if (strat.posting_frequency) children.push(bullet(`Posting Frequency: ${strat.posting_frequency}`));
+      if (strat.key_tactics && arr(strat.key_tactics).length) {
+        children.push(p('Key Tactics:', { bold: true }));
+        arr(strat.key_tactics).forEach(t => children.push(bullet(String(t))));
+      }
+      if (strat.adapted_pillars && arr(strat.adapted_pillars).length) {
+        children.push(p('Adapted Content Pillars:', { bold: true }));
+        arr(strat.adapted_pillars).forEach(ap => {
+          children.push(bullet(`${ap.name || ''} (${ap.percentage || 0}%)${ap.platform_specific_twist ? ' — ' + ap.platform_specific_twist : ''}`));
+        });
+      }
+      children.push(spacer());
+    }
+    children.push(pageBreak());
+  }
+
   // ── ACTIONS ──
   const act = strategyData?.action_priorities;
   if (act) {
@@ -536,18 +643,20 @@ async function executeScout(userId, brandId, config = {}) {
   if (!brand) throw new Error(`Brand not found: ${brandId}`);
 
   const competitors = config.competitors || [];
+  const platforms = config.platforms || ['instagram'];
   console.log(`\n[Scout] ═══ Starting Scout for "${brand.name}" ═══`);
   console.log(`[Scout] Website: ${brand.website_url || 'none'}, IG: ${brand.instagram_handle || 'none'}, Competitors: ${competitors.length}`);
+  console.log(`[Scout] Platforms: ${platforms.join(', ')}`);
 
   // Step 1: Scan brand + competitors
-  const step1 = await scanBrandAndCompetitors(brand, competitors);
+  const step1 = await scanBrandAndCompetitors(brand, competitors, platforms);
   const scanData = step1.data || { brand_analysis: {}, competitors: [] };
 
   // Step 2: Weakness analysis
   const weaknessData = await analyzeWeaknesses(brand, scanData);
 
   // Step 3: Content strategy
-  const strategyData = await generateStrategy(brand, scanData, weaknessData);
+  const strategyData = await generateStrategy(brand, scanData, weaknessData, platforms);
 
   // Step 4: Build .docx
   const doc = buildDocument(brand, scanData, weaknessData, strategyData);
@@ -567,9 +676,11 @@ async function executeScout(userId, brandId, config = {}) {
     filename,
     filepath,
     file_size: buffer.length,
+    platforms,
     competitors_analyzed: scanData.competitors?.length || 0,
     opportunities: weaknessData?.weaknesses_opportunities?.length || 0,
     content_pillars: strategyData?.content_pillars?.length || 0,
+    platform_strategies: Object.keys(strategyData?.platform_strategies || {}).length,
     reel_scripts: strategyData?.reel_scripts?.length || 0,
     hooks_generated: Object.values(strategyData?.hook_bank || {}).flat().length,
     sources: step1.sources || [],
