@@ -1,5 +1,6 @@
 # Multi-stage build for optimized image size
-FROM node:18-alpine AS builder
+# Use node:18 (not alpine) — Tailwind v4 needs native bindings unavailable on Alpine
+FROM node:18 AS builder
 
 WORKDIR /app
 
@@ -15,7 +16,7 @@ ENV VITE_SUPABASE_ANON_KEY=$VITE_SUPABASE_ANON_KEY
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies
+# Install dependencies (clean install for reproducibility)
 RUN npm ci
 
 # Copy source files
@@ -24,7 +25,7 @@ COPY . .
 # Build the application
 RUN npm run build
 
-# Production stage
+# Production stage — alpine is fine here (no build step)
 FROM node:18-alpine
 
 WORKDIR /app
