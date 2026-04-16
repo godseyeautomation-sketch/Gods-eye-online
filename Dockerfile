@@ -16,8 +16,10 @@ ENV VITE_SUPABASE_ANON_KEY=$VITE_SUPABASE_ANON_KEY
 # Copy package files (no lockfile — forces fresh resolve of platform-specific native bindings)
 COPY package.json ./
 
-# Install dependencies fresh (resolves Linux-native Tailwind/PostCSS bindings)
-RUN npm install --prefer-offline=false
+# Install dependencies + explicitly add Linux-native Tailwind/LightningCSS bindings
+# (npm doesn't always resolve platform-specific optional deps correctly in Docker)
+RUN npm install && \
+    npm install @tailwindcss/oxide-linux-x64-gnu lightningcss-linux-x64-gnu @rollup/rollup-linux-x64-gnu
 
 # Copy source files
 COPY . .
