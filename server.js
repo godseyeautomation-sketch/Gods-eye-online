@@ -729,10 +729,6 @@ app.post('/api/pipeline/distill-signals', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ── Sync directory (for brand/slot data on Cloud Run) ─────────────────────
-const SYNC_DIR = path.join(process.env.HOME || '', '.klint', 'sync');
-if (!fs.existsSync(SYNC_DIR)) fs.mkdirSync(SYNC_DIR, { recursive: true });
-
 // Run individual agent (matching dev-server.js)
 app.post('/api/pipeline/run-agent', async (req, res) => {
   try {
