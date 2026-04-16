@@ -3449,6 +3449,101 @@ app.post('/api/slack/interactions', urlencoded({ extended: false }), (req, res) 
   }
 });
 
+// ── Approval Queue (local sync file based) ─────────────────────────────
+app.get('/api/approval-queue', (req, res) => {
+  try {
+    const userId = req.headers['x-user-id'] || req.query.user_id;
+    const brandId = req.query.brand_id;
+    const status = req.query.status || 'pending';
+
+    const queueFile = readSyncFile('approval_queue');
+    let items = queueFile?.data || [];
+
+    if (brandId) items = items.filter(i => i.brand_id === brandId);
+    if (status && status !== 'all') items = items.filter(i => i.status === status);
+
+    items.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    res.json({ ok: true, items: items.slice(0, 50) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/approval-queue/:id/approve', (req, res) => {
+  try {
+    const queueFile = readSyncFile('approval_queue');
+    const items = queueFile?.data || [];
+    const idx = items.findIndex(i => i.id === req.params.id);
+    if (idx < 0) return res.status(404).json({ error: 'Item not found' });
+
+    items[idx].status = 'approved';
+    items[idx].resolved_at = new Date().toISOString();
+    writeSyncFile('approval_queue', { _updatedAt: new Date().toISOString(), data: items });
+
+    // Also update the content slot status
+    const slotsFile = readSyncFile('content_slots');
+    const slots = slotsFile?.data || [];
+    const slotIdx = slots.findIndex(s => s.id === items[idx].slot_id);
+    if (slotIdx >= 0) {
+      slots[slotIdx].status = 'approved';
+      slots[slotIdx].approved = true;
+      slots[slotIdx].generated_image = items[idx].generated_image || slots[slotIdx].generated_image;
+      slots[slotIdx].updated_at = new Date().toISOString();
+      writeSyncFile('content_slots', { _updatedAt: new Date().toISOString(), data: slots });
+    }
+
+    res.json({ ok: true, approved: items[idx].slot_id });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/approval-queue/:id/reject', (req, res) => {
+  try {
+    const queueFile = readSyncFile('approval_queue');
+    const items = queueFile?.data || [];
+    const idx = items.findIndex(i => i.id === req.params.id);
+    if (idx < 0) return res.status(404).json({ error: 'Item not found' });
+
+    items[idx].status = 'rejected';
+    items[idx].reviewer_notes = req.body?.reason || '';
+    items[idx].resolved_at = new Date().toISOString();
+    writeSyncFile('approval_queue', { _updatedAt: new Date().toISOString(), data: items });
+
+    res.json({ ok: true, rejected: items[idx].slot_id });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/approval-queue/bulk-approve', (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!ids?.length) return res.status(400).json({ error: 'ids[] required' });
+
+    const queueFile = readSyncFile('approval_queue');
+    const items = queueFile?.data || [];
+    const slotsFile = readSyncFile('content_slots');
+    const slots = slotsFile?.data || [];
+
+    const results = [];
+    for (const id of ids) {
+      const idx = items.findIndex(i => i.id === id);
+      if (idx >= 0) {
+        items[idx].status = 'approved';
+        items[idx].resolved_at = new Date().toISOString();
+        const slotIdx = slots.findIndex(s => s.id === items[idx].slot_id);
+        if (slotIdx >= 0) {
+          slots[slotIdx].status = 'approved';
+          slots[slotIdx].approved = true;
+          slots[slotIdx].generated_image = items[idx].generated_image || slots[slotIdx].generated_image;
+          slots[slotIdx].updated_at = new Date().toISOString();
+        }
+        results.push({ id, success: true });
+      }
+    }
+
+    writeSyncFile('approval_queue', { _updatedAt: new Date().toISOString(), data: items });
+    writeSyncFile('content_slots', { _updatedAt: new Date().toISOString(), data: slots });
+
+    res.json({ ok: true, results });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ── MCP SSE Server ──
 mountMcpEndpoints(app, { port: PORT });
 

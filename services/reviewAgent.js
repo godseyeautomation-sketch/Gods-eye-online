@@ -91,11 +91,60 @@ async function slackUploadImage(imageBuffer, filename, channelId) {
 // Gemini image generation (matching geminiService.ts pattern)
 // ══════════════════════════════════════════════════════════════════════════════
 
-async function generateImage(prompt, visualDirection, aspectRatio = '1:1') {
+/**
+ * Check if a product's imageDataUrl is usable server-side.
+ * local:{id} references require localStorage (browser-only) so we skip them.
+ * Only real data: URLs and http(s): URLs are usable.
+ */
+function isUsableImageUrl(url) {
+  if (!url || typeof url !== 'string') return false;
+  if (url.startsWith('local:')) return false;
+  if (url.startsWith('data:') || url.startsWith('http:') || url.startsWith('https:')) return true;
+  return false;
+}
+
+async function generateImage(prompt, visualDirection, aspectRatio = '1:1', product = null) {
   const geminiKey = getGeminiKey();
   if (!geminiKey) throw new Error('Gemini API key not configured');
 
-  const fullPrompt = `${prompt}. ${visualDirection || 'High quality, cinematic, professional photography'}`;
+  // Determine if we can use the product as a base image
+  const useProductLock = product && isUsableImageUrl(product.imageDataUrl);
+
+  let fullPrompt;
+  const parts = [];
+
+  if (useProductLock) {
+    // Image-to-image: keep product, change only the scene around it
+    fullPrompt = `Edit this image. Keep the product exactly as shown. Change ONLY the background and scene to: ${prompt}. ${visualDirection || 'High quality, cinematic, professional photography'}`;
+
+    // Build inline image part from the product's imageDataUrl
+    const imageDataUrl = product.imageDataUrl;
+    if (imageDataUrl.startsWith('data:')) {
+      const mimeMatch = imageDataUrl.match(/^data:(image\/\w+);base64,/);
+      const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+      const base64Data = imageDataUrl.replace(/^data:image\/\w+;base64,/, '');
+      parts.push({ inlineData: { mimeType, data: base64Data } });
+    } else {
+      // http(s) URL — fetch and convert to base64
+      try {
+        const imgRes = await fetch(imageDataUrl);
+        const imgBuf = await imgRes.arrayBuffer();
+        const b64 = Buffer.from(imgBuf).toString('base64');
+        const contentType = imgRes.headers.get('content-type') || 'image/jpeg';
+        parts.push({ inlineData: { mimeType: contentType, data: b64 } });
+      } catch (err) {
+        console.warn(`[Review] Failed to fetch product image URL, falling back to text-only:`, err.message);
+        // Fall through to text-only generation below
+      }
+    }
+    parts.push({ text: fullPrompt });
+  } else {
+    // No usable product image — pure lifestyle scene
+    fullPrompt = `${prompt}. ${visualDirection || 'High quality, cinematic, professional photography'}`;
+    parts.push({ text: fullPrompt });
+  }
+
+  const temperature = useProductLock ? 0.1 : 0.7;
 
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent?key=${geminiKey}`,
@@ -103,10 +152,10 @@ async function generateImage(prompt, visualDirection, aspectRatio = '1:1') {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        contents: [{ parts: [{ text: fullPrompt }] }],
+        contents: [{ parts }],
         generationConfig: {
           responseModalities: ['IMAGE'],
-          temperature: 0.7,
+          temperature,
           imageConfig: { aspectRatio },
         },
         safetySettings: [
@@ -216,6 +265,23 @@ function handleSlackAction(payload) {
   review.decisions[slotIndex] = decision;
   console.log(`[Review] Slack button: slot ${slotIndex} → ${decision} (review ${reviewId})`);
 
+  // Also update the approval_queue.json sync file so the in-app dashboard reflects Slack decisions
+  try {
+    const queueFile = readSync('approval_queue');
+    if (queueFile?.data) {
+      const slot = review.slots[slotIndex];
+      const updatedData = queueFile.data.map(item => {
+        if (item.review_id === reviewId && item.slot_id === slot?.id) {
+          return { ...item, status: decision === 'approve' ? 'approved' : 'rejected', resolved_at: new Date().toISOString() };
+        }
+        return item;
+      });
+      writeSync('approval_queue', { _updatedAt: new Date().toISOString(), data: updatedData });
+    }
+  } catch (err) {
+    console.warn('[Review] Failed to update approval_queue.json:', err.message);
+  }
+
   // Update the Slack message to show decision (replace buttons with status)
   const statusEmoji = decision === 'approve' ? '✅ APPROVED' : '❌ REJECTED';
   slackPost('chat.update', {
@@ -320,6 +386,16 @@ async function executeReview(userId, brandId, config = {}) {
   const brand = allBrands.find(b => b.id === brandId);
   if (!brand) throw new Error(`Brand not found: ${brandId}`);
 
+  // Extract the first product for product-locked image generation
+  const product = brand.products?.[0] || null;
+  if (product && isUsableImageUrl(product.imageDataUrl)) {
+    console.log(`[Review] Product lock: "${product.name}" (image type: ${product.imageDataUrl.slice(0, 20)}...)`);
+  } else if (product) {
+    console.log(`[Review] Product "${product.name}" found but image not usable server-side (${product.imageDataUrl?.slice(0, 20) || 'none'}), generating without base image`);
+  } else {
+    console.log(`[Review] No product found — generating pure lifestyle scenes`);
+  }
+
   const slotsFile = readSync('content_slots');
   const allSlots = Array.isArray(slotsFile?.data) ? slotsFile.data : [];
 
@@ -369,8 +445,8 @@ async function executeReview(userId, brandId, config = {}) {
     const aspectRatio = (slot.format === 'story' || slot.format === 'reel') ? '9:16' : '1:1';
 
     try {
-      console.log(`[Review] Generating image ${i + 1}/${reviewSlots.length}: ${slot.slot_date}/${slot.format}`);
-      const imageBuffer = await generateImage(prompt, direction, aspectRatio);
+      console.log(`[Review] Generating image ${i + 1}/${reviewSlots.length}: ${slot.slot_date}/${slot.format}${product ? ` (product: ${product.name})` : ''}`);
+      const imageBuffer = await generateImage(prompt, direction, aspectRatio, product);
       console.log(`[Review] ✓ Image ${i + 1} generated (${imageBuffer.length} bytes)`);
       imageResults.push({ slot, imageBuffer, index: i });
     } catch (err) {
@@ -411,6 +487,35 @@ async function executeReview(userId, brandId, config = {}) {
     startedAt: Date.now(),
   };
   pendingReviews.set(reviewId, review);
+
+  // ── Step 4b: Write to approval_queue.json so in-app dashboard can display items ──
+  try {
+    const existingQueueFile = readSync('approval_queue');
+    const existingQueue = Array.isArray(existingQueueFile?.data) ? existingQueueFile.data : [];
+
+    const queueItems = reviewSlots.map((slot, i) => ({
+      id: `review_${Date.now()}_${i}`,
+      brand_id: brandId,
+      user_id: userId,
+      slot_id: slot.id,
+      slot_date: slot.slot_date,
+      format: slot.format,
+      brief: slot.brief,
+      generated_image: imageResults[i]?.imageBuffer ? `data:image/png;base64,${imageResults[i].imageBuffer.toString('base64')}` : null,
+      caption_preview: (slot.brief?.caption || '').slice(0, 200),
+      quality_scores: null,
+      guardrail_flags: null,
+      dedup_score: 0,
+      status: 'pending',
+      review_id: reviewId,
+      created_at: new Date().toISOString(),
+    }));
+
+    writeSync('approval_queue', { _updatedAt: new Date().toISOString(), data: [...existingQueue, ...queueItems] });
+    console.log(`[Review] Wrote ${queueItems.length} items to approval_queue.json for in-app dashboard`);
+  } catch (err) {
+    console.error('[Review] Failed to write approval_queue.json:', err.message);
+  }
 
   await slackPost('chat.postMessage', {
     channel: channelId,

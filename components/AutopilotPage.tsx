@@ -107,6 +107,9 @@ export const AutopilotPage: React.FC = () => {
   // Activity state
   const [allStageLogs, setAllStageLogs] = useState<PipelineStageLog[]>([]);
 
+  // Approval queue pending count for sidebar badge
+  const [queuePendingCount, setQueuePendingCount] = useState(0);
+
   // Per-agent running state + results
   const [runningAgent, setRunningAgent] = useState<string | null>(null);
   const [scoutResult, setScoutResult] = useState<{ filename: string; competitors_analyzed: number; opportunities: number; content_pillars: number; hooks_generated: number; generated_at: string } | null>(null);
@@ -115,6 +118,8 @@ export const AutopilotPage: React.FC = () => {
   const [agentError, setAgentError] = useState<string | null>(null);
   const [chainMode, setChainMode] = useState(true); // auto-run next agent after current finishes
   const [autoRunTriggered, setAutoRunTriggered] = useState(false); // prevent re-triggering
+  const [cooldownSeconds, setCooldownSeconds] = useState(0);
+  const [cooldownAgent, setCooldownAgent] = useState<string | null>(null);
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -283,6 +288,23 @@ export const AutopilotPage: React.FC = () => {
     })();
   }, [view, runs]);
 
+  // ── Fetch approval queue pending count for sidebar badge ──────────────
+  useEffect(() => {
+    if (!user?.id || !selectedBrandId) return;
+    const fetchPendingCount = async () => {
+      try {
+        const res = await fetch(`/api/approval-queue?brand_id=${selectedBrandId}&status=pending&limit=50`, {
+          headers: { 'x-user-id': user.id },
+        });
+        const data = await res.json();
+        if (data.ok) setQueuePendingCount((data.items || []).length);
+      } catch {}
+    };
+    fetchPendingCount();
+    const interval = setInterval(fetchPendingCount, 30000);
+    return () => clearInterval(interval);
+  }, [user?.id, selectedBrandId]);
+
   // ── Trigger full cycle ────────────────────────────────────────────────
   const triggerCycle = async () => {
     if (!user?.id || !selectedBrandId || isRunning) return;
@@ -382,9 +404,21 @@ export const AutopilotPage: React.FC = () => {
                   setRunningAgent(null);
                   setTimeout(fetchRuns, 2000);
 
-                  // Chain mode: if rejected, re-run Priya
+                  // Chain mode: if rejected, re-run Priya with cooldown
                   if (chainMode && pollData.decision === 'rejected') {
-                    setTimeout(() => runAgent('creative'), 1500);
+                    setCooldownAgent('creative');
+                    setCooldownSeconds(15);
+                    const cdInterval = setInterval(() => {
+                      setCooldownSeconds(prev => {
+                        if (prev <= 1) {
+                          clearInterval(cdInterval);
+                          setCooldownAgent(null);
+                          runAgent('creative');
+                          return 0;
+                        }
+                        return prev - 1;
+                      });
+                    }, 1000);
                   }
                 } else if (pollData.status === 'waiting') {
                   setReviewResult({
@@ -441,11 +475,23 @@ export const AutopilotPage: React.FC = () => {
             reviewer: null,        // Review → decision handled separately
           };
 
-          // Special case: if Review returns "rejected", re-run Priya with feedback
+          // Special case: if Review returns "rejected", re-run Priya with feedback (with cooldown)
           if (agentId === 'reviewer' && data.result?.decision === 'rejected') {
             console.log('[Autopilot] Review rejected — re-running Priya with feedback');
+            setCooldownAgent('creative');
+            setCooldownSeconds(15);
+            const rejInterval = setInterval(() => {
+              setCooldownSeconds(prev => {
+                if (prev <= 1) {
+                  clearInterval(rejInterval);
+                  setCooldownAgent(null);
+                  runAgent('creative');
+                  return 0;
+                }
+                return prev - 1;
+              });
+            }, 1000);
             setRunningAgent(null);
-            setTimeout(() => runAgent('creative'), 1500);
             return;
           }
 
@@ -458,8 +504,21 @@ export const AutopilotPage: React.FC = () => {
 
           const nextAgent = next[agentId];
           if (nextAgent) {
+            // Show cooldown timer
+            setCooldownAgent(nextAgent);
+            setCooldownSeconds(15);
+            const interval = setInterval(() => {
+              setCooldownSeconds(prev => {
+                if (prev <= 1) {
+                  clearInterval(interval);
+                  setCooldownAgent(null);
+                  runAgent(nextAgent);
+                  return 0;
+                }
+                return prev - 1;
+              });
+            }, 1000);
             setRunningAgent(null);
-            setTimeout(() => runAgent(nextAgent), 1500);
             return;
           }
         }
@@ -561,7 +620,7 @@ export const AutopilotPage: React.FC = () => {
         <nav className="flex-1 px-3 space-y-0.5">
           {([
             { key: 'pipeline' as SidebarView, label: 'Pipeline', count: runs.filter(r => r.status === 'running').length },
-            { key: 'queue' as SidebarView, label: 'Approval Queue', count: 0 },
+            { key: 'queue' as SidebarView, label: 'Approval Queue', count: queuePendingCount },
             { key: 'competitors' as SidebarView, label: 'Competitors', count: config.competitors.length },
             { key: 'activity' as SidebarView, label: 'Activity', count: 0 },
           ]).map(item => (
@@ -679,18 +738,27 @@ export const AutopilotPage: React.FC = () => {
                         {agent.icon}
                       </div>
                       <div className="flex items-center gap-1.5">
-                        <div className={`w-1.5 h-1.5 rounded-full ${
-                          isAgentRunning ? 'bg-brand animate-pulse' :
-                          status === 'completed' ? 'bg-emerald-500' :
-                          status === 'error' ? 'bg-red-500' : 'bg-white/15'
-                        }`} />
-                        <span className={`text-[9px] font-bold uppercase tracking-widest ${
-                          isAgentRunning ? 'text-brand' :
-                          status === 'completed' ? 'text-emerald-400' :
-                          status === 'error' ? 'text-red-400' : 'text-text-secondary/50'
-                        }`}>
-                          {isAgentRunning ? 'Active' : status === 'completed' ? 'Done' : status === 'error' ? 'Error' : 'Idle'}
-                        </span>
+                        {cooldownAgent === agent.id ? (
+                          <>
+                            <div className="w-1.5 h-1.5 rounded-full bg-brand animate-pulse" />
+                            <span className="text-[9px] font-bold uppercase tracking-widest text-brand animate-pulse">Next</span>
+                          </>
+                        ) : (
+                          <>
+                            <div className={`w-1.5 h-1.5 rounded-full ${
+                              isAgentRunning ? 'bg-brand animate-pulse' :
+                              status === 'completed' ? 'bg-emerald-500' :
+                              status === 'error' ? 'bg-red-500' : 'bg-white/15'
+                            }`} />
+                            <span className={`text-[9px] font-bold uppercase tracking-widest ${
+                              isAgentRunning ? 'text-brand' :
+                              status === 'completed' ? 'text-emerald-400' :
+                              status === 'error' ? 'text-red-400' : 'text-text-secondary/50'
+                            }`}>
+                              {isAgentRunning ? 'Active' : status === 'completed' ? 'Done' : status === 'error' ? 'Error' : 'Idle'}
+                            </span>
+                          </>
+                        )}
                       </div>
                     </div>
 
@@ -748,6 +816,26 @@ export const AutopilotPage: React.FC = () => {
                 <button onClick={() => setAgentError(null)} className="text-red-400 hover:text-red-300 transition">
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                 </button>
+              </div>
+            )}
+
+            {/* Cooldown timer banner */}
+            {cooldownAgent && cooldownSeconds > 0 && (
+              <div className="flex items-center gap-3 p-3 rounded-xl bg-brand/5 border border-brand/20">
+                <div className="relative w-10 h-10 flex items-center justify-center">
+                  <svg className="w-10 h-10 -rotate-90" viewBox="0 0 36 36">
+                    <circle cx="18" cy="18" r="16" fill="none" stroke="currentColor" strokeWidth="2" className="text-white/5" />
+                    <circle cx="18" cy="18" r="16" fill="none" stroke="currentColor" strokeWidth="2" className="text-brand"
+                      strokeDasharray={`${(cooldownSeconds / 15) * 100} 100`} strokeLinecap="round" />
+                  </svg>
+                  <span className="absolute text-xs font-bold text-brand">{cooldownSeconds}</span>
+                </div>
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-text-primary">
+                    Cooling down before {cooldownAgent === 'creative' ? 'Priya' : cooldownAgent === 'reviewer' ? 'Review' : cooldownAgent}...
+                  </p>
+                  <p className="text-xs text-text-secondary">Giving Gemini API a breather to avoid rate limits</p>
+                </div>
               </div>
             )}
 
@@ -905,11 +993,34 @@ export const AutopilotPage: React.FC = () => {
 
         {/* ── APPROVAL QUEUE VIEW ────────────────────────────────────── */}
         {view === 'queue' && selectedBrandId && (
-          <div className="px-6 pt-28 pb-6">
-            <div className="flex items-center gap-3 mb-5">
-              <h1 className="text-lg font-bold text-text-primary">Approval Queue</h1>
-              <span className="text-xs text-text-secondary">{selectedBrand?.name}</span>
+          <div className="px-6 pt-28 pb-6 space-y-5">
+            {/* Header with context */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <h1 className="text-lg font-bold text-text-primary">Approval Queue</h1>
+                <span className="text-xs text-text-secondary">{selectedBrand?.name}</span>
+              </div>
+              <p className="text-xs text-text-secondary/50">
+                Review AI-generated content before it goes live
+              </p>
             </div>
+
+            {/* Info banner when review agent is actively waiting */}
+            {reviewResult?.decision === 'waiting' && runningAgent === 'reviewer' && (
+              <div className="flex items-center gap-3 p-3 rounded-xl bg-cyan-500/5 border border-cyan-500/20">
+                <div className="w-5 h-5 rounded-full border-2 border-cyan-400 border-t-transparent animate-spin" />
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-text-primary">
+                    Review in progress -- approve or reject items below
+                  </p>
+                  <p className="text-xs text-text-secondary">
+                    {reviewResult.approved_count} approved, {reviewResult.rejected_count} rejected so far. You can also respond via Slack.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* The actual approval queue component */}
             <ApprovalQueue brandId={selectedBrandId} onRefresh={fetchRuns} />
           </div>
         )}

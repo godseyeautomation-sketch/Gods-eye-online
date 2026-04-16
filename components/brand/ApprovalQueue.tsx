@@ -10,12 +10,20 @@ interface ApprovalQueueProps {
 
 const FORMAT_LABELS: Record<ContentFormat, string> = { post: 'Post', story: 'Story', reel: 'Reel' };
 const FORMAT_COLORS: Record<ContentFormat, string> = { post: 'bg-blue-500/20 text-blue-400', story: 'bg-purple-500/20 text-purple-400', reel: 'bg-pink-500/20 text-pink-400' };
+const PILLAR_COLORS = ['bg-violet-500/20 text-violet-400', 'bg-cyan-500/20 text-cyan-400', 'bg-amber-500/20 text-amber-400', 'bg-rose-500/20 text-rose-400', 'bg-lime-500/20 text-lime-400'];
 const STATUS_COLORS: Record<ApprovalStatus, string> = {
   pending: 'bg-yellow-500/20 text-yellow-400',
   approved: 'bg-emerald-500/20 text-emerald-400',
   rejected: 'bg-red-500/20 text-red-400',
   auto_approved: 'bg-teal-500/20 text-teal-400',
   expired: 'bg-zinc-500/20 text-zinc-400',
+};
+const STATUS_ICONS: Record<ApprovalStatus, string> = {
+  pending: '',
+  approved: '',
+  rejected: '',
+  auto_approved: '',
+  expired: '',
 };
 
 export default function ApprovalQueue({ brandId, onRefresh }: ApprovalQueueProps) {
@@ -34,9 +42,14 @@ export default function ApprovalQueue({ brandId, onRefresh }: ApprovalQueueProps
         headers: { 'x-user-id': user.id },
       });
       const data = await res.json();
-      if (data.ok) setItems(data.items || []);
+      if (data.ok) {
+        setItems(data.items || []);
+      } else {
+        setItems([]);
+      }
     } catch (err) {
       console.error('Failed to fetch approval queue:', err);
+      setItems([]);
     }
     setLoading(false);
   }, [user?.id, brandId, filter]);
@@ -60,7 +73,7 @@ export default function ApprovalQueue({ brandId, onRefresh }: ApprovalQueueProps
         body: JSON.stringify({ platforms: [] }),
       });
       if ((await res.json()).ok) {
-        setItems(prev => prev.filter(i => i.id !== id));
+        setItems(prev => prev.map(i => i.id === id ? { ...i, status: 'approved' as ApprovalStatus, resolved_at: new Date().toISOString() } : i));
         onRefresh?.();
       }
     } catch (err) {
@@ -79,7 +92,7 @@ export default function ApprovalQueue({ brandId, onRefresh }: ApprovalQueueProps
         body: JSON.stringify({ reason }),
       });
       if ((await res.json()).ok) {
-        setItems(prev => prev.filter(i => i.id !== id));
+        setItems(prev => prev.map(i => i.id === id ? { ...i, status: 'rejected' as ApprovalStatus, reviewer_notes: reason, resolved_at: new Date().toISOString() } : i));
         onRefresh?.();
       }
     } catch (err) {
@@ -98,7 +111,7 @@ export default function ApprovalQueue({ brandId, onRefresh }: ApprovalQueueProps
         body: JSON.stringify({ ids: Array.from(selectedIds), platforms: [] }),
       });
       if ((await res.json()).ok) {
-        setItems(prev => prev.filter(i => !selectedIds.has(i.id)));
+        setItems(prev => prev.map(i => selectedIds.has(i.id) ? { ...i, status: 'approved' as ApprovalStatus, resolved_at: new Date().toISOString() } : i));
         setSelectedIds(new Set());
         onRefresh?.();
       }
@@ -127,6 +140,11 @@ export default function ApprovalQueue({ brandId, onRefresh }: ApprovalQueueProps
     return acc;
   }, { standalone: [], abGroups: new Map() });
 
+  // Filter displayed items based on status
+  const filteredStandalone = filter === 'all'
+    ? groupedItems.standalone
+    : groupedItems.standalone.filter(i => i.status === filter);
+
   const getTimeRemaining = (autoApproveAt?: string) => {
     if (!autoApproveAt) return null;
     const diff = new Date(autoApproveAt).getTime() - Date.now();
@@ -136,15 +154,30 @@ export default function ApprovalQueue({ brandId, onRefresh }: ApprovalQueueProps
     return hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
   };
 
+  // Stats summary
+  const pendingCount = items.filter(i => i.status === 'pending').length;
+  const approvedCount = items.filter(i => i.status === 'approved').length;
+  const rejectedCount = items.filter(i => i.status === 'rejected').length;
+
   return (
-    <div className="space-y-4">
-      {/* Header + Filters */}
+    <div className="space-y-5">
+      {/* Header + Stats + Filters */}
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <h3 className="text-lg font-semibold text-white">Approval Queue</h3>
-          {items.length > 0 && filter === 'pending' && (
-            <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-500/20 text-yellow-400">
-              {items.length} pending
+        <div className="flex items-center gap-3">
+          <h3 className="text-lg font-semibold text-text-primary">Approval Queue</h3>
+          {pendingCount > 0 && (
+            <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-yellow-500/20 text-yellow-400 tabular-nums">
+              {pendingCount} pending
+            </span>
+          )}
+          {approvedCount > 0 && filter === 'all' && (
+            <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-400 tabular-nums">
+              {approvedCount} approved
+            </span>
+          )}
+          {rejectedCount > 0 && filter === 'all' && (
+            <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-red-500/20 text-red-400 tabular-nums">
+              {rejectedCount} rejected
             </span>
           )}
         </div>
@@ -154,25 +187,29 @@ export default function ApprovalQueue({ brandId, onRefresh }: ApprovalQueueProps
             <button
               onClick={handleBulkApprove}
               disabled={actionLoading === 'bulk'}
-              className="px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-600 hover:bg-emerald-500 text-white transition disabled:opacity-50"
+              className="px-4 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition disabled:opacity-50 flex items-center gap-1.5"
             >
-              {actionLoading === 'bulk' ? 'Approving...' : `Approve ${selectedIds.size} Selected`}
+              {actionLoading === 'bulk' ? (
+                <><div className="w-3 h-3 rounded-full border-2 border-white border-t-transparent animate-spin" /> Approving...</>
+              ) : (
+                <>Approve {selectedIds.size} Selected</>
+              )}
             </button>
           )}
 
-          <div className="flex rounded-lg overflow-hidden border border-zinc-700">
+          <div className="flex rounded-xl overflow-hidden border border-white/[0.06]">
             {(['pending', 'approved', 'rejected', 'all'] as const).map(f => (
               <button
                 key={f}
-                onClick={() => setFilter(f)}
-                className={`px-3 py-1 text-xs capitalize ${filter === f ? 'bg-zinc-600 text-white' : 'bg-zinc-800 text-zinc-400 hover:text-white'} transition`}
+                onClick={() => { setFilter(f); setSelectedIds(new Set()); }}
+                className={`px-3.5 py-1.5 text-xs capitalize font-medium transition ${filter === f ? 'bg-white/[0.08] text-text-primary' : 'bg-white/[0.02] text-text-secondary/50 hover:text-text-secondary'}`}
               >
                 {f}
               </button>
             ))}
           </div>
 
-          <button onClick={fetchQueue} className="p-1.5 rounded hover:bg-zinc-700 text-zinc-400" title="Refresh">
+          <button onClick={fetchQueue} className="p-2 rounded-xl hover:bg-white/[0.04] text-text-secondary/50 hover:text-text-secondary transition" title="Refresh">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
           </button>
         </div>
@@ -180,27 +217,30 @@ export default function ApprovalQueue({ brandId, onRefresh }: ApprovalQueueProps
 
       {/* Loading */}
       {loading && (
-        <div className="flex items-center justify-center py-12">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-violet-500" />
+        <div className="flex items-center justify-center py-16">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand" />
         </div>
       )}
 
       {/* Empty state */}
       {!loading && items.length === 0 && (
-        <div className="text-center py-12 text-zinc-500">
-          <p className="text-lg mb-1">No {filter !== 'all' ? filter : ''} items</p>
-          <p className="text-sm">Run an autopilot cycle to generate content for review</p>
+        <div className="text-center py-16 border border-dashed border-white/[0.06] rounded-2xl">
+          <div className="text-4xl mb-3 opacity-40">
+            {filter === 'pending' ? '' : filter === 'approved' ? '' : filter === 'rejected' ? '' : ''}
+          </div>
+          <p className="text-base text-text-secondary mb-1">No {filter !== 'all' ? filter : ''} items</p>
+          <p className="text-sm text-text-secondary/50">Run an autopilot cycle to generate content for review</p>
         </div>
       )}
 
       {/* A/B Variant Groups */}
       {Array.from(groupedItems.abGroups.entries()).map(([groupId, variants]) => (
-        <div key={groupId} className="border border-violet-500/30 rounded-xl p-4 bg-violet-500/5">
-          <div className="flex items-center gap-2 mb-3">
-            <span className="px-2 py-0.5 rounded text-xs font-bold bg-violet-500/20 text-violet-400">A/B Test</span>
-            <span className="text-xs text-zinc-500">Pick the better variant</span>
+        <div key={groupId} className="border border-violet-500/30 rounded-2xl p-5 bg-violet-500/5">
+          <div className="flex items-center gap-2 mb-4">
+            <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-violet-500/20 text-violet-400">A/B Test</span>
+            <span className="text-xs text-text-secondary/50">Pick the better variant</span>
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-5">
             {variants.map(item => (
               <ApprovalCard
                 key={item.id}
@@ -209,10 +249,10 @@ export default function ApprovalQueue({ brandId, onRefresh }: ApprovalQueueProps
                 isSelected={selectedIds.has(item.id)}
                 isLoading={actionLoading === item.id}
                 onApprove={() => handleApprove(item.id)}
-                onReject={() => handleReject(item.id)}
+                onReject={(reason) => handleReject(item.id, reason)}
                 onToggleSelect={() => toggleSelect(item.id)}
                 timeRemaining={getTimeRemaining(item.auto_approve_at)}
-                isPending={filter === 'pending'}
+                isPending={item.status === 'pending'}
               />
             ))}
           </div>
@@ -220,21 +260,23 @@ export default function ApprovalQueue({ brandId, onRefresh }: ApprovalQueueProps
       ))}
 
       {/* Standalone Items */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {groupedItems.standalone.map(item => (
-          <ApprovalCard
-            key={item.id}
-            item={item}
-            isSelected={selectedIds.has(item.id)}
-            isLoading={actionLoading === item.id}
-            onApprove={() => handleApprove(item.id)}
-            onReject={() => handleReject(item.id)}
-            onToggleSelect={() => toggleSelect(item.id)}
-            timeRemaining={getTimeRemaining(item.auto_approve_at)}
-            isPending={filter === 'pending'}
-          />
-        ))}
-      </div>
+      {filteredStandalone.length > 0 && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+          {filteredStandalone.map(item => (
+            <ApprovalCard
+              key={item.id}
+              item={item}
+              isSelected={selectedIds.has(item.id)}
+              isLoading={actionLoading === item.id}
+              onApprove={() => handleApprove(item.id)}
+              onReject={(reason) => handleReject(item.id, reason)}
+              onToggleSelect={() => toggleSelect(item.id)}
+              timeRemaining={getTimeRemaining(item.auto_approve_at)}
+              isPending={item.status === 'pending'}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -246,7 +288,7 @@ interface ApprovalCardProps {
   isSelected: boolean;
   isLoading: boolean;
   onApprove: () => void;
-  onReject: () => void;
+  onReject: (reason: string) => void;
   onToggleSelect: () => void;
   timeRemaining: string | null;
   isPending: boolean;
@@ -254,129 +296,225 @@ interface ApprovalCardProps {
 
 function ApprovalCard({ item, isAB, isSelected, isLoading, onApprove, onReject, onToggleSelect, timeRemaining, isPending }: ApprovalCardProps) {
   const [expanded, setExpanded] = useState(false);
+  const [showRejectInput, setShowRejectInput] = useState(false);
+  const [rejectReason, setRejectReason] = useState('');
+  const [imageZoomed, setImageZoomed] = useState(false);
+
+  const pillarHash = (item.brief as any)?.content_pillar ? Math.abs((item.brief as any).content_pillar.split('').reduce((a: number, c: string) => a + c.charCodeAt(0), 0)) % PILLAR_COLORS.length : 0;
 
   return (
-    <div className={`rounded-xl border transition-all ${isSelected ? 'border-violet-500 bg-violet-500/5' : 'border-zinc-700/50 bg-zinc-900/50'} overflow-hidden`}>
-      {/* Image thumbnail */}
-      {item.generated_image && (
-        <div className="relative aspect-square max-h-48 overflow-hidden bg-zinc-800">
+    <div className={`rounded-2xl border transition-all duration-200 ${
+      isSelected ? 'border-brand/40 bg-brand/[0.03] ring-1 ring-brand/20' :
+      item.status === 'approved' ? 'border-emerald-500/20 bg-emerald-500/[0.02]' :
+      item.status === 'rejected' ? 'border-red-500/20 bg-red-500/[0.02]' :
+      'border-white/[0.06] bg-panel/60 hover:border-white/[0.10]'
+    } overflow-hidden`}>
+      {/* Large prominent image */}
+      {item.generated_image ? (
+        <div
+          className={`relative overflow-hidden bg-zinc-900 cursor-pointer transition-all ${imageZoomed ? 'max-h-[600px]' : 'aspect-[4/3] max-h-72'}`}
+          onClick={() => setImageZoomed(!imageZoomed)}
+        >
           <img
             src={item.generated_image}
             alt="Generated content"
-            className="w-full h-full object-cover"
+            className={`w-full h-full transition-all duration-300 ${imageZoomed ? 'object-contain' : 'object-cover'}`}
             loading="lazy"
           />
-          {/* Variant badge */}
-          {item.variant_label && (
-            <span className="absolute top-2 left-2 px-2 py-0.5 rounded text-xs font-bold bg-black/70 text-white">
-              Variant {item.variant_label}
+          {/* Overlay badges */}
+          <div className="absolute top-3 left-3 flex items-center gap-2">
+            {item.variant_label && (
+              <span className="px-2 py-1 rounded-lg text-[10px] font-bold bg-black/70 text-white backdrop-blur-sm">
+                Variant {item.variant_label}
+              </span>
+            )}
+            <span className={`px-2 py-1 rounded-lg text-[10px] font-bold backdrop-blur-sm ${FORMAT_COLORS[item.format]}`}>
+              {FORMAT_LABELS[item.format]}
             </span>
+            {(item.brief as any)?.content_pillar && (
+              <span className={`px-2 py-1 rounded-lg text-[10px] font-bold backdrop-blur-sm ${PILLAR_COLORS[pillarHash]}`}>
+                {(item.brief as any).content_pillar}
+              </span>
+            )}
+          </div>
+          {/* Status overlay for resolved items */}
+          {item.status !== 'pending' && (
+            <div className={`absolute top-3 right-3 px-2.5 py-1 rounded-lg text-[10px] font-bold backdrop-blur-sm ${STATUS_COLORS[item.status]}`}>
+              {STATUS_ICONS[item.status]} {item.status.replace('_', ' ')}
+            </div>
           )}
-          {/* Format badge */}
-          <span className={`absolute top-2 right-2 px-2 py-0.5 rounded text-xs font-medium ${FORMAT_COLORS[item.format]}`}>
-            {FORMAT_LABELS[item.format]}
-          </span>
+          {/* Zoom hint */}
+          <div className="absolute bottom-2 right-2 px-2 py-0.5 rounded text-[9px] text-white/50 bg-black/40 backdrop-blur-sm">
+            {imageZoomed ? 'Click to shrink' : 'Click to expand'}
+          </div>
+        </div>
+      ) : (
+        <div className="aspect-[4/3] max-h-72 bg-zinc-900/50 flex items-center justify-center border-b border-white/[0.04]">
+          <div className="text-center text-text-secondary/30">
+            <svg className="w-12 h-12 mx-auto mb-2 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+            <p className="text-xs">No image generated</p>
+          </div>
         </div>
       )}
 
-      <div className="p-3 space-y-2">
-        {/* Date + Status */}
+      <div className="p-4 space-y-3">
+        {/* Date + Format + Status row */}
         <div className="flex items-center justify-between">
-          <span className="text-xs text-zinc-400">{item.slot_date}</span>
-          <span className={`px-2 py-0.5 rounded text-xs font-medium ${STATUS_COLORS[item.status]}`}>
-            {item.status.replace('_', '-')}
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-medium text-text-secondary">{item.slot_date}</span>
+            {!item.generated_image && (
+              <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${FORMAT_COLORS[item.format]}`}>
+                {FORMAT_LABELS[item.format]}
+              </span>
+            )}
+          </div>
+          <span className={`px-2.5 py-1 rounded-lg text-[10px] font-bold ${STATUS_COLORS[item.status]}`}>
+            {STATUS_ICONS[item.status]} {item.status.replace('_', ' ')}
           </span>
         </div>
 
-        {/* Hook / Caption preview */}
+        {/* Hook (bold, prominent) */}
         {item.brief?.hook && (
-          <p className="text-sm text-white font-medium line-clamp-2">{item.brief.hook}</p>
+          <p className="text-sm font-bold text-text-primary leading-snug">{item.brief.hook}</p>
         )}
-        {item.caption_preview && (
-          <p className="text-xs text-zinc-400 line-clamp-2">{item.caption_preview}</p>
+
+        {/* Caption preview */}
+        {(item.caption_preview || item.brief?.caption) && (
+          <p className="text-xs text-text-secondary leading-relaxed line-clamp-3">
+            {item.caption_preview || (item.brief?.caption || '').slice(0, 200)}
+          </p>
         )}
 
         {/* Quality scores (compact) */}
-        <QualityScoreBadge
-          scores={item.quality_scores}
-          guardrails={item.guardrail_flags}
-          dedupScore={item.dedup_score}
-          compact
-        />
+        {item.quality_scores && (
+          <QualityScoreBadge
+            scores={item.quality_scores}
+            guardrails={item.guardrail_flags}
+            dedupScore={item.dedup_score}
+            compact
+          />
+        )}
 
         {/* Expandable details */}
         {expanded && (
-          <div className="pt-2 border-t border-zinc-800 space-y-2">
-            <QualityScoreBadge
-              scores={item.quality_scores}
-              guardrails={item.guardrail_flags}
-              dedupScore={item.dedup_score}
-            />
-            {item.brief?.hashtags?.length && (
-              <div className="flex flex-wrap gap-1">
-                {item.brief.hashtags.slice(0, 8).map((tag, i) => (
-                  <span key={i} className="text-xs text-blue-400">#{tag}</span>
+          <div className="pt-3 border-t border-white/[0.04] space-y-3">
+            {item.quality_scores && (
+              <QualityScoreBadge
+                scores={item.quality_scores}
+                guardrails={item.guardrail_flags}
+                dedupScore={item.dedup_score}
+              />
+            )}
+            {item.brief?.hashtags?.length ? (
+              <div className="flex flex-wrap gap-1.5">
+                {item.brief.hashtags.slice(0, 10).map((tag, i) => (
+                  <span key={i} className="text-[10px] text-blue-400/70 bg-blue-500/10 px-1.5 py-0.5 rounded">#{tag}</span>
                 ))}
               </div>
-            )}
+            ) : null}
             {item.brief?.call_to_action && (
-              <p className="text-xs text-zinc-500"><strong>CTA:</strong> {item.brief.call_to_action}</p>
+              <p className="text-xs text-text-secondary"><span className="font-bold text-text-primary">CTA:</span> {item.brief.call_to_action}</p>
+            )}
+            {item.brief?.visual_direction && (
+              <p className="text-xs text-text-secondary"><span className="font-bold text-text-primary">Visual:</span> {item.brief.visual_direction}</p>
+            )}
+            {(item.brief as any)?.target_emotion && (
+              <p className="text-xs text-text-secondary"><span className="font-bold text-text-primary">Emotion:</span> {(item.brief as any).target_emotion}</p>
             )}
           </div>
         )}
 
         <button
           onClick={() => setExpanded(!expanded)}
-          className="text-xs text-zinc-500 hover:text-white transition"
+          className="text-[11px] font-medium text-text-secondary/50 hover:text-text-secondary transition flex items-center gap-1"
         >
+          <svg className={`w-3 h-3 transition-transform ${expanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
           {expanded ? 'Show less' : 'Show details'}
         </button>
 
         {/* Auto-approve timer */}
         {timeRemaining && isPending && (
-          <div className="flex items-center gap-1 text-xs text-amber-500/70">
-            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+          <div className="flex items-center gap-1.5 text-xs text-amber-500/70">
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
             Auto-approve in {timeRemaining}
           </div>
         )}
 
-        {/* Actions */}
-        {isPending && (
-          <div className="flex items-center gap-2 pt-1">
-            <label className="flex items-center gap-1.5 cursor-pointer">
+        {/* Rejection feedback input */}
+        {showRejectInput && (
+          <div className="space-y-2 pt-2 border-t border-white/[0.04]">
+            <textarea
+              value={rejectReason}
+              onChange={e => setRejectReason(e.target.value)}
+              placeholder="Why are you rejecting? (optional feedback for the AI to improve)"
+              className="w-full px-3 py-2 rounded-xl bg-red-500/5 border border-red-500/20 text-text-primary text-xs placeholder-text-secondary/30 focus:outline-none focus:border-red-500/40 resize-none transition"
+              rows={2}
+              autoFocus
+            />
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => { onReject(rejectReason); setShowRejectInput(false); setRejectReason(''); }}
+                disabled={isLoading}
+                className="flex-1 py-2 rounded-xl text-xs font-bold bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/20 transition disabled:opacity-50"
+              >
+                {isLoading ? 'Rejecting...' : 'Confirm Reject'}
+              </button>
+              <button
+                onClick={() => { setShowRejectInput(false); setRejectReason(''); }}
+                className="px-3 py-2 rounded-xl text-xs font-medium text-text-secondary/50 hover:text-text-secondary hover:bg-white/[0.04] transition"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Actions — big buttons */}
+        {isPending && !showRejectInput && (
+          <div className="flex items-center gap-3 pt-2">
+            <label className="flex items-center gap-1.5 cursor-pointer shrink-0">
               <input
                 type="checkbox"
                 checked={isSelected}
                 onChange={onToggleSelect}
-                className="rounded border-zinc-600 bg-zinc-800 text-violet-500 focus:ring-violet-500"
+                className="rounded border-zinc-600 bg-zinc-800 text-violet-500 focus:ring-violet-500 w-4 h-4"
               />
-              <span className="text-xs text-zinc-500">Select</span>
+              <span className="text-[10px] text-text-secondary/40">Select</span>
             </label>
 
             <div className="flex-1" />
 
             <button
-              onClick={onReject}
+              onClick={() => setShowRejectInput(true)}
               disabled={isLoading}
-              className="px-3 py-1.5 rounded-lg text-xs font-medium bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 transition disabled:opacity-50"
+              className="px-5 py-2.5 rounded-xl text-xs font-bold bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 transition disabled:opacity-50 flex items-center gap-1.5"
             >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
               Reject
             </button>
             <button
               onClick={onApprove}
               disabled={isLoading}
-              className="px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-600 hover:bg-emerald-500 text-white transition disabled:opacity-50"
+              className="px-5 py-2.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition disabled:opacity-50 flex items-center gap-1.5"
             >
-              {isLoading ? 'Processing...' : isAB ? `Pick ${item.variant_label}` : 'Approve'}
+              {isLoading ? (
+                <><div className="w-3 h-3 rounded-full border-2 border-white border-t-transparent animate-spin" /> Processing...</>
+              ) : (
+                <>
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                  {isAB ? `Pick ${item.variant_label}` : 'Approve'}
+                </>
+              )}
             </button>
           </div>
         )}
 
         {/* Reviewer notes (for resolved items) */}
         {item.reviewer_notes && (
-          <p className="text-xs text-zinc-500 italic border-t border-zinc-800 pt-2 mt-2">
-            Note: {item.reviewer_notes}
-          </p>
+          <div className="text-xs text-text-secondary/60 italic border-t border-white/[0.04] pt-3 mt-1 flex items-start gap-2">
+            <svg className="w-3.5 h-3.5 shrink-0 mt-0.5 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" /></svg>
+            {item.reviewer_notes}
+          </div>
         )}
       </div>
     </div>
