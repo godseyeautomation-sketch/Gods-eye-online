@@ -13,12 +13,11 @@ ENV VITE_GEMINI_API_KEY=$VITE_GEMINI_API_KEY
 ENV VITE_SUPABASE_URL=$VITE_SUPABASE_URL
 ENV VITE_SUPABASE_ANON_KEY=$VITE_SUPABASE_ANON_KEY
 
-# Copy package files
+# Copy package files (no lockfile — forces fresh resolve of platform-specific native bindings)
 COPY package.json ./
 
-# Install dependencies (use npm install, not ci — ci uses lockfile which has
-# Windows-specific native bindings that don't work on Linux)
-RUN npm install
+# Install dependencies fresh (resolves Linux-native Tailwind/PostCSS bindings)
+RUN npm install --prefer-offline=false
 
 # Copy source files
 COPY . .
