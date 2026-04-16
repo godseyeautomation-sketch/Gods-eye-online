@@ -8,6 +8,8 @@ import dotenv from 'dotenv';
 import { registerCronRoutes, loadAndScheduleAll } from './services/cronEngine.js';
 import { mountMcpEndpoints } from './services/mcpServer.js';
 import { executeScout } from './services/scoutAgent.js';
+import { executePriya } from './services/priyaAgent.js';
+import { executeReview, handleSlackAction, getReviewStatus } from './services/reviewAgent.js';
 import {
   approveItem, rejectItem, getApprovalQueue, bulkApprove,
   getPipelineRuns, getPipelineStageLogs, distillPerformanceSignals,
@@ -727,32 +729,59 @@ app.post('/api/pipeline/distill-signals', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Run a single agent independently
-app.post('/api/pipeline/run-agent', async (req, res) => {
-  try {
-    const userId = req.headers['x-user-id'];
-    if (!userId) return res.status(401).json({ error: 'x-user-id header required' });
-    const { agent_id, brand_id, config } = req.body;
-    if (!agent_id || !brand_id) return res.status(400).json({ error: 'agent_id and brand_id required' });
-    const result = await runSingleAgent(agent_id, userId, brand_id, config || {});
-    res.json({ ok: true, ...result });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
+// ── Sync directory (for brand/slot data on Cloud Run) ─────────────────────
+const SYNC_DIR = path.join(process.env.HOME || '', '.klint', 'sync');
+if (!fs.existsSync(SYNC_DIR)) fs.mkdirSync(SYNC_DIR, { recursive: true });
 
-// Run individual agent
+// Run individual agent (matching dev-server.js)
 app.post('/api/pipeline/run-agent', async (req, res) => {
   try {
-    const userId = req.headers['x-user-id'];
+    const userId = req.headers['x-user-id'] || req.body.user_id;
     if (!userId) return res.status(401).json({ error: 'x-user-id header required' });
-    const { agent_id, brand_id, config } = req.body;
+    const { agent_id, brand_id, brand, config } = req.body;
     if (!brand_id) return res.status(400).json({ error: 'brand_id required' });
     if (!agent_id) return res.status(400).json({ error: 'agent_id required' });
+
+    console.log(`[Pipeline] Running agent: ${agent_id} for brand ${brand_id} (brand payload: ${brand ? 'yes' : 'no'})`);
+
+    // If frontend sent the brand directly, persist it to sync file NOW
+    if (brand && brand.id) {
+      try {
+        const brandsFile = path.join(SYNC_DIR, 'brand_profiles.json');
+        let syncData = { _updatedAt: new Date().toISOString(), data: [] };
+        if (fs.existsSync(brandsFile)) {
+          try {
+            const existing = JSON.parse(fs.readFileSync(brandsFile, 'utf-8'));
+            syncData = Array.isArray(existing?.data) ? existing : { _updatedAt: new Date().toISOString(), data: Array.isArray(existing) ? existing : [] };
+          } catch {}
+        }
+        const idx = syncData.data.findIndex(b => b.id === brand.id);
+        const merged = { ...(idx >= 0 ? syncData.data[idx] : {}), ...brand, user_id: brand.user_id || userId, updated_at: new Date().toISOString() };
+        if (idx >= 0) syncData.data[idx] = merged;
+        else syncData.data.push(merged);
+        syncData._updatedAt = new Date().toISOString();
+        fs.writeFileSync(brandsFile, JSON.stringify(syncData, null, 2), 'utf-8');
+        console.log(`[Pipeline] Synced brand "${brand.name}" to local file`);
+      } catch (e) {
+        console.warn('[Pipeline] Brand sync failed:', e.message);
+      }
+    }
 
     if (agent_id === 'scout') {
       const result = await executeScout(userId, brand_id, config || {});
       res.json({ ok: true, text: `Scout completed: ${result.filename}`, result });
+    } else if (agent_id === 'creative' || agent_id === 'priya') {
+      const result = await executePriya(userId, brand_id, config || {});
+      res.json({ ok: true, text: `Priya created ${result.slots_created}/${result.slots_total} slots`, result });
+    } else if (agent_id === 'reviewer' || agent_id === 'review') {
+      const result = await executeReview(userId, brand_id, config || {});
+      res.json({ ok: true, text: `Review: ${result.decision}`, result });
+    } else if (agent_id === 'dispatcher' || agent_id === 'dispatch') {
+      res.json({ ok: true, text: 'Dispatch agent: not yet implemented.' });
+    } else if (agent_id === 'analyst' || agent_id === 'karma') {
+      res.json({ ok: true, text: 'Karma agent: not yet implemented.' });
     } else {
-      res.json({ ok: true, text: `Agent ${agent_id} is not yet implemented. Coming soon!` });
+      res.json({ ok: true, text: `Unknown agent ${agent_id}` });
     }
   } catch (err) {
     console.error(`[Pipeline] Agent error:`, err.message);
@@ -760,10 +789,16 @@ app.post('/api/pipeline/run-agent', async (req, res) => {
   }
 });
 
+// Review status polling
+app.get('/api/pipeline/review-status/:reviewId', (req, res) => {
+  const status = getReviewStatus(req.params.reviewId);
+  res.json({ ok: true, ...status });
+});
+
 // Download scout report
 app.get('/api/pipeline/scout-report/:filename', (req, res) => {
   try {
-    const docsDir = path.join(process.env.HOME || process.env.USERPROFILE || '', '.klint', 'scout-reports');
+    const docsDir = path.join(process.env.HOME || '', '.klint', 'scout-reports');
     const filepath = path.join(docsDir, req.params.filename);
     if (!fs.existsSync(filepath)) return res.status(404).json({ error: 'Report not found' });
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
@@ -771,6 +806,20 @@ app.get('/api/pipeline/scout-report/:filename', (req, res) => {
     res.sendFile(filepath);
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Slack interactions webhook
+import { urlencoded } from 'express';
+app.post('/api/slack/interactions', urlencoded({ extended: false }), (req, res) => {
+  try {
+    const payload = JSON.parse(req.body.payload || '{}');
+    console.log(`[Slack] Button click from @${payload.user?.username || '?'}`);
+    handleSlackAction(payload);
+    res.status(200).send('');
+  } catch (err) {
+    console.error('[Slack] Interaction error:', err.message);
+    res.status(200).send('');
   }
 });
 
