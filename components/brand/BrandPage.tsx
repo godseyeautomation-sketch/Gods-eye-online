@@ -49,6 +49,11 @@ const dnaToProfile = (dna: BrandDNA): Omit<BrandProfile, 'id' | 'user_id' | 'cre
   instagram_handle: dna.instagram_handle,
   facebook_url: dna.facebook_url,
   tiktok_handle: dna.tiktok_handle,
+  youtube_handle: dna.youtube_handle,
+  linkedin_handle: dna.linkedin_handle,
+  x_handle: dna.x_handle,
+  pinterest_handle: dna.pinterest_handle,
+  threads_handle: dna.threads_handle,
   competitors: dna.competitors || [],
 });
 
@@ -68,6 +73,11 @@ const profileToDNA = (p: BrandProfile): BrandDNA => ({
   instagram_handle: p.instagram_handle,
   facebook_url: p.facebook_url,
   tiktok_handle: p.tiktok_handle,
+  youtube_handle: p.youtube_handle,
+  linkedin_handle: p.linkedin_handle,
+  x_handle: p.x_handle,
+  pinterest_handle: p.pinterest_handle,
+  threads_handle: p.threads_handle,
   competitors: p.competitors || [],
 });
 

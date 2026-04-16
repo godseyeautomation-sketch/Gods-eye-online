@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { Link, Globe, Loader2, Check, Upload, X, Plus, Edit2, Sparkles, ArrowRight, Package, ImageIcon, Tag, Instagram, Target } from 'lucide-react';
+import { Link, Globe, Loader2, Check, Upload, X, Plus, Edit2, Sparkles, ArrowRight, Package, ImageIcon, Tag, Target, ChevronDown } from 'lucide-react';
 import { BrandDNA, BrandProduct, BrandCompetitor } from '../../types/brand.types';
 import { scanWebsiteForBrandDNA, saveProductImages, extractVisualAesthetic } from '../../services/brandService';
 
@@ -95,9 +95,23 @@ export const BrandWizard: React.FC<Props> = ({ userId, onComplete, initialDNA })
   const [productEntries, setProductEntries] = useState<Array<{ imageDataUrl: string; name: string }>>([]);
 
   // ── Social presence + Competitors (new fields for Scout agent) ────────────
-  const [instagramHandle, setInstagramHandle] = useState(initialDNA?.instagram_handle || '');
+  const [socialHandles, setSocialHandles] = useState({
+    instagram: initialDNA?.instagram_handle || '',
+    tiktok: initialDNA?.tiktok_handle || '',
+    facebook: initialDNA?.facebook_url || '',
+    youtube: initialDNA?.youtube_handle || '',
+    linkedin: initialDNA?.linkedin_handle || '',
+    x: initialDNA?.x_handle || '',
+    pinterest: initialDNA?.pinterest_handle || '',
+    threads: initialDNA?.threads_handle || '',
+  });
   const [competitors, setCompetitors] = useState<BrandCompetitor[]>(initialDNA?.competitors || []);
-  const [newComp, setNewComp] = useState({ name: '', instagram: '', website: '' });
+  const [newComp, setNewComp] = useState({
+    name: '', website: '',
+    instagram: '', tiktok: '', facebook: '', youtube: '',
+    linkedin: '', x: '', pinterest: '', threads: ''
+  });
+  const [compSocialOpen, setCompSocialOpen] = useState(false);
 
   // Product entries are now populated directly in handleScan — no useEffect needed
 
@@ -232,7 +246,14 @@ export const BrandWizard: React.FC<Props> = ({ userId, onComplete, initialDNA })
         example_images: [...productUrls],
         visual_style_rules: visualRules,
         // Social presence + competitors (for Scout agent)
-        instagram_handle: instagramHandle.replace('@', '').trim() || undefined,
+        instagram_handle: socialHandles.instagram.replace('@', '').trim() || undefined,
+        tiktok_handle: socialHandles.tiktok.replace('@', '').trim() || undefined,
+        facebook_url: socialHandles.facebook.trim() || undefined,
+        youtube_handle: socialHandles.youtube.replace('@', '').trim() || undefined,
+        linkedin_handle: socialHandles.linkedin.trim() || undefined,
+        x_handle: socialHandles.x.replace('@', '').trim() || undefined,
+        pinterest_handle: socialHandles.pinterest.replace('@', '').trim() || undefined,
+        threads_handle: socialHandles.threads.replace('@', '').trim() || undefined,
         competitors: competitors.length ? competitors : undefined,
       };
       await onComplete(finalDna);
@@ -613,23 +634,37 @@ export const BrandWizard: React.FC<Props> = ({ userId, onComplete, initialDNA })
 
               {/* ── Social Presence + Competitors (for Scout agent) ──────── */}
               <div className="pt-6 mt-6 border-t border-white/[0.05] space-y-5">
-                {/* Instagram Handle */}
+                {/* Social Presence — all platforms */}
                 <div>
                   <div className="flex items-center gap-2 mb-2">
-                    <Instagram size={14} className="text-brand" />
-                    <h3 className="text-sm font-bold text-text-primary">Your Instagram</h3>
+                    <span className="text-sm">📱</span>
+                    <h3 className="text-sm font-bold text-text-primary">Your Social Presence</h3>
                   </div>
-                  <p className="text-xs text-text-secondary/60 mb-3">Scout agent will research your existing Instagram to understand your current strategy.</p>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary/40 text-sm">@</span>
-                    <input
-                      type="text"
-                      value={instagramHandle}
-                      onChange={e => setInstagramHandle(e.target.value)}
-                      placeholder="your_brand_handle"
-                      className="w-full pl-8 pr-3 py-2.5 rounded-xl bg-surface border border-border text-text-primary text-sm placeholder-text-secondary/40 focus:outline-none focus:border-brand/50 transition"
-                    />
+                  <p className="text-xs text-text-secondary/60 mb-3">Scout agent will research your social accounts to understand your current strategy across platforms.</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {([
+                      { key: 'instagram' as const, emoji: '📸', label: 'Instagram', placeholder: '@handle', prefix: '@' },
+                      { key: 'tiktok' as const, emoji: '🎵', label: 'TikTok', placeholder: '@handle', prefix: '@' },
+                      { key: 'facebook' as const, emoji: '👤', label: 'Facebook', placeholder: 'URL or page name', prefix: '' },
+                      { key: 'youtube' as const, emoji: '▶️', label: 'YouTube', placeholder: '@channel', prefix: '@' },
+                      { key: 'linkedin' as const, emoji: '💼', label: 'LinkedIn', placeholder: 'URL or company name', prefix: '' },
+                      { key: 'x' as const, emoji: '𝕏', label: 'X (Twitter)', placeholder: '@handle', prefix: '@' },
+                      { key: 'pinterest' as const, emoji: '📌', label: 'Pinterest', placeholder: '@handle', prefix: '@' },
+                      { key: 'threads' as const, emoji: '🧵', label: 'Threads', placeholder: '@handle', prefix: '@' },
+                    ] as const).map(p => (
+                      <div key={p.key} className="relative">
+                        <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs">{p.emoji}</span>
+                        <input
+                          type="text"
+                          value={socialHandles[p.key]}
+                          onChange={e => setSocialHandles(prev => ({ ...prev, [p.key]: e.target.value }))}
+                          placeholder={`${p.label}: ${p.placeholder}`}
+                          className="w-full pl-8 pr-3 py-2 rounded-lg bg-surface border border-border text-text-primary text-xs placeholder-text-secondary/40 focus:outline-none focus:border-brand/50 transition"
+                        />
+                      </div>
+                    ))}
                   </div>
+                  <p className="text-[10px] text-text-secondary/40 mt-1.5">All optional. Instagram recommended.</p>
                 </div>
 
                 {/* Competitors */}
@@ -644,50 +679,91 @@ export const BrandWizard: React.FC<Props> = ({ userId, onComplete, initialDNA })
                   {/* Existing competitors */}
                   {competitors.length > 0 && (
                     <div className="space-y-2 mb-3">
-                      {competitors.map((c) => (
-                        <div key={c.id} className="flex items-center gap-3 p-3 rounded-xl bg-surface border border-border">
-                          <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center text-xs">🏢</div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-text-primary truncate">{c.name}</p>
-                            <div className="flex items-center gap-3 mt-0.5">
-                              {c.instagram && <span className="text-[10px] text-text-secondary/60">@{c.instagram}</span>}
-                              {c.website && <span className="text-[10px] text-text-secondary/40 truncate">{c.website}</span>}
+                      {competitors.map((c) => {
+                        const handles = [
+                          c.instagram && `📸 @${c.instagram}`,
+                          c.tiktok && `🎵 @${c.tiktok}`,
+                          c.facebook && `👤 ${c.facebook}`,
+                          c.youtube && `▶️ @${c.youtube}`,
+                          c.linkedin && `💼 ${c.linkedin}`,
+                          c.x && `𝕏 @${c.x}`,
+                          c.pinterest && `📌 @${c.pinterest}`,
+                          c.threads && `🧵 @${c.threads}`,
+                        ].filter(Boolean);
+                        return (
+                          <div key={c.id} className="flex items-center gap-3 p-3 rounded-xl bg-surface border border-border">
+                            <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center text-xs">🏢</div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-text-primary truncate">{c.name}</p>
+                              <div className="flex items-center gap-3 mt-0.5 flex-wrap">
+                                {c.website && <span className="text-[10px] text-text-secondary/40 truncate">{c.website}</span>}
+                                {handles.length > 0 && <span className="text-[10px] text-text-secondary/60">{handles.join(' · ')}</span>}
+                              </div>
                             </div>
+                            <button
+                              onClick={() => setCompetitors(prev => prev.filter(x => x.id !== c.id))}
+                              className="text-text-secondary/60 hover:text-red-400 transition p-1"
+                            >
+                              <X size={14} />
+                            </button>
                           </div>
-                          <button
-                            onClick={() => setCompetitors(prev => prev.filter(x => x.id !== c.id))}
-                            className="text-text-secondary/60 hover:text-red-400 transition p-1"
-                          >
-                            <X size={14} />
-                          </button>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
 
                   {/* Add competitor form */}
-                  <div className="grid grid-cols-3 gap-2 mb-2">
-                    <input
-                      type="text"
-                      value={newComp.name}
-                      onChange={e => setNewComp(prev => ({ ...prev, name: e.target.value }))}
-                      placeholder="Brand name *"
-                      className="px-3 py-2 rounded-lg bg-surface border border-border text-text-primary text-xs placeholder-text-secondary/40 focus:outline-none focus:border-brand/50 transition"
-                    />
-                    <input
-                      type="text"
-                      value={newComp.instagram}
-                      onChange={e => setNewComp(prev => ({ ...prev, instagram: e.target.value }))}
-                      placeholder="@instagram"
-                      className="px-3 py-2 rounded-lg bg-surface border border-border text-text-primary text-xs placeholder-text-secondary/40 focus:outline-none focus:border-brand/50 transition"
-                    />
-                    <input
-                      type="text"
-                      value={newComp.website}
-                      onChange={e => setNewComp(prev => ({ ...prev, website: e.target.value }))}
-                      placeholder="website.com"
-                      className="px-3 py-2 rounded-lg bg-surface border border-border text-text-primary text-xs placeholder-text-secondary/40 focus:outline-none focus:border-brand/50 transition"
-                    />
+                  <div className="space-y-2 mb-2">
+                    <div className="grid grid-cols-2 gap-2">
+                      <input
+                        type="text"
+                        value={newComp.name}
+                        onChange={e => setNewComp(prev => ({ ...prev, name: e.target.value }))}
+                        placeholder="Brand name *"
+                        className="px-3 py-2 rounded-lg bg-surface border border-border text-text-primary text-xs placeholder-text-secondary/40 focus:outline-none focus:border-brand/50 transition"
+                      />
+                      <input
+                        type="text"
+                        value={newComp.website}
+                        onChange={e => setNewComp(prev => ({ ...prev, website: e.target.value }))}
+                        placeholder="website.com"
+                        className="px-3 py-2 rounded-lg bg-surface border border-border text-text-primary text-xs placeholder-text-secondary/40 focus:outline-none focus:border-brand/50 transition"
+                      />
+                    </div>
+                    {/* Collapsible social handles */}
+                    <button
+                      type="button"
+                      onClick={() => setCompSocialOpen(prev => !prev)}
+                      className="flex items-center gap-1.5 text-[10px] text-text-secondary/60 hover:text-text-secondary transition"
+                    >
+                      <ChevronDown size={10} className={`transition-transform ${compSocialOpen ? 'rotate-180' : ''}`} />
+                      Social Handles {!compSocialOpen && '(expand)'}
+                    </button>
+                    {compSocialOpen && (
+                      <div className="grid grid-cols-2 gap-1.5">
+                        {([
+                          { key: 'instagram' as const, emoji: '📸', placeholder: '@instagram' },
+                          { key: 'tiktok' as const, emoji: '🎵', placeholder: '@tiktok' },
+                          { key: 'facebook' as const, emoji: '👤', placeholder: 'facebook URL' },
+                          { key: 'youtube' as const, emoji: '▶️', placeholder: '@youtube' },
+                          { key: 'linkedin' as const, emoji: '💼', placeholder: 'linkedin URL' },
+                          { key: 'x' as const, emoji: '𝕏', placeholder: '@x_handle' },
+                          { key: 'pinterest' as const, emoji: '📌', placeholder: '@pinterest' },
+                          { key: 'threads' as const, emoji: '🧵', placeholder: '@threads' },
+                        ] as const).map(p => (
+                          <div key={p.key} className="relative">
+                            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px]">{p.emoji}</span>
+                            <input
+                              type="text"
+                              value={newComp[p.key]}
+                              onChange={e => setNewComp(prev => ({ ...prev, [p.key]: e.target.value }))}
+                              placeholder={p.placeholder}
+                              className="w-full pl-7 pr-2 py-1.5 rounded-md bg-surface border border-border text-text-primary text-xs placeholder-text-secondary/40 focus:outline-none focus:border-brand/50 transition"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   <button
                     onClick={() => {
@@ -695,10 +771,18 @@ export const BrandWizard: React.FC<Props> = ({ userId, onComplete, initialDNA })
                       setCompetitors(prev => [...prev, {
                         id: crypto.randomUUID(),
                         name: newComp.name.trim(),
-                        instagram: newComp.instagram.replace('@', '').trim() || undefined,
                         website: newComp.website.trim() || undefined,
+                        instagram: newComp.instagram.replace('@', '').trim() || undefined,
+                        tiktok: newComp.tiktok.replace('@', '').trim() || undefined,
+                        facebook: newComp.facebook.trim() || undefined,
+                        youtube: newComp.youtube.replace('@', '').trim() || undefined,
+                        linkedin: newComp.linkedin.trim() || undefined,
+                        x: newComp.x.replace('@', '').trim() || undefined,
+                        pinterest: newComp.pinterest.replace('@', '').trim() || undefined,
+                        threads: newComp.threads.replace('@', '').trim() || undefined,
                       }]);
-                      setNewComp({ name: '', instagram: '', website: '' });
+                      setNewComp({ name: '', website: '', instagram: '', tiktok: '', facebook: '', youtube: '', linkedin: '', x: '', pinterest: '', threads: '' });
+                      setCompSocialOpen(false);
                     }}
                     disabled={!newComp.name.trim()}
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand/10 text-brand text-xs font-bold hover:bg-brand/20 disabled:opacity-40 disabled:cursor-not-allowed transition"
@@ -723,7 +807,7 @@ export const BrandWizard: React.FC<Props> = ({ userId, onComplete, initialDNA })
             <div className="space-y-0.5">
               <span className="text-text-secondary text-xs">Scout agent will research your brand + competitors next</span>
               <p className="text-text-secondary text-[10px] opacity-60">
-                {namedCount} product{namedCount !== 1 ? 's' : ''} · {competitors.length} competitor{competitors.length !== 1 ? 's' : ''} · {instagramHandle ? '@' + instagramHandle : 'No IG'}
+                {namedCount} product{namedCount !== 1 ? 's' : ''} · {competitors.length} competitor{competitors.length !== 1 ? 's' : ''} · {Object.values(socialHandles).filter(v => v.trim()).length} platform{Object.values(socialHandles).filter(v => v.trim()).length !== 1 ? 's' : ''}
               </p>
             </div>
             <button

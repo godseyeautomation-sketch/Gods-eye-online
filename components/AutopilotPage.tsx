@@ -102,7 +102,8 @@ export const AutopilotPage: React.FC = () => {
 
   // Config state
   const [config, setConfig] = useState<PipelineConfig>(DEFAULT_CONFIG);
-  const [newCompetitor, setNewCompetitor] = useState({ handle: '', website: '', instagram: '' });
+  const [newCompetitor, setNewCompetitor] = useState({ handle: '', website: '', instagram: '', tiktok: '', facebook: '', youtube: '', linkedin: '', x: '', pinterest: '', threads: '' });
+  const [showSocialHandles, setShowSocialHandles] = useState(false);
 
   // Activity state
   const [allStageLogs, setAllStageLogs] = useState<PipelineStageLog[]>([]);
@@ -225,6 +226,13 @@ export const AutopilotPage: React.FC = () => {
             handle: comp.name,
             platform: 'instagram' as const,
             instagram: comp.instagram,
+            tiktok: comp.tiktok,
+            facebook: comp.facebook,
+            youtube: comp.youtube,
+            linkedin: comp.linkedin,
+            x: comp.x,
+            pinterest: comp.pinterest,
+            threads: comp.threads,
             website: comp.website,
           } as any)),
         }));
@@ -352,6 +360,13 @@ export const AutopilotPage: React.FC = () => {
         handle: comp.name,
         platform: 'instagram' as const,
         instagram: comp.instagram,
+        tiktok: comp.tiktok,
+        facebook: comp.facebook,
+        youtube: comp.youtube,
+        linkedin: comp.linkedin,
+        x: comp.x,
+        pinterest: comp.pinterest,
+        threads: comp.threads,
         website: comp.website,
       }));
 
@@ -1036,7 +1051,8 @@ export const AutopilotPage: React.FC = () => {
             {/* Add Competitor Form */}
             <div className="p-5 rounded-2xl bg-panel border border-border-base space-y-4">
               <h3 className="text-sm font-bold text-text-primary">Add Competitor</h3>
-              <div className="grid grid-cols-3 gap-3">
+              {/* Row 1: Brand Name + Website */}
+              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[10px] text-text-secondary uppercase tracking-wider mb-1">Brand Name *</label>
                   <input
@@ -1044,16 +1060,6 @@ export const AutopilotPage: React.FC = () => {
                     value={newCompetitor.handle}
                     onChange={e => setNewCompetitor(prev => ({ ...prev, handle: e.target.value }))}
                     placeholder="e.g. Adidas"
-                    className="w-full px-3 py-2.5 rounded-lg bg-surface border border-border-base text-text-primary text-sm placeholder-text-secondary/40 focus:outline-none focus:border-brand transition"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[10px] text-text-secondary uppercase tracking-wider mb-1">Instagram Handle</label>
-                  <input
-                    type="text"
-                    value={newCompetitor.instagram}
-                    onChange={e => setNewCompetitor(prev => ({ ...prev, instagram: e.target.value }))}
-                    placeholder="@adidas"
                     className="w-full px-3 py-2.5 rounded-lg bg-surface border border-border-base text-text-primary text-sm placeholder-text-secondary/40 focus:outline-none focus:border-brand transition"
                   />
                 </div>
@@ -1068,16 +1074,58 @@ export const AutopilotPage: React.FC = () => {
                   />
                 </div>
               </div>
+              {/* Collapsible Social Handles */}
+              <button
+                type="button"
+                onClick={() => setShowSocialHandles(s => !s)}
+                className="flex items-center gap-1.5 text-xs font-semibold text-text-secondary/60 hover:text-text-secondary transition"
+              >
+                <svg className={`w-3 h-3 transition-transform ${showSocialHandles ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                Social Handles
+              </button>
+              {showSocialHandles && (
+                <div className="grid grid-cols-4 gap-2">
+                  {([
+                    { key: 'instagram', emoji: '\uD83D\uDCF8', placeholder: '@adidas' },
+                    { key: 'tiktok', emoji: '\uD83C\uDFB5', placeholder: '@adidas' },
+                    { key: 'facebook', emoji: '\uD83D\uDCD8', placeholder: 'Adidas' },
+                    { key: 'youtube', emoji: '\u25B6\uFE0F', placeholder: 'Adidas' },
+                    { key: 'linkedin', emoji: '\uD83D\uDCBC', placeholder: 'adidas' },
+                    { key: 'x', emoji: '\uD835\uDD4F', placeholder: '@adidas' },
+                    { key: 'pinterest', emoji: '\uD83D\uDCCC', placeholder: 'adidas' },
+                    { key: 'threads', emoji: '\uD83E\uDDF5', placeholder: '@adidas' },
+                  ] as { key: keyof typeof newCompetitor; emoji: string; placeholder: string }[]).map(s => (
+                    <div key={s.key}>
+                      <label className="block text-[10px] text-text-secondary/50 mb-0.5">{s.emoji} {s.key}</label>
+                      <input
+                        type="text"
+                        value={newCompetitor[s.key]}
+                        onChange={e => setNewCompetitor(prev => ({ ...prev, [s.key]: e.target.value }))}
+                        placeholder={s.placeholder}
+                        className="w-full px-2 py-1.5 rounded-md bg-surface border border-border-base text-text-primary text-xs placeholder-text-secondary/30 focus:outline-none focus:border-brand transition"
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
               <button
                 onClick={() => {
                   if (newCompetitor.handle.trim()) {
                     setConfig(c => ({ ...c, competitors: [...c.competitors, {
                       handle: newCompetitor.handle.trim(),
                       platform: 'instagram',
-                      instagram: newCompetitor.instagram.replace('@', '').trim() || newCompetitor.handle.trim(),
+                      instagram: newCompetitor.instagram.replace('@', '').trim(),
+                      tiktok: newCompetitor.tiktok.replace('@', '').trim(),
+                      facebook: newCompetitor.facebook.trim(),
+                      youtube: newCompetitor.youtube.trim(),
+                      linkedin: newCompetitor.linkedin.trim(),
+                      x: newCompetitor.x.replace('@', '').trim(),
+                      pinterest: newCompetitor.pinterest.trim(),
+                      threads: newCompetitor.threads.replace('@', '').trim(),
                       website: newCompetitor.website.trim(),
                     }] }));
-                    setNewCompetitor({ handle: '', website: '', instagram: '' });
+                    setNewCompetitor({ handle: '', website: '', instagram: '', tiktok: '', facebook: '', youtube: '', linkedin: '', x: '', pinterest: '', threads: '' });
+                    setShowSocialHandles(false);
                   }
                 }}
                 className="px-5 py-2.5 rounded-xl bg-brand text-bg text-sm font-bold hover:bg-brand-hover transition"
@@ -1090,7 +1138,7 @@ export const AutopilotPage: React.FC = () => {
             {config.competitors.length === 0 ? (
               <div className="text-center py-12 border border-dashed border-border-base rounded-2xl">
                 <p className="text-text-secondary text-lg mb-1">No competitors tracked</p>
-                <p className="text-xs text-text-secondary">Add competitor brand name + Instagram handle — Scout will research them</p>
+                <p className="text-xs text-text-secondary">Add competitor brand name + social handles — Scout will research them</p>
               </div>
             ) : (
               <div className="space-y-3">
@@ -1099,9 +1147,16 @@ export const AutopilotPage: React.FC = () => {
                     <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center text-lg">🏢</div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-bold text-text-primary">{comp.handle}</p>
-                      <div className="flex items-center gap-3 mt-0.5">
-                        {comp.instagram && <span className="text-[10px] text-text-secondary">@{comp.instagram}</span>}
-                        {comp.website && <span className="text-[10px] text-text-secondary/40">{comp.website}</span>}
+                      {comp.website && <span className="text-[10px] text-text-secondary/40">{comp.website}</span>}
+                      <div className="flex flex-wrap gap-2 mt-1">
+                        {comp.instagram && <span className="text-[10px] text-text-secondary/60">{'\uD83D\uDCF8'} @{comp.instagram}</span>}
+                        {comp.tiktok && <span className="text-[10px] text-text-secondary/60">{'\uD83C\uDFB5'} @{comp.tiktok}</span>}
+                        {comp.facebook && <span className="text-[10px] text-text-secondary/60">{'\uD83D\uDCD8'} {comp.facebook}</span>}
+                        {comp.youtube && <span className="text-[10px] text-text-secondary/60">{'\u25B6\uFE0F'} {comp.youtube}</span>}
+                        {comp.linkedin && <span className="text-[10px] text-text-secondary/60">{'\uD83D\uDCBC'} {comp.linkedin}</span>}
+                        {comp.x && <span className="text-[10px] text-text-secondary/60">{'\uD835\uDD4F'} @{comp.x}</span>}
+                        {comp.pinterest && <span className="text-[10px] text-text-secondary/60">{'\uD83D\uDCCC'} {comp.pinterest}</span>}
+                        {comp.threads && <span className="text-[10px] text-text-secondary/60">{'\uD83E\uDDF5'} @{comp.threads}</span>}
                       </div>
                     </div>
                     <button

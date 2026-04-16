@@ -13,6 +13,13 @@ export interface BrandCompetitor {
   id: string;
   name: string;               // "Adidas"
   instagram?: string;         // "adidas" (no @)
+  tiktok?: string;
+  facebook?: string;
+  youtube?: string;
+  linkedin?: string;
+  x?: string;
+  pinterest?: string;
+  threads?: string;
   website?: string;           // "adidas.com"
   notes?: string;
 }
@@ -63,6 +70,11 @@ export interface BrandProfile {
   /** Optional additional social presence */
   facebook_url?: string;
   tiktok_handle?: string;
+  youtube_handle?: string;
+  linkedin_handle?: string;
+  x_handle?: string;
+  pinterest_handle?: string;
+  threads_handle?: string;
   /** Competitors the Scout agent researches (persisted with brand) */
   competitors?: BrandCompetitor[];
   /** Latest Scout research report — consumed by Priya */
@@ -103,6 +115,11 @@ export interface BrandDNA {
   instagram_handle?: string;
   facebook_url?: string;
   tiktok_handle?: string;
+  youtube_handle?: string;
+  linkedin_handle?: string;
+  x_handle?: string;
+  pinterest_handle?: string;
+  threads_handle?: string;
   /** Competitors the Scout agent researches (persisted with brand) */
   competitors?: BrandCompetitor[];
 }
