@@ -380,6 +380,7 @@ export const BrandPage: React.FC = () => {
   const [calYear, setCalYear] = useState(today.getFullYear());
   const [calMonth, setCalMonth] = useState(today.getMonth() + 1);
   const [slots, setSlots] = useState<ContentSlot[]>([]);
+  const [selectedPlatform, setSelectedPlatform] = useState<import('../../types/brand.types').SocialPlatform>('instagram');
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [selectedSlot, setSelectedSlot] = useState<{ date: string; format: ContentFormat; existing: ContentSlot | null } | null>(null);
   const [showChat, setShowChat] = useState(false);
@@ -1202,6 +1203,8 @@ export const BrandPage: React.FC = () => {
                   year={calYear} month={calMonth} slots={slots}
                   onMonthChange={(y, m) => { setCalYear(y); setCalMonth(m); }}
                   onSlotClick={(date, format, existing) => setSelectedSlot({ date, format, existing })}
+                  selectedPlatform={selectedPlatform}
+                  onPlatformChange={setSelectedPlatform}
                 />
               )}
             </div>

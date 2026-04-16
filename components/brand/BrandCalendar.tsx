@@ -1,6 +1,11 @@
 import React from 'react';
 import { ChevronLeft, ChevronRight, Image, BookOpen, Play } from 'lucide-react';
-import { ContentSlot, ContentFormat, SlotStatus } from '../../types/brand.types';
+import { ContentSlot, ContentFormat, SlotStatus, SocialPlatform, SOCIAL_PLATFORMS } from '../../types/brand.types';
+
+const PLATFORM_EMOJI: Record<string, string> = {
+  instagram: '📸', tiktok: '🎵', facebook: '📘', youtube: '📺',
+  linkedin: '💼', x: '𝕏', pinterest: '📌', threads: '🧵',
+};
 
 interface Props {
   year: number;
@@ -8,6 +13,8 @@ interface Props {
   slots: ContentSlot[];
   onMonthChange: (year: number, month: number) => void;
   onSlotClick: (date: string, format: ContentFormat, existing: ContentSlot | null) => void;
+  selectedPlatform?: SocialPlatform;
+  onPlatformChange?: (platform: SocialPlatform) => void;
 }
 
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -30,13 +37,18 @@ const STATUS_COLORS: Record<SlotStatus, string> = {
 
 const FORMATS: ContentFormat[] = ['post', 'story', 'reel'];
 
-export const BrandCalendar: React.FC<Props> = ({ year, month, slots, onMonthChange, onSlotClick }) => {
+export const BrandCalendar: React.FC<Props> = ({ year, month, slots, onMonthChange, onSlotClick, selectedPlatform, onPlatformChange }) => {
   const firstDayOfMonth = new Date(year, month - 1, 1).getDay(); // 0=Sun
   const daysInMonth = new Date(year, month, 0).getDate();
+
+  // Filter slots by platform (backward-compat: slots without platform show on all)
+  const filteredSlots = selectedPlatform
+    ? slots.filter(s => !s.platform || s.platform === selectedPlatform)
+    : slots;
   const today = new Date();
 
   const slotMap = new Map<string, ContentSlot>();
-  for (const s of slots) {
+  for (const s of filteredSlots) {
     slotMap.set(`${s.slot_date}|${s.format}`, s);
   }
 
@@ -84,6 +96,31 @@ export const BrandCalendar: React.FC<Props> = ({ year, month, slots, onMonthChan
           <ChevronRight size={16} />
         </button>
       </div>
+
+      {/* Platform selector */}
+      {onPlatformChange && (
+        <div className="flex items-center gap-1.5 mb-3 overflow-x-auto pb-1">
+          {(['instagram', 'tiktok', 'facebook', 'youtube', 'linkedin', 'x', 'pinterest', 'threads'] as SocialPlatform[]).map(p => {
+            const info = SOCIAL_PLATFORMS.find(sp => sp.key === p);
+            const isActive = selectedPlatform === p;
+            return (
+              <button
+                key={p}
+                onClick={() => onPlatformChange(p)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-all ${
+                  isActive
+                    ? 'text-white shadow-sm'
+                    : 'bg-white/[0.03] text-text-secondary/50 hover:text-text-secondary hover:bg-white/[0.05] border border-white/[0.04]'
+                }`}
+                style={isActive ? { backgroundColor: info?.color || '#666', borderColor: info?.color || '#666' } : undefined}
+              >
+                <span>{PLATFORM_EMOJI[p] || '📱'}</span>
+                <span className="capitalize">{info?.label || p}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* Day headers */}
       <div className="grid grid-cols-7 gap-1 mb-1">

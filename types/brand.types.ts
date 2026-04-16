@@ -136,6 +136,8 @@ export interface ContentSlot {
   published_at?: string;
   /** Upload-Post request ID for tracking */
   publish_request_id?: string;
+  /** Target social media platform for this slot */
+  platform?: SocialPlatform;
   /** Pipeline integration fields (set by autopilot) */
   pipeline_run_id?: string;
   quality_scores?: QualityScores | null;
