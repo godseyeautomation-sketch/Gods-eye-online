@@ -38,6 +38,8 @@ coverage
 .cache
 temp
 tmp
+.klint
+.claude
 
 # Large Assets
 *.pdf

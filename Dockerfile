@@ -14,10 +14,11 @@ ENV VITE_SUPABASE_URL=$VITE_SUPABASE_URL
 ENV VITE_SUPABASE_ANON_KEY=$VITE_SUPABASE_ANON_KEY
 
 # Copy package files
-COPY package*.json ./
+COPY package.json ./
 
-# Install dependencies (clean install for reproducibility)
-RUN npm ci
+# Install dependencies (use npm install, not ci — ci uses lockfile which has
+# Windows-specific native bindings that don't work on Linux)
+RUN npm install
 
 # Copy source files
 COPY . .
