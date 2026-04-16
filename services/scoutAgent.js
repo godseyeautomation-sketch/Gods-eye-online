@@ -10,6 +10,7 @@
  * Uses Supabase REST API (same approach as dev-server.js) to bypass RLS.
  */
 
+import { scrapeInstagramProfiles, extractProfileStats } from './apifyService.js';
 import {
   Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell,
   HeadingLevel, AlignmentType, BorderStyle, WidthType, ShadingType,
@@ -95,16 +96,70 @@ function parseJSON(text) {
 async function scanBrandAndCompetitors(brand, competitors) {
   console.log(`[Scout] Step 1: Scanning brand (${brand.website_url || 'no website'}, ${brand.instagram_handle || 'no IG'}) + ${competitors.length} competitors...`);
 
-  // Build competitor details for the prompt
-  const compDetails = competitors.map(c => {
-    const parts = [`@${c.handle}`];
-    if (c.platform) parts.push(`on ${c.platform}`);
-    if (c.website) parts.push(`(website: ${c.website})`);
-    if (c.instagram) parts.push(`(instagram: @${c.instagram.replace('@', '')})`);
-    return parts.join(' ');
-  }).join('\n');
+  // ── REAL DATA: Scrape Instagram via Apify ──────────────────────────────
+  let apifyData = {};
+  const allUsernames = [];
+  if (brand.instagram_handle) allUsernames.push(brand.instagram_handle.replace('@', ''));
+  for (const c of competitors) {
+    const ig = (c.instagram || c.handle || '').replace('@', '');
+    if (ig) allUsernames.push(ig);
+  }
 
-  const prompt = `You are an elite social media intelligence analyst. Research this brand AND its competitors in detail.
+  if (allUsernames.length && process.env.APIFY_TOKEN) {
+    try {
+      console.log(`[Scout] Scraping ${allUsernames.length} Instagram profiles via Apify: ${allUsernames.join(', ')}`);
+      const rawProfiles = await scrapeInstagramProfiles(allUsernames, 12);
+      for (const raw of rawProfiles) {
+        apifyData[raw.username?.toLowerCase()] = extractProfileStats(raw);
+      }
+      console.log(`[Scout] Apify returned ${Object.keys(apifyData).length} profiles with real data`);
+    } catch (err) {
+      console.warn(`[Scout] Apify scrape failed (falling back to Gemini): ${err.message}`);
+    }
+  } else {
+    console.log(`[Scout] No Apify token or no IG handles — using Gemini web search only`);
+  }
+
+  // Build real data context for the Gemini prompt
+  const brandIG = brand.instagram_handle ? apifyData[brand.instagram_handle.replace('@', '').toLowerCase()] : null;
+  const competitorIGs = competitors.map(c => {
+    const ig = (c.instagram || c.handle || '').replace('@', '').toLowerCase();
+    return { ...c, scraped: apifyData[ig] || null };
+  });
+
+  const realDataSection = brandIG ? `
+═══ REAL SCRAPED DATA (from Instagram API — these numbers are ACCURATE, do NOT change them) ═══
+
+OUR BRAND @${brand.instagram_handle}:
+- Followers: ${brandIG.followers.toLocaleString()}
+- Following: ${brandIG.following.toLocaleString()}
+- Posts: ${brandIG.posts_count.toLocaleString()}
+- Engagement Rate: ${brandIG.engagement_rate}
+- Avg Likes: ${brandIG.avg_likes.toLocaleString()}
+- Avg Comments: ${brandIG.avg_comments.toLocaleString()}
+- Bio: "${brandIG.bio}"
+- Verified: ${brandIG.verified}
+- Business Category: ${brandIG.business_category || 'N/A'}
+- Top Posts:
+${brandIG.top_posts.map(p => `  ${p.type}: ${p.likes.toLocaleString()} likes, ${p.comments.toLocaleString()} comments${p.video_views ? ', ' + p.video_views.toLocaleString() + ' views' : ''} — "${p.caption.slice(0, 80)}"`).join('\n')}
+` : '';
+
+  const competitorDataSection = competitorIGs.filter(c => c.scraped).map(c => `
+COMPETITOR @${c.scraped.username}:
+- Followers: ${c.scraped.followers.toLocaleString()}
+- Following: ${c.scraped.following.toLocaleString()}
+- Posts: ${c.scraped.posts_count.toLocaleString()}
+- Engagement Rate: ${c.scraped.engagement_rate}
+- Avg Likes: ${c.scraped.avg_likes.toLocaleString()}
+- Avg Comments: ${c.scraped.avg_comments.toLocaleString()}
+- Bio: "${c.scraped.bio}"
+- Verified: ${c.scraped.verified}
+- Content Mix: ${c.scraped.content_types.videos} videos, ${c.scraped.content_types.images} images, ${c.scraped.content_types.carousels} carousels
+- Top Posts:
+${c.scraped.top_posts.map(p => `  ${p.type}: ${p.likes.toLocaleString()} likes, ${p.comments.toLocaleString()} comments${p.video_views ? ', ' + p.video_views.toLocaleString() + ' views' : ''} — "${p.caption.slice(0, 80)}"`).join('\n')}
+`).join('\n');
+
+  const prompt = `You are an elite social media intelligence analyst. Analyze this brand AND its competitors.
 
 ═══ OUR BRAND ═══
 Name: ${brand.name}
@@ -113,52 +168,39 @@ Instagram: ${brand.instagram_handle ? '@' + brand.instagram_handle : 'Not provid
 Industry: ${brand.industry || 'General'}
 Audience: ${brand.audience || 'General'}
 Products: ${(brand.products || []).map(p => p.name).join(', ') || 'Not specified'}
+${realDataSection}
+${competitorDataSection}
 
-═══ COMPETITORS TO RESEARCH ═══
-${compDetails || 'No competitors specified — focus on brand analysis only'}
+IMPORTANT: The numbers above are REAL scraped data. Use them EXACTLY as provided. Do NOT make up different numbers.
 
-Use web search to find REAL, CURRENT data.
-
-FOR OUR BRAND, research:
-- Current Instagram stats (followers, posts, engagement rate)
-- Website content and positioning
-- Current content strategy (what they post, how often, what works)
-- Visual aesthetic and brand voice
-
-FOR EACH COMPETITOR, provide:
-1. PROFILE STATS: followers, posts, engagement rate, avg views/likes
-2. BIO & POSITIONING: their exact bio, positioning summary, target audience
-3. CONTENT PILLARS: what types of content they post (from highlights/grid)
-4. TOP PERFORMING CONTENT: their best 5 posts/reels with what made them work
-5. CAPTION STRATEGY: hook style, CTA patterns, hashtag strategy
-6. VISUAL AESTHETIC: color palette, photography style, grid layout
+Use web search ONLY for: website content analysis, positioning insights, content strategy analysis, and visual aesthetic description. NOT for follower counts or engagement rates (those are already provided above).
 
 Return detailed JSON:
 {
   "brand_analysis": {
-    "instagram_stats": { "followers": "...", "posts": "...", "engagement_rate": "..." },
-    "website_insights": "...",
-    "current_content_strategy": "...",
-    "visual_aesthetic": "...",
-    "strengths": ["..."],
-    "weaknesses": ["..."]
+    "instagram_stats": { "followers": "${brandIG?.followers || '?'}", "posts": "${brandIG?.posts_count || '?'}", "engagement_rate": "${brandIG?.engagement_rate || '?'}", "avg_likes": "${brandIG?.avg_likes || '?'}", "avg_comments": "${brandIG?.avg_comments || '?'}", "verified": ${brandIG?.verified || false}, "bio": "${brandIG?.bio || ''}" },
+    "website_insights": "analyze their website positioning, products, messaging",
+    "current_content_strategy": "based on the real post data above, describe their strategy",
+    "visual_aesthetic": "describe their visual identity",
+    "strengths": ["based on real data..."],
+    "weaknesses": ["based on real data..."]
   },
-  "competitors": [
+  "competitors": [${competitorIGs.map(c => `
     {
-      "handle": "@...",
-      "website": "...",
-      "stats": { "followers": "...", "posts": "...", "engagement_rate": "...", "avg_views": "...", "avg_likes": "..." },
-      "bio": "...",
-      "positioning_summary": "...",
+      "handle": "@${c.scraped?.username || c.instagram || c.handle}",
+      "stats": { "followers": "${c.scraped?.followers || '?'}", "posts": "${c.scraped?.posts_count || '?'}", "engagement_rate": "${c.scraped?.engagement_rate || '?'}", "avg_likes": "${c.scraped?.avg_likes || '?'}", "avg_comments": "${c.scraped?.avg_comments || '?'}" },
+      "bio": "${c.scraped?.bio || ''}",
+      "positioning_summary": "analyze based on bio and content...",
       "target_audience": "...",
       "content_pillars": [{ "name": "...", "type": "...", "purpose": "..." }],
-      "top_content": [{ "description": "...", "views": "...", "likes": "...", "what_worked": "..." }],
+      "top_content": [${(c.scraped?.top_posts || []).slice(0, 5).map(p => `{ "description": "${p.caption.slice(0, 60).replace(/"/g, "'")}", "likes": "${p.likes}", "comments": "${p.comments}", "type": "${p.type}", "what_worked": "..." }`).join(',')}],
       "caption_strategy": { "hook_style": "...", "cta_pattern": "...", "hashtag_strategy": "..." },
       "visual_aesthetic": "...",
       "posting_frequency": "..."
-    }
+    }`).join(',')}
   ],
-  "scrape_date": "${new Date().toLocaleDateString()}"
+  "scrape_date": "${new Date().toLocaleDateString()}",
+  "data_source": "apify_instagram_scraper"
 }`;
 
   const { text, sources } = await callGemini(prompt, { useSearch: true, maxTokens: 16384 });
