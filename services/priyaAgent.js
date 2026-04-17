@@ -300,7 +300,7 @@ function getPlatformGuidance(platform) {
 // Step B: Generate calendar for ONE platform
 // ══════════════════════════════════════════════════════════════════════════════
 
-async function generatePlatformCalendar(brand, strategyData, enrichmentData, campaign, platform, count) {
+async function generatePlatformCalendar(brand, strategyData, enrichmentData, campaign, platform, count, rejectionFeedback = null) {
   const pillars = arr(strategyData?.content_pillars);
   const pillarNames = pillars.map(p => p.name).filter(Boolean);
   const hookBank = strategyData?.hook_bank || {};
@@ -368,7 +368,13 @@ Caption limit: ${guidance.captionLimit}
 Rules:
 ${guidance.rules.map(r => `- ${r}`).join('\n')}
 
-═══ TASK ═══
+${rejectionFeedback ? `═══ REJECTION FEEDBACK (from previous iteration) ═══
+The previous ${platform} content was REJECTED with the following feedback. You MUST address these concerns in this regeneration:
+"${rejectionFeedback}"
+
+Make the new content meaningfully different — different hook angles, sharper voice, fresh ideas. Do not repeat the patterns that failed.
+
+` : ''}═══ TASK ═══
 Generate EXACTLY ${count} content slots for ${platform}.
 
 Date distribution — use these dates (one per slot, in order):
@@ -474,8 +480,10 @@ async function executePriya(userId, brandId, config = {}) {
   const platforms = (campaign.platforms && campaign.platforms.length) ? campaign.platforms : ['instagram'];
   const duration = campaign.duration_days || 30;
   const slotsPerPlatform = Math.ceil(duration / 2); // ~15 posts/month cadence
+  const rejectionFeedback = campaign.rejection_feedback || null;
+  const isRegen = !!rejectionFeedback;
 
-  console.log(`[Priya] Platforms: ${platforms.join(', ')} | ${slotsPerPlatform} slots each over ${duration} days`);
+  console.log(`[Priya] Platforms: ${platforms.join(', ')} | ${slotsPerPlatform} slots each over ${duration} days${isRegen ? ` | REGEN with feedback: "${rejectionFeedback.slice(0, 80)}..."` : ''}`);
 
   // Initial progress write
   writeProgress(brandId, {
@@ -515,7 +523,8 @@ async function executePriya(userId, brandId, config = {}) {
         enrichmentData,
         campaign,
         platform,
-        slotsPerPlatform
+        slotsPerPlatform,
+        rejectionFeedback
       );
       newSlots.push(...platformSlots);
     } catch (err) {
@@ -587,7 +596,27 @@ async function executePriya(userId, brandId, config = {}) {
   const existing = readSync('content_slots');
   const existingData = Array.isArray(existing?.data) ? existing.data : [];
   const newSlotIds = new Set(finalSlots.map(s => s.id));
-  const filtered = existingData.filter(s => !newSlotIds.has(s.id));
+  const regenPlatforms = new Set(platforms.map(p => String(p).toLowerCase()));
+
+  // If this is a regeneration (rejection_feedback present), FIRST wipe all
+  // existing unapproved/unpublished slots for the target platform(s) so the
+  // new content fully replaces the rejected batch. Approved/published slots
+  // are preserved as-is.
+  const filtered = existingData.filter(s => {
+    // Always drop if the new batch upserts this id
+    if (newSlotIds.has(s.id)) return false;
+    if (!isRegen) return true;
+    // Regen mode: drop same-platform, same-brand, non-approved slots
+    if (s.brand_id !== brandId) return true;
+    const slotPlatform = (s.platform || 'instagram').toLowerCase();
+    if (!regenPlatforms.has(slotPlatform)) return true;
+    if (s.status === 'approved' || s.status === 'published' || s.approved === true) return true;
+    return false; // drop
+  });
+  if (isRegen) {
+    const dropped = existingData.length - filtered.length - finalSlots.length;
+    console.log(`[Priya] Regen mode: dropped ${Math.max(0, dropped)} old unapproved slots for platforms [${platforms.join(', ')}]`);
+  }
   const merged = [...filtered, ...finalSlots];
 
   writeSync('content_slots', {

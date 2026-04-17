@@ -169,6 +169,12 @@ export interface ContentSlot {
   publish_request_id?: string;
   /** Target social media platform for this slot */
   platform?: SocialPlatform;
+  /** ISO timestamp for when Dispatch should publish (scheduled post) */
+  scheduled_at?: string;
+  /** Rejection reason captured during Review */
+  review_feedback?: string;
+  /** Groups slots that were reviewed together in one Review batch */
+  review_batch_id?: string;
   /** Pipeline integration fields (set by autopilot) */
   pipeline_run_id?: string;
   quality_scores?: QualityScores | null;

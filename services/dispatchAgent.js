@@ -235,21 +235,28 @@ async function executeDispatch(userId, brandId, config = {}) {
   const slotsFile = readSync('content_slots');
   const allSlots = Array.isArray(slotsFile?.data) ? slotsFile.data : [];
 
-  // Find approved but unpublished slots for this brand
-  const eligibleSlots = allSlots.filter(s =>
+  // Find approved but unpublished slots for this brand.
+  // Scheduled slots (scheduled_at > now) are skipped until their time arrives.
+  const nowIso = new Date().toISOString();
+  const approvedUnpublished = allSlots.filter(s =>
     s.brand_id === brandId &&
     (s.status === 'approved' || s.approved === true) &&
-    !s.published_at  // Not yet published
+    !s.published_at
   );
+  const eligibleSlots = approvedUnpublished.filter(s =>
+    !s.scheduled_at || s.scheduled_at <= nowIso
+  );
+  const skippedScheduled = approvedUnpublished.length - eligibleSlots.length;
 
   if (eligibleSlots.length === 0) {
-    console.log(`[Dispatch] No approved unpublished slots found for brand ${brand.name}`);
+    console.log(`[Dispatch] No approved unpublished slots due for brand ${brand.name} (${skippedScheduled} scheduled for future)`);
     return {
       brand_id: brandId,
       brand_name: brand.name,
       published_count: 0,
       failed_count: 0,
       skipped_count: 0,
+      skipped_scheduled: skippedScheduled,
       platforms: defaultPlatforms,
       published_slots: [],
       errors: [],
@@ -257,7 +264,7 @@ async function executeDispatch(userId, brandId, config = {}) {
     };
   }
 
-  console.log(`\n[Dispatch] ═══ Publishing ${eligibleSlots.length} slots for ${brand.name} ═══`);
+  console.log(`\n[Dispatch] ═══ Publishing ${eligibleSlots.length} slots for ${brand.name} (${skippedScheduled} scheduled for future) ═══`);
   console.log(`[Dispatch] Platforms: ${defaultPlatforms.join(', ')}`);
   console.log(`[Dispatch] Upload-Post user: ${uploadPostUser}`);
 
@@ -324,6 +331,7 @@ async function executeDispatch(userId, brandId, config = {}) {
     published_count: published.length,
     failed_count: errors.length,
     skipped_count: eligibleSlots.length - published.length - errors.length,
+    skipped_scheduled: skippedScheduled,
     platforms: defaultPlatforms,
     published_slots: published,
     errors,

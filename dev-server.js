@@ -3327,7 +3327,7 @@ app.get('/api/campaigns/creatives', async (req, res) => {
 // ── Agent Pipeline Routes ──────────────────────────────────────────
 import { executeScout } from './services/scoutAgent.js';
 import { executePriya } from './services/priyaAgent.js';
-import { executeReview, handleSlackAction, getReviewStatus } from './services/reviewAgent.js';
+import { executeReview, handleSlackAction, getReviewStatus, updateReviewDecision } from './services/reviewAgent.js';
 import { executeDispatch } from './services/dispatchAgent.js';
 import { executeKarma } from './services/karmaAgent.js';
 
@@ -3536,6 +3536,14 @@ app.put('/api/approval-queue/:id/approve', (req, res) => {
       writeSyncFile('content_slots', { _updatedAt: new Date().toISOString(), data: slots });
     }
 
+    // If this queue item is part of an active review batch, feed the decision
+    // into the reviewAgent so per-platform threshold logic can fire.
+    const batchId = items[idx].review_batch_id || items[idx].review_id;
+    if (batchId) {
+      try { updateReviewDecision(batchId, items[idx].id, 'approve', null); }
+      catch (e) { console.warn('[ApprovalQueue] updateReviewDecision (approve) failed:', e.message); }
+    }
+
     res.json({ ok: true, approved: items[idx].slot_id });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -3547,12 +3555,27 @@ app.put('/api/approval-queue/:id/reject', (req, res) => {
     const idx = items.findIndex(i => i.id === req.params.id);
     if (idx < 0) return res.status(404).json({ error: 'Item not found' });
 
+    const reason = req.body?.reason || '';
     items[idx].status = 'rejected';
-    items[idx].reviewer_notes = req.body?.reason || '';
+    items[idx].reviewer_notes = reason;
     items[idx].resolved_at = new Date().toISOString();
     writeSyncFile('approval_queue', { _updatedAt: new Date().toISOString(), data: items });
 
+    const batchId = items[idx].review_batch_id || items[idx].review_id;
+    if (batchId) {
+      try { updateReviewDecision(batchId, items[idx].id, 'reject', reason); }
+      catch (e) { console.warn('[ApprovalQueue] updateReviewDecision (reject) failed:', e.message); }
+    }
+
     res.json({ ok: true, rejected: items[idx].slot_id });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// Per-platform review status for live progress in dashboard
+app.get('/api/pipeline/review-platform-status/:reviewId', (req, res) => {
+  try {
+    const status = getReviewStatus(req.params.reviewId);
+    res.json({ ok: true, ...status });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

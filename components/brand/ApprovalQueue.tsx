@@ -2,6 +2,12 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import QualityScoreBadge from './QualityScoreBadge';
 import type { ApprovalQueueItem, ApprovalStatus, ContentFormat, SocialPlatform } from '../../types/brand.types';
+import { SOCIAL_PLATFORMS } from '../../types/brand.types';
+
+const PLATFORM_EMOJI: Record<string, string> = {
+  instagram: '📸', tiktok: '🎵', facebook: '📘', youtube: '📺',
+  linkedin: '💼', x: '𝕏', pinterest: '📌', threads: '🧵',
+};
 
 interface ApprovalQueueProps {
   brandId: string;
@@ -31,6 +37,7 @@ export default function ApprovalQueue({ brandId, onRefresh }: ApprovalQueueProps
   const [items, setItems] = useState<ApprovalQueueItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'pending' | 'all' | 'approved' | 'rejected'>('pending');
+  const [platformFilter, setPlatformFilter] = useState<SocialPlatform | 'all'>('all');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
@@ -129,8 +136,23 @@ export default function ApprovalQueue({ brandId, onRefresh }: ApprovalQueueProps
     });
   };
 
+  // Platform counts (before platform filter, so pills show full universe)
+  const platformCounts: Record<string, { total: number; auto: number }> = {};
+  for (const it of items) {
+    const p = ((it as any).platform || 'instagram') as string;
+    if (!platformCounts[p]) platformCounts[p] = { total: 0, auto: 0 };
+    platformCounts[p].total++;
+    if ((it as any).auto_approve_on_sample_pass && it.status === 'pending') platformCounts[p].auto++;
+  }
+  const activePlatforms = Object.keys(platformCounts).sort();
+
+  // Apply platform filter first
+  const platformFiltered = platformFilter === 'all'
+    ? items
+    : items.filter(it => ((it as any).platform || 'instagram') === platformFilter);
+
   // Group A/B variants
-  const groupedItems = items.reduce<{ standalone: ApprovalQueueItem[]; abGroups: Map<string, ApprovalQueueItem[]> }>((acc, item) => {
+  const groupedItems = platformFiltered.reduce<{ standalone: ApprovalQueueItem[]; abGroups: Map<string, ApprovalQueueItem[]> }>((acc, item) => {
     if (item.variant_group) {
       if (!acc.abGroups.has(item.variant_group)) acc.abGroups.set(item.variant_group, []);
       acc.abGroups.get(item.variant_group)!.push(item);
@@ -214,6 +236,46 @@ export default function ApprovalQueue({ brandId, onRefresh }: ApprovalQueueProps
           </button>
         </div>
       </div>
+
+      {/* Platform filter pills */}
+      {activePlatforms.length > 1 && (
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+          <button
+            onClick={() => { setPlatformFilter('all'); setSelectedIds(new Set()); }}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-all ${
+              platformFilter === 'all'
+                ? 'bg-white/[0.08] text-text-primary border border-white/[0.12]'
+                : 'bg-white/[0.03] text-text-secondary/50 hover:text-text-secondary hover:bg-white/[0.05] border border-white/[0.04]'
+            }`}
+          >
+            <span>All</span>
+            <span className="text-[10px] text-text-secondary/60 tabular-nums">({items.length})</span>
+          </button>
+          {activePlatforms.map(p => {
+            const info = SOCIAL_PLATFORMS.find(sp => sp.key === p);
+            const isActive = platformFilter === p;
+            const count = platformCounts[p];
+            return (
+              <button
+                key={p}
+                onClick={() => { setPlatformFilter(p as SocialPlatform); setSelectedIds(new Set()); }}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-all ${
+                  isActive
+                    ? 'text-white shadow-sm'
+                    : 'bg-white/[0.03] text-text-secondary/50 hover:text-text-secondary hover:bg-white/[0.05] border border-white/[0.04]'
+                }`}
+                style={isActive ? { backgroundColor: info?.color || '#666', borderColor: info?.color || '#666' } : undefined}
+              >
+                <span>{PLATFORM_EMOJI[p] || '📱'}</span>
+                <span className="capitalize">{info?.label || p}</span>
+                <span className={`text-[10px] tabular-nums ${isActive ? 'text-white/80' : 'text-text-secondary/60'}`}>
+                  ({count.total}{count.auto ? ` · ${count.auto} auto` : ''})
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* Loading */}
       {loading && (
@@ -301,6 +363,9 @@ function ApprovalCard({ item, isAB, isSelected, isLoading, onApprove, onReject, 
   const [imageZoomed, setImageZoomed] = useState(false);
 
   const pillarHash = (item.brief as any)?.content_pillar ? Math.abs((item.brief as any).content_pillar.split('').reduce((a: number, c: string) => a + c.charCodeAt(0), 0)) % PILLAR_COLORS.length : 0;
+  const platform = ((item as any).platform || 'instagram') as string;
+  const autoApproveOnPass = !!(item as any).auto_approve_on_sample_pass;
+  const isSampleSlot = !!(item as any).review_sample;
 
   return (
     <div className={`rounded-2xl border transition-all duration-200 ${
@@ -358,10 +423,14 @@ function ApprovalCard({ item, isAB, isSelected, isLoading, onApprove, onReject, 
       )}
 
       <div className="p-4 space-y-3">
-        {/* Date + Format + Status row */}
+        {/* Date + Platform + Format + Status row */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="text-xs font-medium text-text-secondary">{item.slot_date}</span>
+            <span className="flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded bg-white/[0.05] text-text-secondary capitalize">
+              <span>{PLATFORM_EMOJI[platform] || '📱'}</span>
+              {platform}
+            </span>
             {!item.generated_image && (
               <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${FORMAT_COLORS[item.format]}`}>
                 {FORMAT_LABELS[item.format]}
@@ -372,6 +441,20 @@ function ApprovalCard({ item, isAB, isSelected, isLoading, onApprove, onReject, 
             {STATUS_ICONS[item.status]} {item.status.replace('_', ' ')}
           </span>
         </div>
+
+        {/* Auto-approve indicator for non-sample pending items */}
+        {autoApproveOnPass && isPending && (
+          <div className="flex items-center gap-1.5 text-[11px] font-medium text-violet-400 bg-violet-500/10 border border-violet-500/20 rounded-lg px-2.5 py-1.5">
+            <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+            <span>Auto-approves when {platform} sample passes (2 of 3 approved)</span>
+          </div>
+        )}
+        {isSampleSlot && isPending && (
+          <div className="flex items-center gap-1.5 text-[11px] font-medium text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-2.5 py-1.5">
+            <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
+            <span>Sample slot — your decision drives {platform}'s whole batch</span>
+          </div>
+        )}
 
         {/* Hook (bold, prominent) */}
         {item.brief?.hook && (

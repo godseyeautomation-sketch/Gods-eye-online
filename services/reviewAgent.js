@@ -1,14 +1,16 @@
 /**
- * Review Agent — Slack HITL with Block Kit buttons
+ * Review Agent — Per-Platform HITL with Slack + In-App Dashboard
  *
- * Flow:
- *   1. Pick first 3 upcoming calendar slots from Priya's output
- *   2. Generate images for those specific slots
- *   3. Post to Slack with Block Kit: image + full brief + Approve/Reject buttons
- *   4. Wait for button clicks via webhook (ngrok → /api/slack/interactions)
- *   5. After all 3 decided OR timeout:
- *      - 2+ approved → mark slots approved, proceed
- *      - 2+ rejected → collect feedback, trigger Priya re-run
+ * Flow (per platform, run in parallel):
+ *   1. Pick first 3 briefed slots for each platform → "sample"
+ *   2. Remaining slots → "auto-approve pending" (auto-approved if sample passes)
+ *   3. Generate images for all samples (uses product lock if available)
+ *   4. Post to Slack with Block Kit (if SLACK configured) + write to approval_queue.json
+ *   5. User clicks Approve/Reject on each — from Slack OR in-app dashboard
+ *   6. Per-platform threshold logic:
+ *      - 2+ approved → auto-approve remaining platform slots + schedule them
+ *      - 2+ rejected → collect feedback, regenerate ONLY that platform via Priya
+ *   7. Other platforms unaffected by one platform's rejection
  */
 
 import fs from 'fs';
@@ -185,18 +187,31 @@ async function generateImage(prompt, visualDirection, aspectRatio = '1:1', produ
 // Build Block Kit message for a single slot
 // ══════════════════════════════════════════════════════════════════════════════
 
-function buildSlotMessage(slot, reviewId, slotIndex) {
+const PLATFORM_BADGES = {
+  instagram: '📸 Instagram',
+  tiktok: '🎵 TikTok',
+  facebook: '📘 Facebook',
+  youtube: '📺 YouTube',
+  linkedin: '💼 LinkedIn',
+  x: '𝕏 X',
+  pinterest: '📌 Pinterest',
+  threads: '🧵 Threads',
+};
+
+function buildSlotMessage(slot, reviewId, queueId) {
   const brief = slot.brief || {};
   const formatIcon = slot.format === 'reel' ? '🎬 Reel' : slot.format === 'story' ? '📱 Story' : '🖼️ Post';
+  const platform = slot.platform || 'instagram';
+  const platformBadge = PLATFORM_BADGES[platform] || `📱 ${platform}`;
   const hashtags = (brief.hashtags || []).slice(0, 8).map(t => `#${String(t).replace('#', '')}`).join(' ');
 
   return {
     channel: getSlackChannel(),
-    text: `Review: ${slot.slot_date} ${slot.format}`, // Fallback text
+    text: `Review: ${platformBadge} · ${slot.slot_date} ${slot.format}`, // Fallback text
     blocks: [
       {
         type: 'header',
-        text: { type: 'plain_text', text: `📅 ${slot.slot_date}  ·  ${formatIcon}  ·  ${slot.scout_pillar || 'Content'}`, emoji: true },
+        text: { type: 'plain_text', text: `${platformBadge}  ·  📅 ${slot.slot_date}  ·  ${formatIcon}`, emoji: true },
       },
       { type: 'divider' },
       {
@@ -227,15 +242,15 @@ function buildSlotMessage(slot, reviewId, slotIndex) {
             type: 'button',
             text: { type: 'plain_text', text: '✅ Approve', emoji: true },
             style: 'primary',
-            action_id: `approve_${reviewId}_${slotIndex}`,
-            value: JSON.stringify({ reviewId, slotIndex, action: 'approve' }),
+            action_id: `approve_${reviewId}_${queueId}`,
+            value: JSON.stringify({ reviewId, queueId, action: 'approve' }),
           },
           {
             type: 'button',
             text: { type: 'plain_text', text: '❌ Reject', emoji: true },
             style: 'danger',
-            action_id: `reject_${reviewId}_${slotIndex}`,
-            value: JSON.stringify({ reviewId, slotIndex, action: 'reject' }),
+            action_id: `reject_${reviewId}_${queueId}`,
+            value: JSON.stringify({ reviewId, queueId, action: 'reject' }),
           },
         ],
       },
@@ -247,31 +262,232 @@ function buildSlotMessage(slot, reviewId, slotIndex) {
 // Handle Slack button click (called from /api/slack/interactions)
 // ══════════════════════════════════════════════════════════════════════════════
 
+// ══════════════════════════════════════════════════════════════════════════════
+// computeScheduledAt — derive optimal posting time from Scout's strategy
+// ══════════════════════════════════════════════════════════════════════════════
+
+function computeScheduledAt(slot, scoutReport) {
+  const platform = slot.platform || 'instagram';
+  const strategies = scoutReport?.strategy_data?.platform_strategies || {};
+  const optimalTimes = strategies[platform]?.optimal_posting_times || ['9am'];
+
+  // Parse first time hint like "9am-10am" or "7-9am EST" → 9
+  const first = Array.isArray(optimalTimes) ? optimalTimes[0] : optimalTimes;
+  const hourMatch = String(first || '').match(/(\d{1,2})\s*(am|pm)?/i);
+  let hour = hourMatch ? parseInt(hourMatch[1], 10) : 9;
+  const meridian = hourMatch?.[2]?.toLowerCase();
+  if (meridian === 'pm' && hour < 12) hour += 12;
+  if (meridian === 'am' && hour === 12) hour = 0;
+  if (hour > 23) hour = 9;
+
+  // Combine with slot's date (UTC for simplicity; TODO: brand timezone)
+  const [y, m, d] = String(slot.slot_date || new Date().toISOString().slice(0, 10)).split('-').map(Number);
+  return new Date(Date.UTC(y, (m || 1) - 1, d || 1, hour, 0, 0)).toISOString();
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Shared decision handler — called from Slack webhook AND in-app dashboard
+// ══════════════════════════════════════════════════════════════════════════════
+
+function updateReviewDecision(reviewId, queueItemId, decision, feedback) {
+  const review = pendingReviews.get(reviewId);
+  if (!review) {
+    console.warn(`[Review] No pending review found for ${reviewId}`);
+    return false;
+  }
+
+  // Find the sample slot that matches this queue item
+  const sampleEntry = review.sampleItems.find(s => s.queueId === queueItemId);
+  if (!sampleEntry) {
+    // Not a sample slot — just a remaining auto-approval slot being manually touched. Ignore.
+    console.log(`[Review] Queue item ${queueItemId} is not a sample slot; no threshold effect`);
+    return false;
+  }
+
+  const platform = sampleEntry.slot.platform || 'instagram';
+  review.decisions[queueItemId] = decision;
+  if (feedback) {
+    if (!review.feedback_by_item) review.feedback_by_item = {};
+    review.feedback_by_item[queueItemId] = feedback;
+  }
+
+  console.log(`[Review] Decision: ${platform}/${sampleEntry.slot.slot_date}/${sampleEntry.slot.format} → ${decision}${feedback ? ` (feedback: ${feedback.slice(0, 50)})` : ''}`);
+
+  checkPlatformThresholds(review, platform);
+  return true;
+}
+
+// Count decisions for a platform's sample, then act
+function checkPlatformThresholds(review, platform) {
+  if (!review.platformDecided) review.platformDecided = {};
+  if (review.platformDecided[platform]) return; // already finalized
+
+  const platformSamples = review.sampleItems.filter(s => (s.slot.platform || 'instagram') === platform);
+  let approved = 0, rejected = 0;
+  for (const s of platformSamples) {
+    const d = review.decisions[s.queueId];
+    if (d === 'approve') approved++;
+    else if (d === 'reject') rejected++;
+  }
+
+  const channelId = review.channelId;
+
+  if (approved >= 2) {
+    review.platformDecided[platform] = 'approved';
+    autoApproveRemainingForPlatform(review, platform);
+    if (channelId) {
+      slackPost('chat.postMessage', {
+        channel: channelId,
+        text: `✅ *${platform.toUpperCase()}* approved — ${approved}/${platformSamples.length} sample slots passed. All remaining ${platform} slots scheduled for publishing.`,
+      }).catch(() => {});
+    }
+  } else if (rejected >= 2) {
+    review.platformDecided[platform] = 'regenerating';
+    const feedback = gatherRejectionFeedback(review, platform);
+    triggerPriyaRegenerate(review, platform, feedback);
+    if (channelId) {
+      slackPost('chat.postMessage', {
+        channel: channelId,
+        text: `❌ *${platform.toUpperCase()}* rejected — ${rejected}/${platformSamples.length} sample slots rejected. Priya will regenerate with feedback.${feedback ? `\n\n_Feedback:_ ${feedback.slice(0, 300)}` : ''}`,
+      }).catch(() => {});
+    }
+  }
+}
+
+function gatherRejectionFeedback(review, platform) {
+  const feedback = [];
+  for (const s of review.sampleItems) {
+    if ((s.slot.platform || 'instagram') !== platform) continue;
+    if (review.decisions[s.queueId] === 'reject') {
+      const fb = review.feedback_by_item?.[s.queueId];
+      if (fb) feedback.push(fb);
+    }
+  }
+  return feedback.join('; ');
+}
+
+// Mark all remaining slots for a platform as approved + schedule them
+function autoApproveRemainingForPlatform(review, platform) {
+  const slotsFile = readSync('content_slots');
+  const allSlots = Array.isArray(slotsFile?.data) ? slotsFile.data : [];
+  const scoutReport = review.scoutReport;
+
+  const affected = new Set();
+  // Both sample slots (that were approved) and remaining slots for this platform get approved
+  for (const s of review.sampleItems) {
+    if ((s.slot.platform || 'instagram') !== platform) continue;
+    if (review.decisions[s.queueId] === 'approve') affected.add(s.slot.id);
+  }
+  for (const s of review.remainingItems) {
+    if ((s.slot.platform || 'instagram') !== platform) continue;
+    affected.add(s.slot.id);
+  }
+
+  let updated = 0;
+  for (let i = 0; i < allSlots.length; i++) {
+    if (!affected.has(allSlots[i].id)) continue;
+    const scheduledAt = computeScheduledAt(allSlots[i], scoutReport);
+    // Persist approved sample image if we have it
+    const sampleEntry = review.sampleItems.find(s => s.slot.id === allSlots[i].id);
+    const imgBuf = sampleEntry?.imageBuffer;
+    allSlots[i] = {
+      ...allSlots[i],
+      status: 'approved',
+      approved: true,
+      scheduled_at: scheduledAt,
+      generated_image: imgBuf ? `data:image/png;base64,${imgBuf.toString('base64')}` : allSlots[i].generated_image,
+      updated_at: new Date().toISOString(),
+    };
+    updated++;
+  }
+  writeSync('content_slots', { _updatedAt: new Date().toISOString(), data: allSlots });
+  console.log(`[Review] Auto-approved ${updated} ${platform} slots with scheduled_at set from Scout's optimal times`);
+
+  // Also update the approval_queue items for this platform
+  try {
+    const queueFile = readSync('approval_queue');
+    const queueData = Array.isArray(queueFile?.data) ? queueFile.data : [];
+    const updatedQueue = queueData.map(item => {
+      if (item.review_id === review.reviewId && affected.has(item.slot_id)) {
+        return { ...item, status: 'approved', resolved_at: new Date().toISOString() };
+      }
+      return item;
+    });
+    writeSync('approval_queue', { _updatedAt: new Date().toISOString(), data: updatedQueue });
+  } catch (e) { console.warn('[Review] Failed to sync approval_queue approvals:', e.message); }
+}
+
+function triggerPriyaRegenerate(review, platform, feedback) {
+  // Mark rejected sample + remaining slots for this platform as rejected in approval_queue
+  try {
+    const queueFile = readSync('approval_queue');
+    const queueData = Array.isArray(queueFile?.data) ? queueFile.data : [];
+    const platformSlotIds = new Set([
+      ...review.sampleItems.filter(s => (s.slot.platform || 'instagram') === platform).map(s => s.slot.id),
+      ...review.remainingItems.filter(s => (s.slot.platform || 'instagram') === platform).map(s => s.slot.id),
+    ]);
+    const updatedQueue = queueData.map(item => {
+      if (item.review_id === review.reviewId && platformSlotIds.has(item.slot_id)) {
+        return { ...item, status: 'rejected', reviewer_notes: feedback, resolved_at: new Date().toISOString() };
+      }
+      return item;
+    });
+    writeSync('approval_queue', { _updatedAt: new Date().toISOString(), data: updatedQueue });
+  } catch (e) { console.warn('[Review] Failed to mark queue items rejected:', e.message); }
+
+  // Mark the rejected slots in content_slots so Priya deletes them on regen
+  try {
+    const slotsFile = readSync('content_slots');
+    const allSlots = Array.isArray(slotsFile?.data) ? slotsFile.data : [];
+    const updated = allSlots.map(s => {
+      if ((s.brand_id === review.brandId) && ((s.platform || 'instagram') === platform) && s.status !== 'approved' && s.status !== 'published') {
+        return { ...s, status: 'rejected', review_feedback: feedback, updated_at: new Date().toISOString() };
+      }
+      return s;
+    });
+    writeSync('content_slots', { _updatedAt: new Date().toISOString(), data: updated });
+  } catch (e) { console.warn('[Review] Failed to mark slots rejected:', e.message); }
+
+  // Async-trigger Priya for this platform only. We don't await — the review returns.
+  // The frontend polls or is notified via review-status endpoint.
+  (async () => {
+    try {
+      const { executePriya } = await import('./priyaAgent.js');
+      const campaign = {
+        ...(review.campaign || {}),
+        platforms: [platform],
+        rejection_feedback: feedback,
+      };
+      console.log(`[Review] Triggering Priya regen for ${platform} with feedback: ${feedback?.slice(0, 80)}`);
+      await executePriya(review.userId, review.brandId, { campaign });
+    } catch (err) {
+      console.error(`[Review] Priya regen failed for ${platform}:`, err.message);
+    }
+  })();
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Slack webhook entry point (wraps updateReviewDecision)
+// ══════════════════════════════════════════════════════════════════════════════
+
 function handleSlackAction(payload) {
   const action = payload.actions?.[0];
   if (!action) return;
 
   let parsed;
   try { parsed = JSON.parse(action.value); } catch { return; }
-  const { reviewId, slotIndex, action: decision } = parsed;
+  const { reviewId, queueId, action: decision } = parsed;
+  if (!reviewId || !queueId) return;
 
-  const review = pendingReviews.get(reviewId);
-  if (!review) {
-    console.warn(`[Review] No pending review found for ${reviewId}`);
-    return;
-  }
+  // Slack doesn't give us a textarea natively — feedback collection is through in-app dashboard
+  updateReviewDecision(reviewId, queueId, decision, null);
 
-  // Store the decision
-  review.decisions[slotIndex] = decision;
-  console.log(`[Review] Slack button: slot ${slotIndex} → ${decision} (review ${reviewId})`);
-
-  // Also update the approval_queue.json sync file so the in-app dashboard reflects Slack decisions
+  // Also update the approval_queue.json sync file for the dashboard
   try {
     const queueFile = readSync('approval_queue');
     if (queueFile?.data) {
-      const slot = review.slots[slotIndex];
       const updatedData = queueFile.data.map(item => {
-        if (item.review_id === reviewId && item.slot_id === slot?.id) {
+        if (item.id === queueId) {
           return { ...item, status: decision === 'approve' ? 'approved' : 'rejected', resolved_at: new Date().toISOString() };
         }
         return item;
@@ -295,52 +511,6 @@ function handleSlackAction(payload) {
       },
     ],
   }).catch(err => console.warn('[Review] Message update failed:', err.message));
-
-  // Check if enough decisions to finalize
-  const approved = Object.values(review.decisions).filter(d => d === 'approve').length;
-  const rejected = Object.values(review.decisions).filter(d => d === 'reject').length;
-  const decidedCount = approved + rejected;
-
-  if (approved >= 2 || rejected >= 2 || decidedCount >= review.slots.length) {
-    // Finalize the review
-    const finalDecision = approved >= 2 ? 'approved' : rejected >= 2 ? 'rejected' : (approved > rejected ? 'approved' : 'rejected');
-    review.finalDecision = finalDecision;
-    review.finalApproved = approved;
-    review.finalRejected = rejected;
-    review.completedAt = new Date().toISOString();
-
-    console.log(`[Review] ═══ Complete: ${finalDecision} (${approved} approved, ${rejected} rejected) ═══`);
-
-    // Post summary to Slack
-    let summaryText;
-    if (finalDecision === 'approved') {
-      summaryText = `✅ *APPROVED* — ${approved}/${review.slots.length} slots approved! Proceeding to generate the full calendar.`;
-
-      // Mark approved slots in sync file
-      const allSlots = review.allSlots;
-      for (let i = 0; i < review.slots.length; i++) {
-        if (review.decisions[i] === 'approve') {
-          const idx = allSlots.findIndex(s => s.id === review.slots[i].id);
-          if (idx >= 0) {
-            const imgBuf = review.imageResults[i]?.imageBuffer;
-            allSlots[idx] = {
-              ...allSlots[idx],
-              status: 'approved',
-              approved: true,
-              generated_image: imgBuf ? `data:image/png;base64,${imgBuf.toString('base64')}` : allSlots[idx].generated_image,
-              updated_at: new Date().toISOString(),
-            };
-          }
-        }
-      }
-      writeSync('content_slots', { _updatedAt: new Date().toISOString(), data: allSlots });
-    } else {
-      summaryText = `❌ *REJECTED* — ${rejected}/${review.slots.length} slots rejected. Priya will regenerate with feedback.`;
-    }
-
-    slackPost('chat.postMessage', { channel: review.channelId, text: summaryText })
-      .catch(err => console.warn('[Review] Summary post failed:', err.message));
-  }
 }
 
 // ── Get review status (called by frontend polling) ────────────────────────
@@ -348,26 +518,44 @@ function getReviewStatus(reviewId) {
   const review = pendingReviews.get(reviewId);
   if (!review) return { status: 'not_found' };
 
-  const approved = Object.values(review.decisions).filter(d => d === 'approve').length;
-  const rejected = Object.values(review.decisions).filter(d => d === 'reject').length;
+  const sampleItems = review.sampleItems || [];
+  const remainingItems = review.remainingItems || [];
 
-  if (review.finalDecision) {
-    return {
-      status: 'complete',
-      decision: review.finalDecision,
-      approved_count: review.finalApproved,
-      rejected_count: review.finalRejected,
-      total_reviewed: review.slots.length,
-      completed_at: review.completedAt,
-    };
+  // Per-platform tally
+  const platforms = {};
+  for (const s of sampleItems) {
+    const p = s.slot.platform || 'instagram';
+    if (!platforms[p]) platforms[p] = { sample_total: 0, approved: 0, rejected: 0, pending: 0, remaining: 0, decided: null };
+    platforms[p].sample_total++;
+    const d = review.decisions[s.queueId];
+    if (d === 'approve') platforms[p].approved++;
+    else if (d === 'reject') platforms[p].rejected++;
+    else platforms[p].pending++;
+  }
+  for (const s of remainingItems) {
+    const p = s.slot.platform || 'instagram';
+    if (!platforms[p]) platforms[p] = { sample_total: 0, approved: 0, rejected: 0, pending: 0, remaining: 0, decided: null };
+    platforms[p].remaining++;
+  }
+  for (const [p, v] of Object.entries(platforms)) {
+    v.decided = review.platformDecided?.[p] || null;
   }
 
+  const totalApproved = Object.values(review.decisions).filter(d => d === 'approve').length;
+  const totalRejected = Object.values(review.decisions).filter(d => d === 'reject').length;
+  const totalSamples = sampleItems.length;
+  const allPlatformsDecided = Object.keys(platforms).length > 0
+    && Object.values(platforms).every(v => v.decided);
+
   return {
-    status: 'waiting',
-    approved_count: approved,
-    rejected_count: rejected,
-    total_reviewed: review.slots.length,
-    decided: approved + rejected,
+    status: allPlatformsDecided ? 'complete' : 'waiting',
+    approved_count: totalApproved,
+    rejected_count: totalRejected,
+    total_reviewed: totalSamples,
+    total_remaining: remainingItems.length,
+    decided: totalApproved + totalRejected,
+    platforms,
+    started_at: review.startedAt,
   };
 }
 
@@ -376,9 +564,11 @@ function getReviewStatus(reviewId) {
 // ══════════════════════════════════════════════════════════════════════════════
 
 async function executeReview(userId, brandId, config = {}) {
-  const channelId = getSlackChannel();
-  if (!getSlackToken()) throw new Error('SLACK_BOT_TOKEN not set in .env');
-  if (!channelId) throw new Error('SLACK_CHANNEL_ID not set in .env');
+  const slackEnabled = !!(getSlackToken() && getSlackChannel());
+  const channelId = slackEnabled ? getSlackChannel() : null;
+  if (!slackEnabled) {
+    console.log('[Review] Slack not configured — running in dashboard-only mode');
+  }
 
   // Load brand + slots
   const brandsFile = readSync('brand_profiles');
@@ -399,7 +589,7 @@ async function executeReview(userId, brandId, config = {}) {
   const slotsFile = readSync('content_slots');
   const allSlots = Array.isArray(slotsFile?.data) ? slotsFile.data : [];
 
-  // Find first 3 upcoming briefed slots for this brand (sorted by date)
+  // Find all upcoming briefed slots for this brand
   const today = new Date().toISOString().split('T')[0];
   const eligibleSlots = allSlots
     .filter(s => s.brand_id === brandId && s.status === 'briefed' && s.brief && s.slot_date >= today)
@@ -409,140 +599,204 @@ async function executeReview(userId, brandId, config = {}) {
     throw new Error('No briefed calendar slots found. Run Priya first.');
   }
 
-  const reviewSlots = eligibleSlots.slice(0, 3);
+  // ── Group by platform ──────────────────────────────────────────────────
+  const slotsByPlatform = {};
+  for (const slot of eligibleSlots) {
+    const p = slot.platform || 'instagram';
+    if (!slotsByPlatform[p]) slotsByPlatform[p] = [];
+    slotsByPlatform[p].push(slot);
+  }
+
+  // Per platform: first 3 become "sample", the rest become "remaining" (auto-approve if sample passes)
   const reviewId = `review_${Date.now()}`;
+  const sampleItems = []; // { queueId, slot, imageBuffer }
+  const remainingItems = []; // { queueId, slot }
 
-  console.log(`\n[Review] ═══ Starting Review for ${brand.name} ═══`);
-  console.log(`[Review] Sending ${reviewSlots.length} calendar slots to Slack for approval`);
-  console.log(`[Review] Slots: ${reviewSlots.map(s => `${s.slot_date}/${s.format}`).join(', ')}`);
+  const platforms = Object.keys(slotsByPlatform);
+  console.log(`\n[Review] ═══ Starting Per-Platform Review for ${brand.name} ═══`);
+  console.log(`[Review] Platforms: ${platforms.join(', ')}`);
+  for (const p of platforms) {
+    console.log(`[Review]   ${p}: ${slotsByPlatform[p].length} eligible (${Math.min(3, slotsByPlatform[p].length)} sample + ${Math.max(0, slotsByPlatform[p].length - 3)} remaining)`);
+  }
 
-  // ── Step 1: Post intro ──────────────────────────────────────────────────
-  await slackPost('chat.postMessage', {
-    channel: channelId,
-    blocks: [
-      {
-        type: 'header',
-        text: { type: 'plain_text', text: `🎨 Content Review — ${brand.name}`, emoji: true },
-      },
-      {
-        type: 'section',
-        text: {
-          type: 'mrkdwn',
-          text: `Reviewing *${reviewSlots.length} upcoming calendar slots*.\nClick *Approve* or *Reject* on each post below.\n\n_Need 2+ approvals to proceed with full calendar generation._`,
-        },
-      },
-      { type: 'divider' },
-    ],
-  });
+  // Build queue-item skeletons per platform
+  let queueCounter = 0;
+  for (const [platform, slots] of Object.entries(slotsByPlatform)) {
+    const sample = slots.slice(0, 3);
+    const remaining = slots.slice(3);
+    for (const slot of sample) {
+      sampleItems.push({ queueId: `${reviewId}_sample_${queueCounter++}`, slot, imageBuffer: null });
+    }
+    for (const slot of remaining) {
+      remainingItems.push({ queueId: `${reviewId}_remaining_${queueCounter++}`, slot });
+    }
+  }
 
-  // ── Step 2: Generate images for the 3 slots ─────────────────────────────
-  console.log(`[Review] Generating images for ${reviewSlots.length} slots...`);
-  const imageResults = [];
-  for (let i = 0; i < reviewSlots.length; i++) {
-    const slot = reviewSlots[i];
+  // ── Intro post (Slack) ────────────────────────────────────────────────
+  if (slackEnabled) {
+    try {
+      await slackPost('chat.postMessage', {
+        channel: channelId,
+        blocks: [
+          {
+            type: 'header',
+            text: { type: 'plain_text', text: `🎨 Content Review — ${brand.name}`, emoji: true },
+          },
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: `Reviewing *${sampleItems.length} sample slots across ${platforms.length} platform${platforms.length > 1 ? 's' : ''}*.\n${platforms.map(p => `• ${PLATFORM_BADGES[p] || p}: 3 samples + ${slotsByPlatform[p].length - 3} auto-pending`).join('\n')}\n\n_2+ approvals per platform → rest auto-approved + scheduled._\n_2+ rejections per platform → Priya regenerates only that platform._`,
+            },
+          },
+          { type: 'divider' },
+        ],
+      });
+    } catch (err) {
+      console.warn('[Review] Intro post failed:', err.message);
+    }
+  }
+
+  // ── Generate images for all sample items in parallel per platform ─────
+  console.log(`[Review] Generating ${sampleItems.length} sample images in parallel...`);
+  await Promise.all(sampleItems.map(async (entry) => {
+    const { slot } = entry;
     const prompt = slot.brief?.image_prompt || slot.idea || 'brand content';
     const direction = slot.brief?.visual_direction || '';
     const aspectRatio = (slot.format === 'story' || slot.format === 'reel') ? '9:16' : '1:1';
-
     try {
-      console.log(`[Review] Generating image ${i + 1}/${reviewSlots.length}: ${slot.slot_date}/${slot.format}${product ? ` (product: ${product.name})` : ''}`);
       const imageBuffer = await generateImage(prompt, direction, aspectRatio, product);
-      console.log(`[Review] ✓ Image ${i + 1} generated (${imageBuffer.length} bytes)`);
-      imageResults.push({ slot, imageBuffer, index: i });
+      entry.imageBuffer = imageBuffer;
+      console.log(`[Review] ✓ ${slot.platform || 'instagram'}/${slot.slot_date}/${slot.format} (${imageBuffer.length}b)`);
     } catch (err) {
-      console.error(`[Review] ✗ Image ${i + 1} failed:`, err.message);
-      // Still send the slot to Slack without an image
-      imageResults.push({ slot, imageBuffer: null, index: i });
+      console.error(`[Review] ✗ ${slot.platform || 'instagram'}/${slot.slot_date}/${slot.format} image failed:`, err.message);
     }
-  }
+  }));
 
-  // ── Step 3: Upload images + post Block Kit messages ──────────────────────
-  for (const { slot, imageBuffer, index } of imageResults) {
-    try {
-      // Upload image first (if generated)
-      if (imageBuffer) {
-        await slackUploadImage(imageBuffer, `${slot.slot_date}_${slot.format}.png`, channelId);
-        // Small delay to let the image settle in the channel
-        await new Promise(r => setTimeout(r, 2000));
+  // ── Post each sample to Slack ─────────────────────────────────────────
+  if (slackEnabled) {
+    for (const entry of sampleItems) {
+      try {
+        if (entry.imageBuffer) {
+          await slackUploadImage(entry.imageBuffer, `${entry.slot.platform || 'ig'}_${entry.slot.slot_date}_${entry.slot.format}.png`, channelId);
+          await new Promise(r => setTimeout(r, 2000));
+        }
+        await slackPost('chat.postMessage', buildSlotMessage(entry.slot, reviewId, entry.queueId));
+      } catch (err) {
+        console.error(`[Review] Failed to post sample ${entry.queueId}:`, err.message);
       }
-
-      // Post the Block Kit message with Approve/Reject buttons
-      await slackPost('chat.postMessage', buildSlotMessage(slot, reviewId, index));
-      console.log(`[Review] Posted slot ${index + 1}: ${slot.slot_date}/${slot.format}`);
-    } catch (err) {
-      console.error(`[Review] Failed to post slot ${index + 1}:`, err.message);
     }
   }
 
-  // ── Step 4: Register pending review (non-blocking) ───────────────────────
-  // Store the review state so webhook clicks can update it
+  // ── Register pending review ───────────────────────────────────────────
   const review = {
-    slots: reviewSlots,
-    decisions: {},
-    feedback: [],
+    reviewId,
+    userId,
     brandId,
-    allSlots,
-    imageResults,
+    sampleItems,
+    remainingItems,
+    decisions: {},
+    feedback_by_item: {},
+    platformDecided: {}, // platform → 'approved' | 'regenerating'
+    campaign: config.campaign || brand.priya_campaign || null,
+    scoutReport: brand.scout_report || null,
     channelId,
     startedAt: Date.now(),
   };
   pendingReviews.set(reviewId, review);
 
-  // ── Step 4b: Write to approval_queue.json so in-app dashboard can display items ──
+  // ── Write all items to approval_queue.json for dashboard ──────────────
   try {
     const existingQueueFile = readSync('approval_queue');
     const existingQueue = Array.isArray(existingQueueFile?.data) ? existingQueueFile.data : [];
 
-    const queueItems = reviewSlots.map((slot, i) => ({
-      id: `review_${Date.now()}_${i}`,
+    const sampleQueueItems = sampleItems.map((entry) => ({
+      id: entry.queueId,
       brand_id: brandId,
       user_id: userId,
-      slot_id: slot.id,
-      slot_date: slot.slot_date,
-      format: slot.format,
-      brief: slot.brief,
-      generated_image: imageResults[i]?.imageBuffer ? `data:image/png;base64,${imageResults[i].imageBuffer.toString('base64')}` : null,
-      caption_preview: (slot.brief?.caption || '').slice(0, 200),
+      slot_id: entry.slot.id,
+      slot_date: entry.slot.slot_date,
+      format: entry.slot.format,
+      platform: entry.slot.platform || 'instagram',
+      brief: entry.slot.brief,
+      generated_image: entry.imageBuffer ? `data:image/png;base64,${entry.imageBuffer.toString('base64')}` : null,
+      caption_preview: (entry.slot.brief?.caption || '').slice(0, 200),
       quality_scores: null,
       guardrail_flags: null,
       dedup_score: 0,
       status: 'pending',
       review_id: reviewId,
+      review_batch_id: reviewId,
+      review_sample: true,
+      auto_approve_on_sample_pass: false,
       created_at: new Date().toISOString(),
     }));
 
-    writeSync('approval_queue', { _updatedAt: new Date().toISOString(), data: [...existingQueue, ...queueItems] });
-    console.log(`[Review] Wrote ${queueItems.length} items to approval_queue.json for in-app dashboard`);
+    const remainingQueueItems = remainingItems.map((entry) => ({
+      id: entry.queueId,
+      brand_id: brandId,
+      user_id: userId,
+      slot_id: entry.slot.id,
+      slot_date: entry.slot.slot_date,
+      format: entry.slot.format,
+      platform: entry.slot.platform || 'instagram',
+      brief: entry.slot.brief,
+      generated_image: null,
+      caption_preview: (entry.slot.brief?.caption || '').slice(0, 200),
+      quality_scores: null,
+      guardrail_flags: null,
+      dedup_score: 0,
+      status: 'pending',
+      review_id: reviewId,
+      review_batch_id: reviewId,
+      review_sample: false,
+      auto_approve_on_sample_pass: true,
+      created_at: new Date().toISOString(),
+    }));
+
+    writeSync('approval_queue', {
+      _updatedAt: new Date().toISOString(),
+      data: [...existingQueue, ...sampleQueueItems, ...remainingQueueItems],
+    });
+    console.log(`[Review] Wrote ${sampleQueueItems.length} samples + ${remainingQueueItems.length} remaining to approval_queue.json`);
   } catch (err) {
     console.error('[Review] Failed to write approval_queue.json:', err.message);
   }
 
-  await slackPost('chat.postMessage', {
-    channel: channelId,
-    text: `⏳ _Waiting for your approval... Click Approve or Reject on each post above._`,
-  });
+  if (slackEnabled) {
+    try {
+      await slackPost('chat.postMessage', {
+        channel: channelId,
+        text: `⏳ _Waiting for approvals... (Slack OR in-app dashboard — either works)_`,
+      });
+    } catch (err) { console.warn('[Review] Waiting msg failed:', err.message); }
+  }
 
-  console.log(`[Review] Posted to Slack. Returning immediately — button clicks handled by webhook.`);
-  console.log(`[Review] Review ID: ${reviewId}`);
+  console.log(`[Review] Review ID: ${reviewId} — returning immediately, threshold logic fires on each decision`);
 
-  // Return immediately — don't wait for clicks
   return {
     brand_id: brandId,
     brand_name: brand.name,
     decision: 'waiting',
     review_id: reviewId,
+    slack_enabled: slackEnabled,
+    platforms,
+    total_samples: sampleItems.length,
+    total_remaining: remainingItems.length,
     approved_count: 0,
     rejected_count: 0,
-    total_reviewed: reviewSlots.length,
+    total_reviewed: sampleItems.length,
     feedback: [],
-    slots_reviewed: reviewSlots.map((s, i) => ({
-      slot_id: s.id,
-      slot_date: s.slot_date,
-      format: s.format,
+    slots_reviewed: sampleItems.map(s => ({
+      queue_id: s.queueId,
+      slot_id: s.slot.id,
+      slot_date: s.slot.slot_date,
+      format: s.slot.format,
+      platform: s.slot.platform || 'instagram',
       status: 'pending',
     })),
     generated_at: new Date().toISOString(),
   };
 }
 
-export { executeReview, handleSlackAction, getReviewStatus, pendingReviews };
+export { executeReview, handleSlackAction, getReviewStatus, updateReviewDecision, pendingReviews };
