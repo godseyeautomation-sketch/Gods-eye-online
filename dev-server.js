@@ -3404,6 +3404,48 @@ app.get('/api/pipeline/scout-report/:filename', (req, res) => {
   }
 });
 
+// Approve Scout's report — unlocks Priya
+app.patch('/api/pipeline/scout/approve', (req, res) => {
+  try {
+    const userId = req.headers['x-user-id'];
+    if (!userId) return res.status(401).json({ error: 'x-user-id header required' });
+    const { brand_id } = req.body;
+    if (!brand_id) return res.status(400).json({ error: 'brand_id required' });
+
+    const syncData = readSyncFile('brand_profiles');
+    const isWrapped = !!(syncData && !Array.isArray(syncData) && Array.isArray(syncData.data));
+    const allBrands = isWrapped ? syncData.data : (Array.isArray(syncData) ? syncData : []);
+    const idx = allBrands.findIndex(b => b.id === brand_id);
+    if (idx < 0) return res.status(404).json({ error: 'Brand not found' });
+    if (!allBrands[idx].scout_report) return res.status(400).json({ error: 'No scout report on this brand' });
+
+    const approvedAt = new Date().toISOString();
+    allBrands[idx] = {
+      ...allBrands[idx],
+      scout_report: {
+        ...allBrands[idx].scout_report,
+        awaiting_approval: false,
+        approved_at: approvedAt,
+      },
+      updated_at: approvedAt,
+    };
+
+    const updatedSync = isWrapped ? { ...syncData, data: allBrands, _updatedAt: approvedAt } : allBrands;
+    writeSyncFile('brand_profiles', updatedSync);
+    res.json({ ok: true, approved_at: approvedAt });
+  } catch (err) {
+    console.error('[Scout approve] error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get Priya's progress (per-brand)
+app.get('/api/pipeline/priya-progress/:brandId', (req, res) => {
+  const data = readSyncFile(`priya_progress_${req.params.brandId}`);
+  if (!data) return res.json({ ok: true, progress: null });
+  res.json({ ok: true, progress: data?.data || data });
+});
+
 // Get pipeline runs (placeholder — reads from content_briefs for now)
 app.get('/api/pipeline/runs', async (req, res) => {
   try {

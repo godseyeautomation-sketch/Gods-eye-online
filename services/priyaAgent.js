@@ -1,19 +1,12 @@
 /**
- * Priya Agent — Creative Content Generator
+ * Priya Agent — Creative Content Generator (Sequential Per-Platform)
  *
- * Reads Scout's strategy_data and generates a FULL MONTH calendar in ONE Gemini call.
- * Distributes 15/30/45 posts across the month with proper format mix (post/story/reel).
+ * Reads Scout's strategy_data + campaign config, then:
+ *   1) Runs ONE research call with web search (trends, formats, seasonal notes)
+ *   2) Loops through config.campaign.platforms sequentially, generating ~N slots per platform
+ *   3) Writes progress to priya_progress_${brandId}.json between platforms
+ *
  * Each slot includes a full content brief (hook, caption, hashtags, CTA, image_prompt).
- *
- * Flow:
- *   Scout's strategy (pillars, hooks, calendar template)
- *          ↓
- *   ONE Gemini call: "Generate N slots distributed across the month"
- *          ↓
- *   Parse JSON → ContentSlot[] with briefs
- *          ↓
- *   Write to content_slots.json sync file (for server)
- *   + return slots array (for frontend to write to IndexedDB)
  */
 
 import fs from 'fs';
@@ -35,25 +28,37 @@ function writeSync(name, data) {
   fs.writeFileSync(path.join(SYNC_DIR, `${name}.json`), JSON.stringify(data, null, 2), 'utf-8');
 }
 
+// ── Progress tracking (per-brand file) ───────────────────────────────────────
+function writeProgress(brandId, progress) {
+  writeSync(`priya_progress_${brandId}`, {
+    _updatedAt: new Date().toISOString(),
+    data: progress,
+  });
+}
+
 // ── Gemini call with timeout and error handling ─────────────────────────────
-async function callGemini(prompt, { model = 'gemini-2.5-flash', temperature = 0.8, maxTokens = 16384 } = {}) {
+async function callGemini(prompt, { model = 'gemini-2.5-flash', temperature = 0.8, maxTokens = 16384, useSearch = false, timeoutMs = 180000 } = {}) {
   const geminiKey = getGeminiKey();
   if (!geminiKey) throw new Error('Gemini API key not configured');
 
-  // 3-minute timeout for long generations
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 180000);
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
+    const body = {
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      generationConfig: { temperature, maxOutputTokens: maxTokens },
+    };
+    if (useSearch) {
+      body.tools = [{ google_search: {} }];
+    }
+
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ role: 'user', parts: [{ text: prompt }] }],
-          generationConfig: { temperature, maxOutputTokens: maxTokens },
-        }),
+        body: JSON.stringify(body),
         signal: controller.signal,
       }
     );
@@ -62,7 +67,7 @@ async function callGemini(prompt, { model = 'gemini-2.5-flash', temperature = 0.
     const data = await res.json();
     return data.candidates?.[0]?.content?.parts?.map(p => p.text).filter(Boolean).join('') || '';
   } catch (err) {
-    if (err.name === 'AbortError') throw new Error('Gemini call timed out after 3 minutes');
+    if (err.name === 'AbortError') throw new Error(`Gemini call timed out after ${Math.round(timeoutMs / 1000)}s`);
     throw err;
   } finally {
     clearTimeout(timeoutId);
@@ -131,60 +136,202 @@ function recoverPartialSlots(text) {
 const arr = (v) => Array.isArray(v) ? v : (v && typeof v === 'object' ? Object.values(v) : []);
 
 // ══════════════════════════════════════════════════════════════════════════════
-// Build the monthly calendar in ONE Gemini call
+// Step A: Research call (web search) — one call to inform all platforms
 // ══════════════════════════════════════════════════════════════════════════════
 
-async function generateMonthlyCalendar(brand, strategyData, postCount, year, month, platforms = ['instagram']) {
-  const daysInMonth = new Date(year, month, 0).getDate();
-  const startDay = Math.max(1, new Date().getDate()); // Start from today if current month
+async function runResearch(brand, strategyData, campaign) {
+  const pillars = arr(strategyData?.content_pillars);
 
-  // Format distribution based on postCount (matching the old generateMonthPlan)
-  let distribution;
-  if (postCount <= 15) {
-    distribution = { post: 6, story: 6, reel: 3 };
-  } else if (postCount <= 30) {
-    distribution = { post: 12, story: 11, reel: 7 };
-  } else {
-    distribution = { post: 15, story: 15, reel: 15 };
+  const prompt = `You are Priya, a creative strategist. Based on this brand context and campaign requirements, research current trends and best practices that will inform platform-specific content.
+
+Brand: ${brand.name} (${brand.industry || 'General'})
+Scout's strategy: ${JSON.stringify(pillars)}
+Target audience: ${campaign.target_audience || 'General'}
+Campaign goals: ${campaign.campaign_goals || 'Brand awareness'}
+Themes: ${(campaign.themes || []).join(', ')}
+Duration: ${campaign.duration_days || 30} days
+Target platforms: ${(campaign.platforms || ['instagram']).join(', ')}
+
+Research:
+1. Current trending topics in this industry across each platform
+2. Best-performing content formats per platform in the last 30 days
+3. Seasonal / cultural relevance for content calendar
+4. Competitor content approaches to avoid or adapt
+
+Return JSON:
+{
+  "trending_topics": { "instagram": ["..."], "tiktok": ["..."] },
+  "best_formats": { "instagram": ["..."] },
+  "seasonal_notes": "...",
+  "avoid_patterns": ["..."]
+}
+
+Return ONLY valid JSON. No markdown fences. No commentary.`;
+
+  console.log('[Priya] Research call (web search)...');
+  try {
+    const text = await callGemini(prompt, {
+      useSearch: true,
+      temperature: 0.6,
+      maxTokens: 8192,
+      timeoutMs: 60000,
+    });
+    const parsed = parseJSON(text);
+    if (parsed) {
+      console.log('[Priya] ✓ Research complete');
+      return parsed;
+    }
+    console.warn('[Priya] Research parse failed — using empty research');
+  } catch (err) {
+    console.warn('[Priya] Research call failed:', err.message);
   }
+  return {
+    trending_topics: {},
+    best_formats: {},
+    seasonal_notes: '',
+    avoid_patterns: [],
+  };
+}
 
+// ══════════════════════════════════════════════════════════════════════════════
+// Platform-specific prompt guidance
+// ══════════════════════════════════════════════════════════════════════════════
+
+function getPlatformGuidance(platform) {
+  const p = platform.toLowerCase();
+  const guidance = {
+    instagram: {
+      rules: [
+        'Visual-first — image_prompt is critical',
+        '8-10 hashtags per post',
+        'Mix formats: post / story / reel',
+        'Captions: 1-2 short paragraphs, emoji-friendly',
+        'Hook: scroll-stopping first line',
+      ],
+      formats: ['post', 'story', 'reel'],
+      captionLimit: '125 words',
+    },
+    tiktok: {
+      rules: [
+        'Pattern-interrupt hooks in first 1-2 seconds',
+        'Reference current trending sounds where relevant',
+        'Write 15-60s video scripts as the brief content',
+        '3-5 hashtags including trending + niche',
+        'Native, raw, authentic tone — no polish',
+      ],
+      formats: ['reel', 'short'],
+      captionLimit: '100 chars',
+    },
+    linkedin: {
+      rules: [
+        'Professional thought leadership voice',
+        'Longer captions: 150-300 words',
+        'NO hashtags (or max 3 subtle ones)',
+        'Open with a strong personal hook or insight',
+        'End with a thought-provoking question for comments',
+      ],
+      formats: ['post', 'article'],
+      captionLimit: '300 words',
+    },
+    x: {
+      rules: [
+        '280-char punchy posts',
+        'Use thread format for longer ideas (break into connected tweets)',
+        'Minimal hashtags (0-2)',
+        'Punchy, opinionated, conversational',
+      ],
+      formats: ['post', 'thread'],
+      captionLimit: '280 chars',
+    },
+    twitter: {
+      rules: [
+        '280-char punchy posts',
+        'Use thread format for longer ideas',
+        'Minimal hashtags (0-2)',
+      ],
+      formats: ['post', 'thread'],
+      captionLimit: '280 chars',
+    },
+    facebook: {
+      rules: [
+        'Conversational warmth — like talking to a friend',
+        'Longer captions welcome (100-200 words)',
+        '3-5 hashtags',
+        'Community-oriented: invite discussion',
+      ],
+      formats: ['post', 'reel'],
+      captionLimit: '200 words',
+    },
+    youtube: {
+      rules: [
+        'Focus on video description + Shorts script',
+        'Long-form: no image_prompt needed (use thumbnail description)',
+        'SEO-optimized title and description',
+        'Timestamps and chapters for long-form',
+      ],
+      formats: ['short', 'video'],
+      captionLimit: '500 words',
+    },
+    pinterest: {
+      rules: [
+        'SEO-keyword-rich titles and descriptions',
+        'Aspirational, idea-driven',
+        'Vertical 2:3 image prompts',
+        'Link back to product / blog idea',
+      ],
+      formats: ['pin'],
+      captionLimit: '500 chars',
+    },
+    threads: {
+      rules: [
+        'Casual conversation starters',
+        'Authentic, off-the-cuff voice',
+        'Short, punchy — max 500 chars',
+        'No hashtags',
+      ],
+      formats: ['post'],
+      captionLimit: '500 chars',
+    },
+  };
+  return guidance[p] || guidance.instagram;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Step B: Generate calendar for ONE platform
+// ══════════════════════════════════════════════════════════════════════════════
+
+async function generatePlatformCalendar(brand, strategyData, enrichmentData, campaign, platform, count) {
   const pillars = arr(strategyData?.content_pillars);
   const pillarNames = pillars.map(p => p.name).filter(Boolean);
   const hookBank = strategyData?.hook_bank || {};
   const allHooks = Object.values(hookBank).flat().filter(h => typeof h === 'string');
-  const weeklyTemplate = arr(strategyData?.weekly_calendar);
   const positioning = strategyData?.positioning_statement || '';
 
   const hasProducts = (brand.products || []).length > 0;
   const productList = (brand.products || []).map(p => p.name).join(', ');
 
-  const monthName = new Date(year, month - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  const guidance = getPlatformGuidance(platform);
 
-  // Build platform-specific instructions
-  const isMultiPlatform = platforms.length > 1;
-  const platformInstructions = isMultiPlatform ? `
-═══ MULTI-PLATFORM CONTENT ═══
-Generate content for these platforms: ${platforms.join(', ')}
-Instagram and Facebook share the same posts — reuse the same brief for both.
-For each slot, include a "platform" field indicating which platform it targets.
-Adapt tone and format per platform:
-- Instagram: posts, stories, reels with hashtags and visual hooks
-- TikTok: punchy hooks, trending sounds references, pattern-interrupt, short-form video scripts
-- Facebook: longer conversational posts, group engagement, community questions
-- LinkedIn: professional, thought leadership, longer form with industry insights
-- X: short & punchy (280 char limit), thread format for longer content
-- Pinterest: SEO keywords, aspirational descriptions, pin titles
-- YouTube: video descriptions with timestamps, shorts scripts
-- Threads: casual conversation starters, authentic voice
+  // Distribute dates evenly across the campaign window
+  const duration = campaign.duration_days || 30;
+  const startDate = new Date();
+  startDate.setHours(0, 0, 0, 0);
 
-Distribute the ${postCount} slots across platforms based on reach potential:
-${platforms.map(p => {
-    const weights = { instagram: 30, tiktok: 25, facebook: 15, youtube: 15, linkedin: 10, x: 10, pinterest: 10, threads: 5 };
-    return `- ${p}: ~${weights[p.toLowerCase()] || 10}% of posts`;
-  }).join('\n')}
-` : `Each slot targets platform: "instagram".`;
+  const stride = Math.max(1, Math.floor(duration / count));
+  const dateSuggestions = [];
+  for (let i = 0; i < count; i++) {
+    const d = new Date(startDate);
+    d.setDate(d.getDate() + Math.min(duration - 1, i * stride));
+    dateSuggestions.push(d.toISOString().slice(0, 10));
+  }
 
-  const prompt = `You are Priya, a creative content generator for ${brand.name}. Generate a full monthly content calendar.
+  // Enrichment specifics for THIS platform
+  const trending = enrichmentData?.trending_topics?.[platform] || enrichmentData?.trending_topics?.[platform.toLowerCase()] || [];
+  const bestFormats = enrichmentData?.best_formats?.[platform] || enrichmentData?.best_formats?.[platform.toLowerCase()] || [];
+  const seasonalNotes = enrichmentData?.seasonal_notes || '';
+  const avoidPatterns = enrichmentData?.avoid_patterns || [];
+
+  const prompt = `You are Priya, a creative content generator for ${brand.name}. Generate a content calendar SPECIFICALLY for ${platform.toUpperCase()}.
 
 ═══ BRAND ═══
 Name: ${brand.name}
@@ -196,53 +343,64 @@ Products: ${productList || 'No specific products — focus on brand values & lif
 Avoid: ${(brand.avoid || []).join(', ')}
 Positioning: ${positioning}
 
+═══ CAMPAIGN ═══
+Duration: ${duration} days
+Target audience: ${campaign.target_audience || 'General'}
+Goals: ${campaign.campaign_goals || 'Brand awareness'}
+Themes: ${(campaign.themes || []).join(', ')}
+
 ═══ SCOUT'S CONTENT STRATEGY ═══
 Content Pillars: ${pillarNames.join(', ')}
 ${pillars.map(p => `  - ${p.name} (${p.percentage || 20}%): ${p.purpose || ''}`).join('\n')}
 
-Weekly Template (from Scout's research):
-${weeklyTemplate.map(w => `  ${w.day || ''}: ${w.format || 'post'} — ${w.pillar || ''} — ${w.content_idea || ''}`).join('\n')}
-
 Top Hooks (inspiration, vary style):
-${allHooks.slice(0, 10).map((h, i) => `  ${i + 1}. "${h}"`).join('\n')}
+${allHooks.slice(0, 8).map((h, i) => `  ${i + 1}. "${h}"`).join('\n')}
 
-${platformInstructions}
+═══ RESEARCH — ${platform.toUpperCase()} ═══
+Trending topics: ${trending.length ? trending.join(' | ') : '(none gathered)'}
+Best-performing formats: ${bestFormats.length ? bestFormats.join(' | ') : '(none gathered)'}
+Seasonal notes: ${seasonalNotes || '(none)'}
+Avoid patterns: ${avoidPatterns.length ? avoidPatterns.join(' | ') : '(none)'}
+
+═══ PLATFORM: ${platform.toUpperCase()} ═══
+Allowed formats: ${guidance.formats.join(', ')}
+Caption limit: ${guidance.captionLimit}
+Rules:
+${guidance.rules.map(r => `- ${r}`).join('\n')}
 
 ═══ TASK ═══
-Generate EXACTLY ${postCount} content slots for ${monthName}.
+Generate EXACTLY ${count} content slots for ${platform}.
+
+Date distribution — use these dates (one per slot, in order):
+${dateSuggestions.map((d, i) => `  ${i + 1}. ${d}`).join('\n')}
 
 RULES:
-1. Distribute ACROSS the month: day 1 to day ${daysInMonth} (start from day ${startDay})
-2. Format distribution: ${distribution.post} posts, ${distribution.story} stories, ${distribution.reel} reels
-3. Each slot references one of the content pillars from Scout's strategy
-4. Each slot has a concise content brief (brief and tight — save tokens)
-5. ${hasProducts ? `Product rule: Feature ${productList}. Image prompt = background/setting ONLY.` : 'No products — brand values & lifestyle only. NO product objects in image prompts.'}
-6. Vary hooks — don't repeat
-7. Spread pillars proportionally
-8. Each slot MUST include a "platform" field (one of: ${platforms.join(', ')})
+1. Every slot has "platform": "${platform}"
+2. Format must be one of: ${guidance.formats.join(', ')}
+3. Reference a Scout content pillar in "pillar"
+4. Vary hooks — don't repeat patterns
+5. Spread pillars proportionally
+6. ${hasProducts ? `Feature products: ${productList}. Image prompt = background/setting ONLY (no product objects).` : 'No products — brand values & lifestyle only. NO product objects in image prompts.'}
+7. Honor platform-specific rules above (caption length, hashtag count, voice)
 
-KEEP BRIEFS CONCISE (important for response size):
+KEEP BRIEFS CONCISE:
 - hook: 1 line, max 15 words
-- caption: 1 paragraph only, max 60 words
-- hashtags: 8-10 tags max (or keywords for Pinterest/YouTube)
-- image_prompt: 1 sentence, max 25 words
+- caption: follow platform caption limit (${guidance.captionLimit})
+- hashtags: per platform rules (array of strings, or [] if none)
+- image_prompt: 1 sentence, max 25 words (or "" for long-form YouTube)
 - visual_direction: 1 sentence, max 15 words
 - call_to_action: 1 short line
 - target_emotion: 1-2 words
 
 Return ONLY valid JSON (no markdown fences), exact schema:
-{"slots":[{"date":"${year}-${String(month).padStart(2, '0')}-01","format":"post","platform":"instagram","pillar":"NAME","idea":"1 line","brief":{"hook":"...","caption":"...","hashtags":["t1","t2"],"image_prompt":"...","visual_direction":"...","call_to_action":"...","target_emotion":"..."}}]}
+{"slots":[{"date":"${dateSuggestions[0]}","platform":"${platform}","format":"${guidance.formats[0]}","pillar":"NAME","idea":"1 line","brief":{"hook":"...","caption":"...","hashtags":["t1"],"image_prompt":"...","visual_direction":"...","call_to_action":"...","target_emotion":"..."}}]}
 
-Generate exactly ${postCount} slots. NO commentary. JSON only.`;
+Generate exactly ${count} slots. NO commentary. JSON only.`;
 
-  console.log(`[Priya] Calling Gemini to generate ${postCount} slots for ${monthName}...`);
-  // Use aggressive token budget — Gemini 2.5 Flash supports up to 65K output tokens
-  // ~1200 tokens per slot to have safety margin
-  const tokenBudget = Math.min(65536, Math.max(12288, postCount * 1200));
-  console.log(`[Priya] Token budget: ${tokenBudget}`);
-
+  console.log(`[Priya] Generating ${count} slots for ${platform}...`);
+  const tokenBudget = 12288;
   const text = await callGemini(prompt, { temperature: 0.85, maxTokens: tokenBudget });
-  console.log(`[Priya] Gemini response length: ${text.length} chars`);
+  console.log(`[Priya] ${platform} response length: ${text.length} chars`);
 
   let slots = [];
 
@@ -250,24 +408,25 @@ Generate exactly ${postCount} slots. NO commentary. JSON only.`;
   const parsed = parseJSON(text);
   if (parsed?.slots && Array.isArray(parsed.slots)) {
     slots = parsed.slots;
-    console.log(`[Priya] ✓ Full parse succeeded: ${slots.length} slots`);
+    console.log(`[Priya] ✓ ${platform} full parse: ${slots.length} slots`);
   } else {
-    // Full parse failed — try partial recovery
-    console.warn('[Priya] Full parse failed, attempting partial recovery...');
+    console.warn(`[Priya] ${platform} full parse failed, attempting partial recovery...`);
     slots = recoverPartialSlots(text);
-    console.log(`[Priya] ✓ Partial recovery: ${slots.length} slots extracted`);
+    console.log(`[Priya] ✓ ${platform} partial recovery: ${slots.length} slots`);
 
     if (slots.length === 0) {
-      console.error('[Priya] First 500 chars:', text.slice(0, 500));
-      console.error('[Priya] Last 500 chars:', text.slice(-500));
-      throw new Error('Priya failed to generate valid JSON calendar (no slots recoverable)');
+      console.error(`[Priya] ${platform} first 500 chars:`, text.slice(0, 500));
+      console.error(`[Priya] ${platform} last 500 chars:`, text.slice(-500));
+      throw new Error(`Priya failed to generate valid JSON for ${platform} (no slots recoverable)`);
     }
   }
 
-  // Filter to only valid slots (must have date + format + brief)
-  slots = slots.filter(s => s && s.date && s.format && s.brief);
-  console.log(`[Priya] ✓ Final valid slots: ${slots.length}/${postCount}`);
+  // Filter to valid slots and force platform field
+  slots = slots
+    .filter(s => s && s.date && s.format && s.brief)
+    .map(s => ({ ...s, platform: platform.toLowerCase() }));
 
+  console.log(`[Priya] ✓ ${platform} final valid slots: ${slots.length}/${count}`);
   return slots;
 }
 
@@ -304,26 +463,84 @@ async function executePriya(userId, brandId, config = {}) {
     throw new Error('No Scout research found. Run the Scout agent first.');
   }
 
-  // Determine target month (current month from config or default to current)
-  const today = new Date();
-  const targetYear = config.year || today.getFullYear();
-  const targetMonth = config.month || (today.getMonth() + 1); // 1-indexed
-  const postCount = config.post_count || 15;
-  const platforms = config.platforms || ['instagram'];
+  // ── Normalize campaign config ────────────────────────────────────────────
+  const campaign = config.campaign || {
+    duration_days: config.duration_days || 30,
+    target_audience: config.target_audience || brand.audience || 'General',
+    campaign_goals: config.campaign_goals || 'Brand awareness',
+    themes: config.themes || [],
+    platforms: config.platforms || ['instagram'],
+  };
+  const platforms = (campaign.platforms && campaign.platforms.length) ? campaign.platforms : ['instagram'];
+  const duration = campaign.duration_days || 30;
+  const slotsPerPlatform = Math.ceil(duration / 2); // ~15 posts/month cadence
 
-  console.log(`[Priya] Target: ${postCount} slots for ${targetYear}-${String(targetMonth).padStart(2, '0')}`);
-  console.log(`[Priya] Platforms: ${platforms.join(', ')}`);
+  console.log(`[Priya] Platforms: ${platforms.join(', ')} | ${slotsPerPlatform} slots each over ${duration} days`);
 
-  // ── Generate the full calendar in ONE Gemini call ──────────────────────
-  const generatedSlots = await generateMonthlyCalendar(brand, strategyData, postCount, targetYear, targetMonth, platforms);
+  // Initial progress write
+  writeProgress(brandId, {
+    brand_id: brandId,
+    total_platforms: platforms.length,
+    current_platform: 0,
+    current_platform_name: null,
+    status: 'researching',
+    slots_created: Object.fromEntries(platforms.map(p => [p, 0])),
+    started_at: new Date().toISOString(),
+  });
+
+  // ── Step A: Research call ───────────────────────────────────────────────
+  const enrichmentData = await runResearch(brand, strategyData, campaign);
+
+  // ── Step B: Generate sequentially per platform ──────────────────────────
+  const newSlots = [];
+
+  for (let i = 0; i < platforms.length; i++) {
+    const platform = platforms[i];
+
+    writeProgress(brandId, {
+      brand_id: brandId,
+      total_platforms: platforms.length,
+      current_platform: i + 1,
+      current_platform_name: platform,
+      status: 'running',
+      slots_created: Object.fromEntries(
+        platforms.map(p => [p, newSlots.filter(s => s.platform === p).length])
+      ),
+    });
+
+    try {
+      const platformSlots = await generatePlatformCalendar(
+        brand,
+        strategyData,
+        enrichmentData,
+        campaign,
+        platform,
+        slotsPerPlatform
+      );
+      newSlots.push(...platformSlots);
+    } catch (err) {
+      console.error(`[Priya] Failed to generate ${platform}:`, err.message);
+      // Continue with other platforms — partial success is better than total failure
+      writeProgress(brandId, {
+        brand_id: brandId,
+        total_platforms: platforms.length,
+        current_platform: i + 1,
+        current_platform_name: platform,
+        status: 'running',
+        last_error: `${platform}: ${err.message}`,
+        slots_created: Object.fromEntries(
+          platforms.map(p => [p, newSlots.filter(s => s.platform === p).length])
+        ),
+      });
+    }
+  }
 
   // ── Convert to ContentSlot format ───────────────────────────────────────
-  const newSlots = [];
+  const finalSlots = [];
   const now = new Date().toISOString();
 
-  for (const g of generatedSlots) {
+  for (const g of newSlots) {
     try {
-      // Validate required fields
       if (!g.date || !g.format) {
         console.warn('[Priya] Skipping invalid slot:', g);
         continue;
@@ -339,7 +556,6 @@ async function executePriya(userId, brandId, config = {}) {
       else if (format.includes('article')) format = 'article';
       else format = 'post';
 
-      // Normalize platform — default to instagram if missing
       const platform = String(g.platform || 'instagram').toLowerCase();
 
       const slotId = `${brandId}_${g.date}_${format}_${platform}`;
@@ -361,37 +577,50 @@ async function executePriya(userId, brandId, config = {}) {
         scout_pillar: g.pillar || null,
       };
 
-      newSlots.push(slot);
+      finalSlots.push(slot);
     } catch (err) {
       console.warn('[Priya] Slot conversion failed:', err.message);
     }
   }
 
-  // ── Persist to local sync file (merge with existing) ────────────────────
+  // ── Persist to local sync file (merge with existing — upsert by id) ─────
   const existing = readSync('content_slots');
   const existingData = Array.isArray(existing?.data) ? existing.data : [];
-  const newSlotIds = new Set(newSlots.map(s => s.id));
+  const newSlotIds = new Set(finalSlots.map(s => s.id));
   const filtered = existingData.filter(s => !newSlotIds.has(s.id));
-  const merged = [...filtered, ...newSlots];
+  const merged = [...filtered, ...finalSlots];
 
   writeSync('content_slots', {
     _updatedAt: new Date().toISOString(),
     data: merged,
   });
 
-  console.log(`[Priya] ═══ Complete: ${newSlots.length}/${postCount} slots created for ${targetYear}-${targetMonth} ═══\n`);
+  // ── Final progress write: complete ──────────────────────────────────────
+  const slotsByPlatform = Object.fromEntries(
+    platforms.map(p => [p, finalSlots.filter(s => s.platform === p).length])
+  );
+
+  writeProgress(brandId, {
+    brand_id: brandId,
+    total_platforms: platforms.length,
+    current_platform: platforms.length,
+    current_platform_name: platforms[platforms.length - 1] || null,
+    status: 'complete',
+    slots_created: slotsByPlatform,
+    total_slots: finalSlots.length,
+    completed_at: new Date().toISOString(),
+  });
+
+  console.log(`[Priya] ═══ Complete: ${finalSlots.length} slots across ${platforms.length} platforms ═══\n`);
 
   return {
     brand_id: brandId,
     brand_name: brand.name,
-    slots_created: newSlots.length,
-    slots_total: postCount,
-    year: targetYear,
-    month: targetMonth,
-    platforms,
-    strategy_pillars: arr(strategyData.content_pillars).length,
+    slots_created: finalSlots.length,
+    slots_by_platform: slotsByPlatform,
+    campaign,
     generated_at: new Date().toISOString(),
-    slots: newSlots, // Frontend writes these to IndexedDB
+    slots: finalSlots, // Frontend writes these to IndexedDB
   };
 }
 

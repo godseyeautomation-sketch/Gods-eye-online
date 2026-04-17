@@ -35,6 +35,19 @@ export interface ScoutReport {
   competitors_analyzed: number;
   content_pillars: number;
   hooks_generated: number;
+  /** Gate fields — user must approve before Priya runs */
+  awaiting_approval?: boolean;
+  approved_at?: string | null;
+}
+
+/** Priya's campaign setup from the questionnaire modal */
+export interface PriyaCampaign {
+  duration_days: 15 | 30 | 45;
+  target_audience: string;
+  campaign_goals: string;
+  themes: string[];
+  platforms: SocialPlatform[];
+  created_at: string;
 }
 
 export interface BrandProfile {
@@ -79,6 +92,7 @@ export interface BrandProfile {
   competitors?: BrandCompetitor[];
   /** Latest Scout research report — consumed by Priya */
   scout_report?: ScoutReport | null;
+  priya_campaign?: PriyaCampaign | null;
   created_at: string;
   updated_at: string;
 }

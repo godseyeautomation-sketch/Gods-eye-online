@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { getAllBrandProfiles } from '../services/brandService';
 import ApprovalQueue from './brand/ApprovalQueue';
 import QualityScoreBadge from './brand/QualityScoreBadge';
+import { PriyaQuestionnaire } from './brand/PriyaQuestionnaire';
 import type { BrandProfile, PipelineRun, PipelineStageLog, PipelineStage, SocialPlatform } from '../types/brand.types';
 import { SOCIAL_PLATFORMS } from '../types/brand.types';
 
@@ -118,6 +119,11 @@ export const AutopilotPage: React.FC = () => {
   const [reviewResult, setReviewResult] = useState<{ decision: string; approved_count: number; rejected_count: number; total_reviewed: number } | null>(null);
   const [agentError, setAgentError] = useState<string | null>(null);
   const [chainMode, setChainMode] = useState(true); // auto-run next agent after current finishes
+  const [scoutApproved, setScoutApproved] = useState(false); // Scout report approval gate
+  const [scoutApproving, setScoutApproving] = useState(false);
+  const [showPriyaModal, setShowPriyaModal] = useState(false); // Priya questionnaire visibility
+  const [fullCycleMode, setFullCycleMode] = useState(false); // Run Full Cycle shortcut
+  const [priyaPlatformProgress, setPriyaPlatformProgress] = useState<{ total: number; current: number; currentName: string; slotsByPlatform: Record<string, number>; status: string } | null>(null);
   const [autoRunTriggered, setAutoRunTriggered] = useState(false); // prevent re-triggering
   const [cooldownSeconds, setCooldownSeconds] = useState(0);
   const [cooldownAgent, setCooldownAgent] = useState<string | null>(null);
@@ -163,7 +169,7 @@ export const AutopilotPage: React.FC = () => {
 
   // ── Restore scoutResult from brand profile when switching brands ──────
   useEffect(() => {
-    if (!selectedBrandId) { setScoutResult(null); return; }
+    if (!selectedBrandId) { setScoutResult(null); setScoutApproved(false); return; }
     const brand = brands.find(b => b.id === selectedBrandId);
     if (brand?.scout_report) {
       setScoutResult({
@@ -174,7 +180,9 @@ export const AutopilotPage: React.FC = () => {
         hooks_generated: brand.scout_report.hooks_generated || 0,
         generated_at: brand.scout_report.generated_at,
       });
+      setScoutApproved(!!brand.scout_report.approved_at);
     } else {
+      setScoutApproved(false);
       // Also check localStorage fallback
       const stored = localStorage.getItem(`scout_result_${selectedBrandId}`);
       if (stored) {
@@ -316,6 +324,15 @@ export const AutopilotPage: React.FC = () => {
   // ── Trigger full cycle ────────────────────────────────────────────────
   const triggerCycle = async () => {
     if (!user?.id || !selectedBrandId || isRunning) return;
+    // Full cycle mode: auto-approve Scout + skip Priya modal, use defaults
+    setFullCycleMode(true);
+    runAgent('scout');
+    return;
+  };
+
+  // Unused "legacy cron job" cycle (kept for future)
+  const triggerCycleLegacy = async () => {
+    if (!user?.id || !selectedBrandId || isRunning) return;
     setIsRunning(true);
     try {
       // Create the cron job
@@ -345,11 +362,11 @@ export const AutopilotPage: React.FC = () => {
   };
 
   // ── Run a single agent ─────────────────────────────────────────────────
-  const runAgent = async (agentId: string) => {
+  const runAgent = async (agentId: string, extraConfig: Record<string, any> = {}) => {
     if (!user?.id || !selectedBrandId || runningAgent) return;
     setRunningAgent(agentId);
     setAgentError(null);
-    if (agentId === 'creative') setPriyaProgress(null);
+    if (agentId === 'creative') { setPriyaProgress(null); setPriyaPlatformProgress(null); }
     try {
       // Pass the full brand object directly so the backend doesn't need to look it up
       const brandPayload = brands.find(b => b.id === selectedBrandId) || null;
@@ -373,6 +390,7 @@ export const AutopilotPage: React.FC = () => {
       const mergedConfig = {
         ...config,
         competitors: brandCompetitors.length ? brandCompetitors : (config.competitors || []),
+        ...extraConfig, // merge in campaign, etc.
       };
 
       console.log(`[Autopilot] Running ${agentId} with ${mergedConfig.competitors.length} competitors:`, mergedConfig.competitors);
@@ -482,12 +500,54 @@ export const AutopilotPage: React.FC = () => {
         }
         setTimeout(fetchRuns, 2000);
 
+        // Scout → Priya transition: if full-cycle, auto-approve + use defaults; otherwise pause for approval
+        if (agentId === 'scout') {
+          if (fullCycleMode) {
+            // Auto-approve then run Priya with defaults (sensible from Scout's report)
+            console.log('[Autopilot] Full cycle mode — auto-approving Scout + using defaults for Priya');
+            const brand = brands.find(b => b.id === selectedBrandId);
+            await approveScoutReport(false); // approve silently, no modal
+            const defaultPlatforms: any[] = [];
+            if (brand?.instagram_handle) defaultPlatforms.push('instagram');
+            if (brand?.tiktok_handle) defaultPlatforms.push('tiktok');
+            if (brand?.facebook_url) defaultPlatforms.push('facebook');
+            if (brand?.linkedin_handle) defaultPlatforms.push('linkedin');
+            const platforms = defaultPlatforms.length ? defaultPlatforms.slice(0, 3) : ['instagram'];
+            const campaign = {
+              duration_days: 30,
+              target_audience: brand?.audience || 'General audience',
+              campaign_goals: 'Brand awareness and engagement',
+              themes: brand?.aesthetic || [],
+              platforms,
+            };
+            setCooldownAgent('creative');
+            setCooldownSeconds(15);
+            const iv = setInterval(() => {
+              setCooldownSeconds(prev => {
+                if (prev <= 1) {
+                  clearInterval(iv);
+                  setCooldownAgent(null);
+                  runAgent('creative', { campaign });
+                  return 0;
+                }
+                return prev - 1;
+              });
+            }, 1000);
+            setRunningAgent(null);
+            return;
+          }
+          // Non-full-cycle: pause, user must approve Scout report manually
+          console.log('[Autopilot] Scout done — awaiting user approval before Priya runs');
+          setRunningAgent(null);
+          return;
+        }
+
         // Chain mode: auto-run next agent in the hierarchy
         if (chainMode) {
           const next: Record<string, string | null> = {
-            scout: 'creative',     // Scout → Priya
-            creative: 'reviewer',  // Priya → Review (Slack HITL)
-            reviewer: null,        // Review → decision handled separately
+            scout: null,            // Handled above — gated by approval
+            creative: 'reviewer',   // Priya → Review (Slack HITL)
+            reviewer: null,         // Review → decision handled separately
           };
 
           // Special case: if Review returns "rejected", re-run Priya with feedback (with cooldown)
@@ -558,6 +618,61 @@ export const AutopilotPage: React.FC = () => {
     link.click();
     document.body.removeChild(link);
   };
+
+  // ── Approve Scout's report — unlocks Priya ──────────────────────────────
+  const approveScoutReport = async (autoOpenModal = true) => {
+    if (!user?.id || !selectedBrandId || scoutApproving) return;
+    setScoutApproving(true);
+    try {
+      const res = await fetch('/api/pipeline/scout/approve', {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({ brand_id: selectedBrandId }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setScoutApproved(true);
+        // Refresh brands so scout_report.approved_at is reflected
+        if (user?.id) getAllBrandProfiles(user.id).then(all => setBrands(all));
+        if (autoOpenModal) setShowPriyaModal(true);
+      } else {
+        setAgentError(`Approve failed: ${data.error || 'unknown'}`);
+      }
+    } catch (err: any) {
+      setAgentError(`Approve failed: ${err.message}`);
+    }
+    setScoutApproving(false);
+  };
+
+  // ── Priya questionnaire submission → triggers Priya with the campaign ──
+  const handlePriyaQuestionnaireSubmit = (campaign: any) => {
+    setShowPriyaModal(false);
+    // Run Priya with campaign context
+    runAgent('creative', { campaign });
+  };
+
+  // ── Poll Priya progress ────────────────────────────────────────────────
+  useEffect(() => {
+    if (runningAgent !== 'creative' || !selectedBrandId) return;
+    const poll = async () => {
+      try {
+        const res = await fetch(`/api/pipeline/priya-progress/${selectedBrandId}`);
+        const data = await res.json();
+        if (data.ok && data.progress) {
+          setPriyaPlatformProgress({
+            total: data.progress.total_platforms || 0,
+            current: data.progress.current_platform || 0,
+            currentName: data.progress.current_platform_name || '',
+            slotsByPlatform: data.progress.slots_created || {},
+            status: data.progress.status || 'running',
+          });
+        }
+      } catch {}
+    };
+    poll();
+    const interval = setInterval(poll, 3000);
+    return () => clearInterval(interval);
+  }, [runningAgent, selectedBrandId]);
 
   // ── Get agent status from latest run ──────────────────────────────────
   const getAgentStatus = (stage: PipelineStage): 'idle' | 'running' | 'completed' | 'error' => {
@@ -856,26 +971,63 @@ export const AutopilotPage: React.FC = () => {
 
             {/* Scout result banner */}
             {scoutResult && (
-              <div className="flex items-center gap-3 p-3 rounded-xl bg-brand/5 border border-brand/20">
-                <span className="text-brand text-lg">📄</span>
-                <div className="flex-1">
-                  <p className="text-sm font-medium text-text-primary">Scout Report Ready</p>
-                  <p className="text-xs text-text-secondary">{scoutResult.competitors_analyzed} competitors analyzed · {scoutResult.content_pillars} pillars · {scoutResult.hooks_generated} hooks</p>
+              <div className={`flex items-center gap-3 p-3 rounded-xl border ${scoutApproved ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-brand/5 border-brand/20'}`}>
+                <span className={`text-lg ${scoutApproved ? 'text-emerald-400' : 'text-brand'}`}>
+                  {scoutApproved ? '✓' : '📄'}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-text-primary">
+                    {scoutApproved ? 'Scout Report Approved' : 'Scout Report Ready — Review before Priya starts'}
+                  </p>
+                  <p className="text-xs text-text-secondary truncate">{scoutResult.competitors_analyzed} competitors · {scoutResult.content_pillars} pillars · {scoutResult.hooks_generated} hooks</p>
                 </div>
-                <button onClick={downloadScoutReport} className="px-4 py-2 rounded-xl bg-brand text-bg text-xs font-bold hover:bg-brand-hover transition flex items-center gap-1.5">
+                <button onClick={downloadScoutReport} className="px-3 py-2 rounded-xl bg-white/[0.03] hover:bg-white/[0.06] text-text-primary text-xs font-medium border border-white/[0.08] transition flex items-center gap-1.5">
                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                  Download .docx
+                  Download
                 </button>
+                {!scoutApproved && (
+                  <button
+                    onClick={() => approveScoutReport(true)}
+                    disabled={scoutApproving}
+                    className="px-4 py-2 rounded-xl bg-brand text-bg text-xs font-bold hover:bg-brand-hover transition disabled:opacity-40 flex items-center gap-1.5"
+                  >
+                    {scoutApproving ? (
+                      <><div className="w-3 h-3 rounded-full border-2 border-bg border-t-transparent animate-spin" /> Approving...</>
+                    ) : (
+                      <>✓ Approve & Continue</>
+                    )}
+                  </button>
+                )}
               </div>
             )}
 
             {/* Priya (Creative Agent) progress / result banner */}
             {runningAgent === 'creative' && (
-              <div className="flex items-center gap-3 p-3 rounded-xl bg-violet-500/5 border border-violet-500/20">
-                <div className="w-5 h-5 rounded-full border-2 border-violet-400 border-t-transparent animate-spin" />
-                <div className="flex-1">
-                  <p className="text-sm font-medium text-text-primary">Priya is generating your calendar...</p>
-                  <p className="text-xs text-text-secondary">Reading Scout's research → creating briefs + captions for each day</p>
+              <div className="flex items-start gap-3 p-4 rounded-xl bg-violet-500/5 border border-violet-500/20">
+                <div className="w-5 h-5 mt-0.5 rounded-full border-2 border-violet-400 border-t-transparent animate-spin flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-text-primary">
+                    {priyaPlatformProgress
+                      ? `Generating ${priyaPlatformProgress.currentName || 'calendar'} (${priyaPlatformProgress.current}/${priyaPlatformProgress.total})`
+                      : 'Priya is doing additional research...'}
+                  </p>
+                  <p className="text-xs text-text-secondary mt-1">
+                    {priyaPlatformProgress
+                      ? 'Sequential platform generation — Scout\'s strategy + your campaign answers'
+                      : 'Analyzing trends + best practices for each platform'}
+                  </p>
+                  {priyaPlatformProgress && priyaPlatformProgress.total > 0 && (
+                    <div className="mt-3 space-y-1">
+                      {Object.entries(priyaPlatformProgress.slotsByPlatform || {}).map(([platform, count]) => (
+                        <div key={platform} className="flex items-center justify-between text-[10px] text-text-secondary">
+                          <span className="capitalize">
+                            {count > 0 ? '✓' : (priyaPlatformProgress.currentName === platform ? '⟳' : '○')} {platform}
+                          </span>
+                          <span>{count} slots</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -1222,6 +1374,16 @@ export const AutopilotPage: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* Priya Questionnaire Modal — auto-opened after Scout approval */}
+      {showPriyaModal && selectedBrand && (
+        <PriyaQuestionnaire
+          brand={selectedBrand}
+          scoutAudience={selectedBrand.scout_report?.weakness_data?.target_audience?.primary?.description || selectedBrand.audience}
+          onComplete={handlePriyaQuestionnaireSubmit}
+          onCancel={() => setShowPriyaModal(false)}
+        />
+      )}
     </div>
   );
 };

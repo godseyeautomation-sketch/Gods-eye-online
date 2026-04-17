@@ -813,6 +813,9 @@ async function executeScout(userId, brandId, config = {}) {
             competitors_analyzed: result.competitors_analyzed,
             content_pillars: result.content_pillars,
             hooks_generated: result.hooks_generated,
+            // Gate: user must approve before Priya runs
+            awaiting_approval: true,
+            approved_at: null,
           },
           updated_at: new Date().toISOString(),
         };
