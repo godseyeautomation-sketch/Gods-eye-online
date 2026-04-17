@@ -344,7 +344,7 @@ export const upsertSlot = async (
   brandId: string,
   slotDate: string,
   format: ContentFormat,
-  patch: Partial<Pick<ContentSlot, 'idea' | 'brief' | 'generated_image' | 'approved' | 'status' | 'selected_product'>>
+  patch: Partial<Pick<ContentSlot, 'idea' | 'brief' | 'generated_image' | 'approved' | 'status' | 'selected_product' | 'platform'>>
 ): Promise<ContentSlot | null> => {
   let dbPatch = { ...patch };
   const img = patch.generated_image;

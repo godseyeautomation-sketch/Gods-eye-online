@@ -284,7 +284,10 @@ export const upsertLocalSlot = async (
     patch: any
 ): Promise<any> => {
     const db = await getDB();
-    const id = `${brandId}_${slotDate}_${format}`;
+    // ID includes platform to prevent Instagram/TikTok/etc slots overwriting each other
+    // on the same date+format. Platform defaults to 'instagram' for backward compatibility.
+    const platform = patch?.platform || 'instagram';
+    const id = `${brandId}_${slotDate}_${format}_${platform}`;
 
     const existing = await db.get(CONTENT_SLOTS_STORE, id);
     const toSave = {
@@ -293,6 +296,7 @@ export const upsertLocalSlot = async (
         brand_id: brandId,
         slot_date: slotDate,
         format,
+        platform,
         ...existing,
         ...patch,
         updated_at: new Date().toISOString()

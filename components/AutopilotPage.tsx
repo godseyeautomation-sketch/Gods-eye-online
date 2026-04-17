@@ -490,9 +490,10 @@ export const AutopilotPage: React.FC = () => {
                   generated_image: slot.generated_image || null,
                   status: slot.status || 'briefed',
                   approved: false,
+                  platform: slot.platform || 'instagram',
                 });
               }
-              console.log(`[Autopilot] Wrote ${data.result.slots.length} slots to IndexedDB`);
+              console.log(`[Autopilot] Wrote ${data.result.slots.length} slots to IndexedDB (across ${new Set(data.result.slots.map((s: any) => s.platform)).size} platforms)`);
             } catch (err) {
               console.error('[Autopilot] Failed to write slots to IDB:', err);
             }

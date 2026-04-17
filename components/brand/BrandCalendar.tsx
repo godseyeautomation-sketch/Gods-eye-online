@@ -41,9 +41,10 @@ export const BrandCalendar: React.FC<Props> = ({ year, month, slots, onMonthChan
   const firstDayOfMonth = new Date(year, month - 1, 1).getDay(); // 0=Sun
   const daysInMonth = new Date(year, month, 0).getDate();
 
-  // Filter slots by platform (backward-compat: slots without platform show on all)
+  // Filter slots by platform. Untagged slots (legacy) are treated as 'instagram' for display,
+  // so they only appear when Instagram is selected — not on every platform.
   const filteredSlots = selectedPlatform
-    ? slots.filter(s => !s.platform || s.platform === selectedPlatform)
+    ? slots.filter(s => (s.platform || 'instagram') === selectedPlatform)
     : slots;
   const today = new Date();
 
