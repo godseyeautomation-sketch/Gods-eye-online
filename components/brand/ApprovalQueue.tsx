@@ -321,24 +321,100 @@ export default function ApprovalQueue({ brandId, onRefresh }: ApprovalQueueProps
         </div>
       ))}
 
-      {/* Standalone Items */}
-      {filteredStandalone.length > 0 && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-          {filteredStandalone.map(item => (
-            <ApprovalCard
-              key={item.id}
-              item={item}
-              isSelected={selectedIds.has(item.id)}
-              isLoading={actionLoading === item.id}
-              onApprove={() => handleApprove(item.id)}
-              onReject={(reason) => handleReject(item.id, reason)}
-              onToggleSelect={() => toggleSelect(item.id)}
-              timeRemaining={getTimeRemaining(item.auto_approve_at)}
-              isPending={item.status === 'pending'}
-            />
-          ))}
-        </div>
-      )}
+      {/* Standalone Items — grouped by social platform */}
+      {filteredStandalone.length > 0 && (() => {
+        // Group by platform
+        const byPlatform = new Map<string, ApprovalQueueItem[]>();
+        for (const item of filteredStandalone) {
+          const p = ((item as any).platform || 'instagram') as string;
+          if (!byPlatform.has(p)) byPlatform.set(p, []);
+          byPlatform.get(p)!.push(item);
+        }
+        // Sort platforms: active filter first, then alphabetical
+        const sortedPlatforms = Array.from(byPlatform.keys()).sort((a, b) => {
+          if (a === platformFilter) return -1;
+          if (b === platformFilter) return 1;
+          return a.localeCompare(b);
+        });
+
+        return (
+          <div className="space-y-6">
+            {sortedPlatforms.map(platform => {
+              const platformItems = byPlatform.get(platform)!;
+              const info = SOCIAL_PLATFORMS.find(sp => sp.key === platform);
+              const color = info?.color || '#666';
+              const pending = platformItems.filter(i => i.status === 'pending');
+              const samples = pending.filter(i => (i as any).review_sample);
+              const autoPending = pending.filter(i => (i as any).auto_approve_on_sample_pass);
+              const approved = platformItems.filter(i => i.status === 'approved');
+              const rejected = platformItems.filter(i => i.status === 'rejected');
+
+              return (
+                <div
+                  key={platform}
+                  className="rounded-2xl border border-white/[0.06] bg-panel/40 overflow-hidden"
+                  style={{ borderTopWidth: '3px', borderTopColor: color }}
+                >
+                  {/* Platform section header */}
+                  <div
+                    className="flex items-center justify-between px-5 py-3.5 border-b border-white/[0.06]"
+                    style={{ background: `linear-gradient(90deg, ${color}15 0%, transparent 60%)` }}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <span className="text-xl">{PLATFORM_EMOJI[platform] || '📱'}</span>
+                      <h4 className="text-sm font-bold text-text-primary capitalize tracking-wide">
+                        {info?.label || platform}
+                      </h4>
+                      <span className="text-[10px] font-medium text-text-secondary/60 tabular-nums">
+                        {platformItems.length} post{platformItems.length !== 1 ? 's' : ''}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 text-[10px] font-medium">
+                      {samples.length > 0 && (
+                        <span className="px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/20">
+                          {samples.length} sample
+                        </span>
+                      )}
+                      {autoPending.length > 0 && (
+                        <span className="px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-400 border border-violet-500/20">
+                          {autoPending.length} auto-pending
+                        </span>
+                      )}
+                      {approved.length > 0 && (
+                        <span className="px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">
+                          {approved.length} approved
+                        </span>
+                      )}
+                      {rejected.length > 0 && (
+                        <span className="px-2 py-0.5 rounded-full bg-red-500/15 text-red-400 border border-red-500/20">
+                          {rejected.length} rejected
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Platform posts grid */}
+                  <div className="p-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    {platformItems.map(item => (
+                      <ApprovalCard
+                        key={item.id}
+                        item={item}
+                        isSelected={selectedIds.has(item.id)}
+                        isLoading={actionLoading === item.id}
+                        onApprove={() => handleApprove(item.id)}
+                        onReject={(reason) => handleReject(item.id, reason)}
+                        onToggleSelect={() => toggleSelect(item.id)}
+                        timeRemaining={getTimeRemaining(item.auto_approve_at)}
+                        isPending={item.status === 'pending'}
+                      />
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
     </div>
   );
 }
