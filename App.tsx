@@ -582,8 +582,9 @@ const App: React.FC = () => {
       aspectRatio: "Custom",
       createdAt: Date.now()
     };
+    // Only reached via the explicit "Save to Gallery" button in EditPage now.
+    // No lightbox — the user already reviewed the result on the canvas.
     setGeneratedAssets(prev => [newAsset, ...prev]);
-    setLightboxAsset(newAsset);
   };
 
   const handleUseSketch = (base64: string) => {

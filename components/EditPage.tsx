@@ -8,6 +8,8 @@ import {
     Download,
     Plus,
     Minus,
+    Bookmark,
+    BookmarkCheck,
     X,
     Loader2,
     Sparkles,
@@ -241,19 +243,31 @@ export const EditPage: React.FC<EditPageProps> = ({ initialImage, onAssetGenerat
         return ratios.reduce((prev, curr) => Math.abs(curr.val - ratio) < Math.abs(prev.val - ratio) ? curr : prev).label;
     };
 
+    const ERASER_AUTO_PROMPT = 'Remove the masked object and fill the background seamlessly, matching lighting, texture, and perspective';
+
     const handleGenerate = async () => {
-        if (!config.prompt || isGenerating) return;
+        if (isGenerating) return;
+
+        // Eraser is click-and-done: no prompt required. The Eraser tool's job is to
+        // remove whatever was masked, so we auto-inject the removal instruction.
+        const isEraser = tool === 'erase';
+        const effectivePrompt = isEraser
+            ? (config.prompt?.trim() || ERASER_AUTO_PROMPT)
+            : config.prompt;
+
+        if (!effectivePrompt) return;
+
         setIsGenerating(true);
 
         // Build final prompt: object orientation first, then user prompt, then perspective suffix
         const objText = buildObjectOrientationText(objectOrientation);
         const perspText = buildPerspectiveText(perspective);
 
-        let finalPrompt = config.prompt;
+        let finalPrompt = effectivePrompt;
         if (objText) finalPrompt = `${objText}, ${finalPrompt}`;
         if (perspText) finalPrompt = `${finalPrompt}, ${perspText}`;
 
-        console.log("Generating with prompt:", finalPrompt);
+        console.log("Generating with prompt:", finalPrompt, isEraser ? '(eraser auto-prompt)' : '');
 
         try {
             const canvas = canvasRef.current;
@@ -270,24 +284,23 @@ export const EditPage: React.FC<EditPageProps> = ({ initialImage, onAssetGenerat
             const resultBase64 = await editImage(imageData, maskData, finalPrompt, config.model, optimalRatio, referenceAssets, config.harmonize || false);
 
             if (resultBase64 && resultBase64.startsWith('data:image')) {
-                // Perform client-side compositing: 
-                // CRITICAL FIX FOR CUMULATIVE DEGRADATION: 
+                // Perform client-side compositing:
+                // CRITICAL FIX FOR CUMULATIVE DEGRADATION:
                 // Always composite the AI output over the pristine `originalImage`, NOT the recycled `baseImage`.
                 // This ensures that doing 5 edits in a row doesn't compress the background 5 times.
                 console.log("Compositing AI result over pristine original background...");
                 const perfectComposite = await applyMaskComposite(originalImage || DEFAULT_IMAGE, maskData, resultBase64);
 
-                // Update the state with the perfectly blended composite
+                // Update the canvas with the new composite so the user sees the edit
+                // immediately and can keep working on top of it. We intentionally do
+                // NOT auto-save to the gallery or open a lightbox here — use the
+                // "Save to Gallery" button in the toolbar when the edit is final.
                 setBaseImage(perfectComposite);
 
                 // Clear the drawing (mask) since it's been consumed
                 setHistoryStep(-1);
                 setHistory([]);
                 saveHistory();
-
-                if (onAssetGenerated) {
-                    onAssetGenerated(perfectComposite, config.prompt);
-                }
             }
         } catch (error: any) {
             console.error("Edit generation failed:", error);
@@ -296,6 +309,15 @@ export const EditPage: React.FC<EditPageProps> = ({ initialImage, onAssetGenerat
         } finally {
             setIsGenerating(false);
         }
+    };
+
+    // Manual push to gallery — the only way an edited image enters the gallery.
+    const [savedFlash, setSavedFlash] = useState(false);
+    const handleSaveToGallery = () => {
+        if (!baseImage || !onAssetGenerated) return;
+        onAssetGenerated(baseImage, config.prompt || 'Edited Image');
+        setSavedFlash(true);
+        setTimeout(() => setSavedFlash(false), 1800);
     };
 
     useEffect(() => {
@@ -765,6 +787,14 @@ export const EditPage: React.FC<EditPageProps> = ({ initialImage, onAssetGenerat
                 <div className="w-px h-4 bg-border shrink-0" />
 
                 <div className="flex items-center gap-1 shrink-0">
+                    <button
+                        onClick={handleSaveToGallery}
+                        disabled={!baseImage}
+                        className={`p-1.5 rounded-full transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${savedFlash ? 'text-brand' : 'text-text-secondary hover:text-text-primary'}`}
+                        title={savedFlash ? 'Saved to gallery' : 'Save to Gallery'}
+                    >
+                        {savedFlash ? <BookmarkCheck size={16} /> : <Bookmark size={16} />}
+                    </button>
                     <button onClick={handleDownload} className="p-1.5 rounded-full text-text-secondary hover:text-text-primary transition-colors" title="Download"><Download size={16} /></button>
                     {baseImage && <BrainActions imageUrl={baseImage} prompt={config.prompt || 'Edited Image'} />}
                 </div>
@@ -914,6 +944,7 @@ export const EditPage: React.FC<EditPageProps> = ({ initialImage, onAssetGenerat
                 setPerspective={setPerspective}
                 objectOrientation={objectOrientation}
                 setObjectOrientation={setObjectOrientation}
+                allowEmptyPrompt={tool === 'erase'}
             />
         </div>
     );

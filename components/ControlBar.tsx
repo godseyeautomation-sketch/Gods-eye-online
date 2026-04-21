@@ -115,6 +115,10 @@ interface ControlBarProps {
   brands?: any[];
   activeBrandId?: string | null;
   onSwitchBrand?: (brandId: string | null) => void;
+
+  // When true, Generate button is enabled even when the prompt is empty.
+  // EditPage sets this while the Eraser tool is active (click-and-done flow).
+  allowEmptyPrompt?: boolean;
 }
 
 export const ControlBar: React.FC<ControlBarProps> = ({
@@ -122,7 +126,8 @@ export const ControlBar: React.FC<ControlBarProps> = ({
   isGenerating, inputImages, setInputImages,
   perspective, setPerspective,
   objectOrientation = DEFAULT_OBJECT_ORIENTATION, setObjectOrientation,
-  brands = [], activeBrandId = null, onSwitchBrand
+  brands = [], activeBrandId = null, onSwitchBrand,
+  allowEmptyPrompt = false,
 }) => {
   const { user } = useAuth();
   const [activePopup, setActivePopup] = useState<string | null>(null);
@@ -687,7 +692,13 @@ export const ControlBar: React.FC<ControlBarProps> = ({
               <textarea
                 value={config.prompt}
                 onChange={e => setConfig(prev => ({ ...prev, prompt: e.target.value }))}
-                placeholder={inputImages.length > 0 ? "e.g. Combine elements from img 1 and img 2..." : "Imagine something extraordinary..."}
+                placeholder={
+                  allowEmptyPrompt
+                    ? "Eraser ready — click Generate to remove the masked area (no prompt needed)"
+                    : inputImages.length > 0
+                      ? "e.g. Combine elements from img 1 and img 2..."
+                      : "Imagine something extraordinary..."
+                }
                 className="flex-1 bg-transparent text-text-primary placeholder-text-secondary/50 outline-none px-1 py-1.5 h-12 resize-none text-sm font-medium leading-relaxed"
                 onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); e.stopPropagation(); onGenerate(); } }}
               />
@@ -711,7 +722,7 @@ export const ControlBar: React.FC<ControlBarProps> = ({
               </button>
 
               <div className="flex flex-col gap-1 items-end">
-                <Button onClick={onGenerate} disabled={!config.prompt || isGenerating} variant="primary"
+                <Button onClick={onGenerate} disabled={(!config.prompt && !allowEmptyPrompt) || isGenerating} variant="primary"
                   className={`h-10 px-5 rounded-lg font-bold transition-all ${isGenerating ? 'opacity-80' : 'hover:scale-105'}`}>
                   {isGenerating ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} fill="currentColor" />}
                   <span className="ml-2 uppercase tracking-wide text-[10px]">Generate</span>
