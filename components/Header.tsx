@@ -56,7 +56,7 @@ export const Header: React.FC<HeaderProps> = ({ currentMode, setMode, theme, tog
                 islands never clash with bright imagery. */}
             <div
                 aria-hidden="true"
-                className="hidden lg:block fixed top-0 left-0 right-0 h-28 z-40 pointer-events-none bg-gradient-to-b from-black/90 via-black/40 to-transparent"
+                className="hidden lg:block fixed top-0 left-0 right-0 h-32 z-40 pointer-events-none bg-gradient-to-b from-black via-black/60 to-transparent"
             />
 
             {/* Desktop: Modular Floating Islands */}
@@ -65,7 +65,7 @@ export const Header: React.FC<HeaderProps> = ({ currentMode, setMode, theme, tog
                 {/* Module 1: Branding */}
                 <div
                     onClick={() => setMode(AppMode.EXPLORE)}
-                    className="pointer-events-auto bg-panel/95 backdrop-blur-2xl backdrop-saturate-150 border border-border-base rounded-full pl-2 pr-6 py-2 flex items-center gap-3 shadow-lg shadow-black/5 hover:shadow-xl hover:shadow-brand/5 transition-all cursor-pointer group"
+                    className="pointer-events-auto bg-panel backdrop-blur-2xl backdrop-saturate-150 border border-border-base rounded-full pl-2 pr-6 py-2 flex items-center gap-3 shadow-lg shadow-black/5 hover:shadow-xl hover:shadow-brand/5 transition-all cursor-pointer group"
                 >
                     <div className="w-10 h-10 bg-brand rounded-full flex items-center justify-center text-bg shadow-inner group-hover:scale-105 transition-transform">
                         <Waves size={20} strokeWidth={3} />
@@ -78,7 +78,7 @@ export const Header: React.FC<HeaderProps> = ({ currentMode, setMode, theme, tog
 
                 {/* Module 2: Navigation Pill */}
                 <nav className="pointer-events-auto absolute inset-x-0 top-6 flex justify-center z-50 pointer-events-none">
-                    <div className="bg-panel/95 backdrop-blur-2xl backdrop-saturate-150 border border-border-base rounded-full p-1.5 flex items-center gap-1 shadow-lg shadow-black/5 pointer-events-auto">
+                    <div className="bg-panel backdrop-blur-2xl backdrop-saturate-150 border border-border-base rounded-full p-1.5 flex items-center gap-1 shadow-lg shadow-black/5 pointer-events-auto">
                         {navItems
                             .filter(item => item.id !== AppMode.ADMIN || isAdmin) // Only show Admin for admins
                             .map((item) => (
@@ -89,7 +89,7 @@ export const Header: React.FC<HeaderProps> = ({ currentMode, setMode, theme, tog
                                     }}
                                     className={`relative px-5 py-2.5 rounded-full text-xs font-bold transition-all duration-300 flex items-center gap-2 overflow-hidden ${currentMode === item.id
                                         ? 'text-bg shadow-md'
-                                        : 'text-text-secondary hover:text-text-primary hover:bg-surface'
+                                        : 'text-neutral-300 hover:text-white hover:bg-white/5'
                                         }`}
                                 >
                                     {/* Active Background Animation */}
@@ -110,7 +110,7 @@ export const Header: React.FC<HeaderProps> = ({ currentMode, setMode, theme, tog
                 </nav>
 
                 {/* Module 3: System Status */}
-                <div className="pointer-events-auto bg-panel/95 backdrop-blur-2xl backdrop-saturate-150 border border-border-base rounded-full p-2 flex items-center gap-2 shadow-lg shadow-black/5 relative z-50" ref={profileRef}>
+                <div className="pointer-events-auto bg-panel backdrop-blur-2xl backdrop-saturate-150 border border-border-base rounded-full p-2 flex items-center gap-2 shadow-lg shadow-black/5 relative z-50" ref={profileRef}>
                     <button
                         onClick={(e) => {
                             e.stopPropagation();
