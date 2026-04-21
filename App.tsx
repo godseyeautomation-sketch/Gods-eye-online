@@ -5,6 +5,7 @@ import { ControlBar } from './components/ControlBar';
 import { AdminPanel } from './components/AdminPanel';
 import { DrawEditor } from './components/DrawEditor';
 import { ImageGallery } from './components/ImageGallery';
+import { ImageLightbox } from './components/ImageLightbox';
 import { ExplorePage } from './components/ExplorePage';
 import { HomePage } from './components/home/HomePage';
 import { VideoPage } from './components/VideoPage';
@@ -98,6 +99,7 @@ const App: React.FC = () => {
 
   // App State
   const [generatedAssets, setGeneratedAssets] = useState<GeneratedAsset[]>([]);
+  const [lightboxAsset, setLightboxAsset] = useState<GeneratedAsset | null>(null);
 
   // Fetch Generations on Load
   useEffect(() => {
@@ -555,6 +557,10 @@ const App: React.FC = () => {
         const withoutSkeletons = prev.filter(a => !skeletonIds.includes(a.id));
         return [...newAssets, ...withoutSkeletons];
       });
+
+      // Auto-open the full-screen preview for the first freshly generated image
+      // so users see the result front-and-center the moment it finishes.
+      if (newAssets.length > 0) setLightboxAsset(newAssets[0]);
     } catch (error) {
       console.error("Generation failed", error);
       const msg = error instanceof Error ? error.message : String(error);
@@ -577,6 +583,7 @@ const App: React.FC = () => {
       createdAt: Date.now()
     };
     setGeneratedAssets(prev => [newAsset, ...prev]);
+    setLightboxAsset(newAsset);
   };
 
   const handleUseSketch = (base64: string) => {
@@ -722,6 +729,7 @@ const App: React.FC = () => {
               onEdit={handleEditImage}
               onDelete={handleDeleteAsset}
               onToVideo={handleToVideo}
+              onRequestPreview={setLightboxAsset}
               onAssetsUpdated={async () => {
                 // Reload gallery after sync
                 const { getLocalGallery } = await import('./services/localStorageService');
@@ -775,7 +783,14 @@ const App: React.FC = () => {
         />
       )}
 
-
+      {/* Full-screen preview lightbox — auto-opens on new generation, also triggered by Eye button */}
+      {lightboxAsset && (
+        <ImageLightbox
+          url={lightboxAsset.url}
+          prompt={lightboxAsset.prompt}
+          onClose={() => setLightboxAsset(null)}
+        />
+      )}
 
     </div>
   );

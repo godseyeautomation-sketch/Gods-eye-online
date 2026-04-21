@@ -1,10 +1,11 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { GeneratedAsset } from '../types';
-import { Download, Share2, Maximize2, PenTool, Trash2, Video, RefreshCw, AlertCircle, FolderSync, Zap, Copy, Check, Layers } from 'lucide-react';
+import { Download, Share2, Maximize2, PenTool, Trash2, Video, RefreshCw, AlertCircle, FolderSync, Zap, Copy, Check, Layers, Eye } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { BrainActions } from './BrainActions';
 import { QwenLayerEditor } from './QwenLayerEditor';
+import { ImageLightbox } from './ImageLightbox';
 
 interface ImageGalleryProps {
   assets: GeneratedAsset[];
@@ -12,14 +13,17 @@ interface ImageGalleryProps {
   onDelete?: (id: string, url: string) => void;
   onToVideo?: (url: string) => void;
   onAssetsUpdated?: () => void;
+  /** Bubble a preview request up so a single lightbox instance can render at App level. */
+  onRequestPreview?: (asset: GeneratedAsset) => void;
 }
 
-export const ImageGallery: React.FC<ImageGalleryProps> = ({ assets, onEdit, onDelete, onToVideo, onAssetsUpdated }) => {
+export const ImageGallery: React.FC<ImageGalleryProps> = ({ assets, onEdit, onDelete, onToVideo, onAssetsUpdated, onRequestPreview }) => {
   const { user } = useAuth();
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [failedImages, setFailedImages] = useState<Set<string>>(new Set());
   const [loadingImages, setLoadingImages] = useState<Set<string>>(new Set());
   const [layerEditorAsset, setLayerEditorAsset] = useState<GeneratedAsset | null>(null);
+  const [previewAsset, setPreviewAsset] = useState<GeneratedAsset | null>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [testMode, setTestMode] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -436,6 +440,13 @@ export const ImageGallery: React.FC<ImageGalleryProps> = ({ assets, onEdit, onDe
                       </button>
                     )}
                     <button
+                      onClick={(e) => { e.stopPropagation(); (onRequestPreview ?? setPreviewAsset)(asset); }}
+                      className="w-9 h-9 bg-black/60 backdrop-blur-md rounded-full text-white flex items-center justify-center border border-white/10 transition-transform hover:scale-110 active:scale-95"
+                      title="Preview"
+                    >
+                      <Eye size={16} />
+                    </button>
+                    <button
                       onClick={(e) => { e.stopPropagation(); handleDownload(asset.url, asset.id, asset.prompt); }}
                       className="w-9 h-9 bg-black/60 backdrop-blur-md rounded-full text-white flex items-center justify-center border border-white/10 transition-transform hover:scale-110 active:scale-95"
                       title="Download"
@@ -466,6 +477,15 @@ export const ImageGallery: React.FC<ImageGalleryProps> = ({ assets, onEdit, onDe
           layers={layerEditorAsset.layers}
           prompt={layerEditorAsset.prompt}
           onClose={() => setLayerEditorAsset(null)}
+        />
+      )}
+
+      {/* Full-screen image preview lightbox */}
+      {previewAsset && (
+        <ImageLightbox
+          url={previewAsset.url}
+          prompt={previewAsset.prompt}
+          onClose={() => setPreviewAsset(null)}
         />
       )}
     </>
