@@ -81,15 +81,43 @@ const seedanceBuildInput = ({ prompt, duration, aspectRatio, resolution, imageUr
   ...(mode === 'i2v' && endImageUrl ? { end_image_url: endImageUrl } : {}),
 });
 
+// Seedance 2.0 (launched April 2026) — https://fal.ai/docs/model-api-reference/
+// video-generation-api/bytedance-seedance-2.0-text-to-video
+//   required: prompt
+//   optional: resolution ("480p"|"720p"), duration ("auto"|"4"…"15" as STRING),
+//             aspect_ratio ("auto"|"21:9"|"16:9"|"4:3"|"1:1"|"3:4"|"9:16"),
+//             generate_audio (bool, default true), seed
+//   i2v-only: image_url, end_image_url
+// Notably: duration is optional and string-typed. If user hasn't picked one we
+// send "auto" so the model chooses a sensible default.
+const seedance20BuildInput = ({ prompt, duration, aspectRatio, resolution, generateAudio, imageUrl, endImageUrl, mode }: CreateInputParams) => ({
+  prompt,
+  duration: duration ? String(duration) : 'auto',
+  aspect_ratio: aspectRatio || 'auto',
+  resolution: resolution === '480p' ? '480p' : '720p',
+  generate_audio: generateAudio !== false,
+  ...(mode === 'i2v' && imageUrl ? { image_url: imageUrl } : {}),
+  ...(mode === 'i2v' && endImageUrl ? { end_image_url: endImageUrl } : {}),
+});
+
 const minimaxBuildInput = ({ prompt, imageUrl, mode }: CreateInputParams) => ({
   prompt, prompt_optimizer: true,
   ...(mode === 'i2v' && imageUrl ? { first_frame_image: imageUrl } : {}),
 });
 
-const minimax02BuildInput = ({ prompt, duration, imageUrl, mode }: CreateInputParams) => ({
-  prompt, prompt_optimizer: true,
-  ...(duration ? { duration } : {}),
-  ...(mode === 'i2v' && imageUrl ? { first_frame_image: imageUrl } : {}),
+// Hailuo 02 / 2.3 inputs per fal.ai docs (verified April 2026):
+// https://fal.ai/models/fal-ai/minimax/hailuo-02/pro/image-to-video/api
+// https://fal.ai/models/fal-ai/minimax/hailuo-2.3-fast/pro/image-to-video/api
+//   - required: prompt (string), image_url (string, for i2v only)
+//   - optional: prompt_optimizer (bool), end_image_url (string)
+//   - NOT supported: duration, aspect_ratio, resolution — the schema rejects these.
+// Previous builder sent `first_frame_image` (wrong) and `duration` (rejected),
+// which caused every Hailuo job to fail with an API validation error.
+const minimax02BuildInput = ({ prompt, imageUrl, endImageUrl, mode }: CreateInputParams) => ({
+  prompt,
+  prompt_optimizer: true,
+  ...(mode === 'i2v' && imageUrl ? { image_url: imageUrl } : {}),
+  ...(mode === 'i2v' && endImageUrl ? { end_image_url: endImageUrl } : {}),
 });
 
 const wanBuildInput = ({ prompt, aspectRatio, imageUrl, endImageUrl, mode }: CreateInputParams) => ({
@@ -333,8 +361,24 @@ const CREATE_MODELS: CreateModelDef[] = [
   },
   // ── Seedance ──────────────────────────────────────────────────────────
   {
-    key: 'seedance-15-pro', name: 'Seedance 1.5 Pro', badge: 'NEW', badgeColor: 'bg-[#c8ff00] text-black',
-    description: 'Latest Seedance — 720p with audio generation.', group: 'Seedance',
+    key: 'seedance-20', name: 'Seedance 2.0', badge: 'NEW', badgeColor: 'bg-[#c8ff00] text-black',
+    description: "ByteDance's latest — native audio, director-level camera control.", group: 'Seedance',
+    t2vId: 'fal-ai/bytedance/seedance-2.0/text-to-video', i2vId: 'fal-ai/bytedance/seedance-2.0/image-to-video',
+    supportsT2V: true, supportsI2V: true, hasAudio: true, isExclusive: false, isEditModel: false,
+    durationRange: '4s-15s', durationOptions: [4, 5, 6, 8, 10, 12, 15], aspectRatios: ['21:9', '16:9', '4:3', '1:1', '3:4', '9:16'],
+    resolution: '720p', buildInput: seedance20BuildInput,
+  },
+  {
+    key: 'seedance-20-fast', name: 'Seedance 2.0 Fast', badge: 'NEW', badgeColor: 'bg-[#c8ff00] text-black',
+    description: 'Faster Seedance 2.0 — lower cost, same cinematic output.', group: 'Seedance',
+    t2vId: 'fal-ai/bytedance/seedance-2.0/fast/text-to-video', i2vId: 'fal-ai/bytedance/seedance-2.0/fast/image-to-video',
+    supportsT2V: true, supportsI2V: true, hasAudio: true, isExclusive: false, isEditModel: false,
+    durationRange: '4s-15s', durationOptions: [4, 5, 6, 8, 10, 12, 15], aspectRatios: ['21:9', '16:9', '4:3', '1:1', '3:4', '9:16'],
+    resolution: '720p', buildInput: seedance20BuildInput,
+  },
+  {
+    key: 'seedance-15-pro', name: 'Seedance 1.5 Pro', badge: '', badgeColor: '',
+    description: 'Seedance 1.5 — 720p with audio generation.', group: 'Seedance',
     t2vId: 'fal-ai/bytedance/seedance/v1.5/pro/text-to-video', i2vId: 'fal-ai/bytedance/seedance/v1.5/pro/image-to-video',
     supportsT2V: true, supportsI2V: true, hasAudio: true, isExclusive: false, isEditModel: false,
     durationRange: '4s-12s', durationOptions: [4, 5, 6, 8, 10, 12], aspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'],
@@ -398,6 +442,7 @@ const FEATURED_TAB_MODELS = [
   { label: 'Sora 2', key: 'sora-2' },
   { label: 'Wan 2.6', key: 'wan-26' },
   { label: 'Hailuo 2.3', key: 'hailuo-23' },
+  { label: 'Seedance 2.0', key: 'seedance-20' },
   { label: 'Seedance 1.5', key: 'seedance-15-pro' },
 ];
 
