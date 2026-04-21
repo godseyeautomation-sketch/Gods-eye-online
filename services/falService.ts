@@ -180,9 +180,16 @@ export const submitJob = async (modelId: string, input: Record<string, any>): Pr
   };
 };
 
-/** Poll job status using the status_url returned by submitJob */
+/** Poll job status using the status_url returned by submitJob.
+ *  Passes logs=1 so fal.ai returns its internal log messages (queue position,
+ *  model-side progress, rejection reasons). Without this flag the caller only
+ *  sees 'IN_PROGRESS' for the entire run and has no diagnostic info when a
+ *  job hangs. */
 export const pollStatus = async (statusUrl: string): Promise<FalQueueResult> => {
-  const res = await fetch(statusUrl, { method: 'GET' });
+  const url = statusUrl.includes('?')
+    ? `${statusUrl}&logs=1`
+    : `${statusUrl}?logs=1`;
+  const res = await fetch(url, { method: 'GET' });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(errMsg(err?.detail) || `Status poll failed: ${res.status}`);
@@ -339,7 +346,10 @@ export const generateVideo = async ({
 
   let elapsed = 0;
   const POLL_INTERVAL = 4000;
-  const MAX_WAIT = 600000;
+  // 5 min cap — video models should finish in 60-180s. If it's still running
+  // past 5 min something is wrong on fal's side and the user should retry.
+  const MAX_WAIT = 300000;
+  let lastLogMessage = '';
 
   while (elapsed < MAX_WAIT) {
     if (signal?.aborted) throw new Error('Generation cancelled.');
@@ -349,12 +359,24 @@ export const generateVideo = async ({
 
     const status = await pollStatus(statusUrl);
 
+    // Capture the most recent log line from fal's internal pipeline so the
+    // user can see what's actually happening (queue wait vs model inference
+    // vs waiting on storage, etc.) instead of a generic 'Generating...'.
+    const latestLog = status.logs && status.logs.length > 0
+      ? status.logs[status.logs.length - 1]?.message
+      : undefined;
+    if (latestLog && latestLog !== lastLogMessage) {
+      console.log('[falService] fal log:', latestLog);
+      lastLogMessage = latestLog;
+    }
+
     if (status.status === 'IN_QUEUE') {
       const pos = status.queue_position != null ? ` (position ${status.queue_position})` : '';
       onStatus('queued', `In queue${pos}…`);
     } else if (status.status === 'IN_PROGRESS') {
       const secs = Math.round(elapsed / 1000);
-      onStatus('processing', `Generating… ${secs}s`);
+      const logSuffix = latestLog ? ` — ${latestLog.slice(0, 60)}` : '';
+      onStatus('processing', `Generating… ${secs}s${logSuffix}`);
     } else if (status.status === 'COMPLETED') {
       onStatus('processing', 'Fetching result…');
       const result = await fetchResult(responseUrl);
@@ -362,9 +384,13 @@ export const generateVideo = async ({
       onStatus('done');
       return url;
     } else if (status.status === 'FAILED') {
-      throw new Error('Video generation failed on fal.ai servers. Try again or switch model.');
+      // Surface fal's own error log line if present — much more actionable
+      // than a generic "failed on servers" message.
+      const reason = latestLog || 'Video generation failed on fal.ai servers.';
+      throw new Error(reason);
     }
   }
 
-  throw new Error('Generation timed out after 10 minutes.');
+  const tail = lastLogMessage ? ` Last log: ${lastLogMessage}` : '';
+  throw new Error(`Generation timed out after 5 minutes.${tail} Try again or switch to a Fast variant.`);
 };
