@@ -4,8 +4,10 @@ import {
     Eraser,
     Hand,
     Undo2,
+    Redo2,
     Download,
     Plus,
+    Minus,
     X,
     Loader2,
     Sparkles,
@@ -491,16 +493,30 @@ export const EditPage: React.FC<EditPageProps> = ({ initialImage, onAssetGenerat
         setIsDragging(false);
     };
 
-    const handleWheel = (e: React.WheelEvent) => {
-        if (!baseImage) return;
-        const zoomSpeed = 0.001;
-        const newScale = Math.max(0.01, Math.min(10, scale - e.deltaY * zoomSpeed));
-        setScale(newScale);
-    };
+    // Zoom controls — explicit +/- buttons only (mouse-wheel zoom intentionally disabled)
+    const ZOOM_MIN = 0.1;
+    const ZOOM_MAX = 4;
+    const ZOOM_STEP = 0.1;
+    const clampZoom = (v: number) => Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, Number(v.toFixed(2))));
+    const handleZoomIn = () => setScale(prev => clampZoom(prev + ZOOM_STEP));
+    const handleZoomOut = () => setScale(prev => clampZoom(prev - ZOOM_STEP));
+    const handleZoomReset = () => setScale(1);
 
     const handleUndo = () => {
         if (historyStep > 0) {
             const newStep = historyStep - 1;
+            const canvas = canvasRef.current;
+            if (canvas) {
+                const ctx = canvas.getContext('2d');
+                if (ctx) ctx.putImageData(history[newStep], 0, 0);
+            }
+            setHistoryStep(newStep);
+        }
+    };
+
+    const handleRedo = () => {
+        if (historyStep < history.length - 1) {
+            const newStep = historyStep + 1;
             const canvas = canvasRef.current;
             if (canvas) {
                 const ctx = canvas.getContext('2d');
@@ -669,7 +685,7 @@ export const EditPage: React.FC<EditPageProps> = ({ initialImage, onAssetGenerat
     };
 
     return (
-        <div className="relative w-full h-full bg-bg overflow-hidden flex items-center justify-center pt-40" ref={containerRef} onWheel={handleWheel}>
+        <div className="relative w-full h-full bg-bg overflow-hidden flex items-center justify-center pt-40" ref={containerRef}>
             <div className="absolute top-32 left-1/2 transform -translate-x-1/2 z-50 bg-panel border border-border rounded-full px-4 py-2 flex items-center gap-4 shadow-lg">
                 <div className="flex items-center gap-2">
                     <button onClick={() => setTool('paint')} className={`p-2 rounded-full transition-colors ${tool === 'paint' ? 'bg-brand text-bg' : 'text-text-secondary hover:text-text-primary'}`} title="Paint"><Pen size={18} /></button>
@@ -709,7 +725,46 @@ export const EditPage: React.FC<EditPageProps> = ({ initialImage, onAssetGenerat
                 <div className="w-px h-4 bg-border" />
 
                 <div className="flex items-center gap-2">
-                    <button onClick={handleUndo} className="p-2 rounded-full text-text-secondary hover:text-text-primary transition-colors" title="Undo"><Undo2 size={18} /></button>
+                    <button
+                        onClick={handleUndo}
+                        disabled={historyStep <= 0}
+                        className="p-2 rounded-full text-text-secondary hover:text-text-primary transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:text-text-secondary"
+                        title="Undo"
+                    ><Undo2 size={18} /></button>
+                    <button
+                        onClick={handleRedo}
+                        disabled={historyStep >= history.length - 1}
+                        className="p-2 rounded-full text-text-secondary hover:text-text-primary transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:text-text-secondary"
+                        title="Redo"
+                    ><Redo2 size={18} /></button>
+                </div>
+
+                <div className="w-px h-4 bg-border" />
+
+                {/* Zoom controls */}
+                <div className="flex items-center gap-1">
+                    <button
+                        onClick={handleZoomOut}
+                        disabled={scale <= ZOOM_MIN + 0.001}
+                        className="p-2 rounded-full text-text-secondary hover:text-text-primary transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:text-text-secondary"
+                        title="Zoom out"
+                    ><Minus size={18} /></button>
+                    <button
+                        onClick={handleZoomReset}
+                        className="px-2 py-1 rounded-full text-xs font-semibold text-text-secondary hover:text-text-primary hover:bg-white/[0.04] transition-colors tabular-nums min-w-[3.25rem] text-center"
+                        title="Reset zoom to 100%"
+                    >{Math.round(scale * 100)}%</button>
+                    <button
+                        onClick={handleZoomIn}
+                        disabled={scale >= ZOOM_MAX - 0.001}
+                        className="p-2 rounded-full text-text-secondary hover:text-text-primary transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:text-text-secondary"
+                        title="Zoom in"
+                    ><Plus size={18} /></button>
+                </div>
+
+                <div className="w-px h-4 bg-border" />
+
+                <div className="flex items-center gap-2">
                     <button onClick={handleDownload} className="p-2 rounded-full text-text-secondary hover:text-text-primary transition-colors" title="Download"><Download size={18} /></button>
                     {baseImage && <BrainActions imageUrl={baseImage} prompt={config.prompt || 'Edited Image'} />}
                 </div>
