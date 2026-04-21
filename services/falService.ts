@@ -365,6 +365,12 @@ export const generateVideo = async ({
     const latestLog = status.logs && status.logs.length > 0
       ? status.logs[status.logs.length - 1]?.message
       : undefined;
+    // Log every poll so we can confirm polling is running even when fal
+    // doesn't emit log lines. Helps diagnose hung jobs vs silent fal.
+    console.log('[falService] poll', Math.round(elapsed / 1000) + 's',
+      'status:', status.status,
+      'queue_position:', status.queue_position ?? '—',
+      'logs:', status.logs?.length ?? 0);
     if (latestLog && latestLog !== lastLogMessage) {
       console.log('[falService] fal log:', latestLog);
       lastLogMessage = latestLog;
