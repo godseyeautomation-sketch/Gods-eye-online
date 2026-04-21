@@ -280,8 +280,10 @@ export const EditPage: React.FC<EditPageProps> = ({ initialImage, onAssetGenerat
             const maskData = canvas.toDataURL('image/png');
             const imageData = baseImage || originalImage || DEFAULT_IMAGE;
 
-            // Call editImage with the enriched final prompt and the optimal ratio
-            const resultBase64 = await editImage(imageData, maskData, finalPrompt, config.model, optimalRatio, referenceAssets, config.harmonize || false);
+            // Call editImage with the enriched final prompt and the optimal ratio.
+            // saveToGallery=false so iterative canvas edits stay local — user pushes
+            // the final result via the "Save to Gallery" toolbar button.
+            const resultBase64 = await editImage(imageData, maskData, finalPrompt, config.model, optimalRatio, referenceAssets, config.harmonize || false, false);
 
             if (resultBase64 && resultBase64.startsWith('data:image')) {
                 // Perform client-side compositing:
@@ -419,8 +421,12 @@ export const EditPage: React.FC<EditPageProps> = ({ initialImage, onAssetGenerat
             if (!ctx) return;
             ctx.beginPath();
             ctx.arc(x, y, (20 / scale), 0, Math.PI * 2);
-            ctx.fillStyle = tool === 'erase' ? 'rgba(0,0,0,1)' : brushColor;
-            ctx.globalCompositeOperation = tool === 'erase' ? 'destination-out' : 'source-over';
+            // Eraser paints a distinctive red "remove this" mask. The click-and-done
+            // flow in handleGenerate ships this mask with an auto-prompt telling the
+            // model to remove whatever was painted. (Previously this tool used
+            // destination-out which erased existing paint — confusing behavior.)
+            ctx.fillStyle = tool === 'erase' ? 'rgba(239, 68, 68, 0.55)' : brushColor;
+            ctx.globalCompositeOperation = 'source-over';
             ctx.fill();
         }
     };
@@ -499,8 +505,10 @@ export const EditPage: React.FC<EditPageProps> = ({ initialImage, onAssetGenerat
             ctx.lineWidth = 40 / scale;
             ctx.lineCap = 'round';
             ctx.lineJoin = 'round';
-            ctx.globalCompositeOperation = tool === 'erase' ? 'destination-out' : 'source-over';
-            ctx.strokeStyle = tool === 'erase' ? 'rgba(255, 255, 255, 1)' : brushColor;
+            // Eraser paints a red "remove" mask (see note above). Must match the
+            // mousedown handler's stroke style to stay consistent.
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.strokeStyle = tool === 'erase' ? 'rgba(239, 68, 68, 0.55)' : brushColor;
             ctx.stroke();
             setLastPos({ x, y });
         }

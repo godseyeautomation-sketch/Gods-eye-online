@@ -49,9 +49,11 @@ async function resolveToBase64(uiUrl: string): Promise<string | null> {
   return null;
 }
 
-async function processAndSave(base64Image: string, userId: string, prompt: string, _isByok: boolean): Promise<string> {
+async function processAndSave(base64Image: string, userId: string, prompt: string, _isByok: boolean, saveToGallery: boolean = true): Promise<string> {
   const inputDataUrl = base64Image.startsWith('data:') ? base64Image : `data:image/jpeg;base64,${base64Image}`;
-  await saveToLocalGallery(inputDataUrl, prompt, '1:1', 'gemini-edit', userId);
+  if (saveToGallery) {
+    await saveToLocalGallery(inputDataUrl, prompt, '1:1', 'gemini-edit', userId);
+  }
   return inputDataUrl;
 }
 
@@ -104,7 +106,14 @@ export const editImage = async (
   model: string,
   aspectRatio: string = '1:1',
   referenceImages: string[] = [],
-  harmonize: boolean = false
+  harmonize: boolean = false,
+  /**
+   * When true (default), the edited result is persisted to the local gallery
+   * (IndexedDB). The Edit page passes `false` so iterative canvas edits don't
+   * flood the gallery — users push a final result via the "Save to Gallery"
+   * toolbar button instead.
+   */
+  saveToGallery: boolean = true
 ): Promise<string> => {
   try {
     console.log(`[Edit] Model: ${model}, Ratio: ${aspectRatio}, Refs: ${referenceImages.length}`);
@@ -200,7 +209,7 @@ export const editImage = async (
     // D. Process & Save
     const { data: { user } } = await supabase.auth.getUser();
     if (user) {
-      return await processAndSave(resultB64, user.id, prompt, false);
+      return await processAndSave(resultB64, user.id, prompt, false, saveToGallery);
     }
 
     return `data:image/jpeg;base64,${resultB64}`; // Return base64 if no user
