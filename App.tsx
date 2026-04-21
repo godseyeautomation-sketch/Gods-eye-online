@@ -582,9 +582,20 @@ const App: React.FC = () => {
       aspectRatio: "Custom",
       createdAt: Date.now()
     };
-    // Only reached via the explicit "Save to Gallery" button in EditPage now.
-    // No lightbox — the user already reviewed the result on the canvas.
+    // Push into in-memory state so the Image tab shows it immediately.
     setGeneratedAssets(prev => [newAsset, ...prev]);
+    // Persist to IndexedDB so it survives tab switches / page reloads. The
+    // Image tab's useEffect reloads from IndexedDB on every visit — without
+    // this, force-saved canvas snapshots (stickers, etc.) would vanish.
+    (async () => {
+      try {
+        const { saveToLocalGallery } = await import('./services/localStorageService');
+        const userId = session?.user?.id || 'anonymous';
+        await saveToLocalGallery(url, prompt, 'Custom', 'Gemini 3.0 Pro (Edit)', userId);
+      } catch (err) {
+        console.warn('[App] Edit save to IndexedDB failed:', err);
+      }
+    })();
   };
 
   const handleUseSketch = (base64: string) => {

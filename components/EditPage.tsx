@@ -281,8 +281,11 @@ export const EditPage: React.FC<EditPageProps> = ({ initialImage, onAssetGenerat
             const imageData = baseImage || originalImage || DEFAULT_IMAGE;
 
             // Call editImage with the enriched final prompt and the optimal ratio.
-            // saveToGallery=false so iterative canvas edits stay local — user pushes
-            // the final result via the "Save to Gallery" toolbar button.
+            // saveToGallery=false: the service only sees the raw AI patch (pre-
+            // composite), so we skip its auto-save and persist the CLIENT-SIDE
+            // composite below via onAssetGenerated → handleAssetGeneratedFromEdit
+            // → saveToLocalGallery. That way the gallery shows the correct blended
+            // image, not the raw masked patch.
             const resultBase64 = await editImage(imageData, maskData, finalPrompt, config.model, optimalRatio, referenceAssets, config.harmonize || false, false);
 
             if (resultBase64 && resultBase64.startsWith('data:image')) {
@@ -294,15 +297,22 @@ export const EditPage: React.FC<EditPageProps> = ({ initialImage, onAssetGenerat
                 const perfectComposite = await applyMaskComposite(originalImage || DEFAULT_IMAGE, maskData, resultBase64);
 
                 // Update the canvas with the new composite so the user sees the edit
-                // immediately and can keep working on top of it. We intentionally do
-                // NOT auto-save to the gallery or open a lightbox here — use the
-                // "Save to Gallery" button in the toolbar when the edit is final.
+                // immediately and can keep working on top of it.
                 setBaseImage(perfectComposite);
 
                 // Clear the drawing (mask) since it's been consumed
                 setHistoryStep(-1);
                 setHistory([]);
                 saveHistory();
+
+                // Also push to the in-memory gallery so the Image tab shows it
+                // without needing a manual refresh. editImage() already persisted
+                // the composite to IndexedDB via saveToLocalGallery, so this stays
+                // in sync when the user switches tabs. No lightbox — the user is
+                // already looking at the result on the canvas.
+                if (onAssetGenerated) {
+                    onAssetGenerated(perfectComposite, effectivePrompt);
+                }
             }
         } catch (error: any) {
             console.error("Edit generation failed:", error);
