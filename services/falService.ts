@@ -173,11 +173,15 @@ export const submitJob = async (modelId: string, input: Record<string, any>): Pr
   const data = await safeJson(res, 'submit');
   if (!data.request_id) throw new Error('fal.ai returned no request_id. Check your FAL_KEY and model ID.');
 
-  return {
+  const result = {
     requestId: data.request_id,
     statusUrl: toProxiedUrl(data.status_url),
     responseUrl: toProxiedUrl(data.response_url),
   };
+  console.log('[falService] submitJob ← request_id:', result.requestId,
+    'statusUrl:', result.statusUrl,
+    'responseUrl:', result.responseUrl);
+  return result;
 };
 
 /** Poll job status using the status_url returned by submitJob.
@@ -343,6 +347,7 @@ export const generateVideo = async ({
 }: GenerateVideoOptions): Promise<string> => {
   onStatus('submitting', 'Uploading assets & submitting to fal.ai…');
   const { statusUrl, responseUrl } = await submitJob(modelId, input);
+  console.log('[falService] generateVideo entering poll loop with statusUrl:', statusUrl);
 
   let elapsed = 0;
   const POLL_INTERVAL = 4000;
@@ -357,7 +362,13 @@ export const generateVideo = async ({
     await new Promise(r => setTimeout(r, POLL_INTERVAL));
     elapsed += POLL_INTERVAL;
 
-    const status = await pollStatus(statusUrl);
+    let status: FalQueueResult;
+    try {
+      status = await pollStatus(statusUrl);
+    } catch (err: any) {
+      console.error('[falService] poll threw:', err?.message || err);
+      throw err;
+    }
 
     // Capture the most recent log line from fal's internal pipeline so the
     // user can see what's actually happening (queue wait vs model inference
