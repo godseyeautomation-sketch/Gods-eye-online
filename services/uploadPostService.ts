@@ -126,18 +126,25 @@ export async function getUploadStatus(requestId: string): Promise<UploadStatus> 
   return res.json();
 }
 
-/** Get upload history */
-export async function getHistory(page = 1, limit = 20): Promise<any> {
-  const res = await fetch(`/api/upload-post/history?page=${page}&limit=${limit}`);
+/** Get upload history — `userId` is required for server-side filtering to
+ *  just the caller's owned profiles. Omitting it returns an empty list. */
+export async function getHistory(page = 1, limit = 20, userId?: string): Promise<any> {
+  const qs = new URLSearchParams({ page: String(page), limit: String(limit) });
+  if (userId) qs.set('user_id', userId);
+  const res = await fetch(`/api/upload-post/history?${qs.toString()}`, {
+    headers: userId ? { 'x-user-id': userId } : undefined,
+  });
   if (!res.ok) throw new Error('Failed to get history');
   return res.json();
 }
 
 // ── Schedule Management ──────────────────────────────────────────────────────
 
-/** List scheduled posts */
-export async function getScheduledPosts(): Promise<ScheduledPost[]> {
-  const res = await fetch('/api/upload-post/schedule');
+/** List scheduled posts — `userId` required for server-side filtering. */
+export async function getScheduledPosts(userId?: string): Promise<ScheduledPost[]> {
+  const res = await fetch('/api/upload-post/schedule', {
+    headers: userId ? { 'x-user-id': userId } : undefined,
+  });
   if (!res.ok) throw new Error('Failed to get scheduled posts');
   const data = await res.json();
   return data.data || data.scheduled_posts || data || [];
@@ -208,7 +215,9 @@ export async function getTotalImpressions(profileUsername: string): Promise<any>
 /** List connected social profiles (filtered by userId) */
 export async function getProfiles(userId?: string): Promise<SocialProfile[]> {
   const qs = userId ? `?user_id=${encodeURIComponent(userId)}` : '';
-  const res = await fetch(`/api/upload-post/users${qs}`);
+  const res = await fetch(`/api/upload-post/users${qs}`, {
+    headers: userId ? { 'x-user-id': userId } : undefined,
+  });
   if (!res.ok) throw new Error('Failed to get profiles');
   const data = await res.json();
   return data.profiles || data.data || data.users || [];
@@ -243,9 +252,11 @@ export async function generateConnectUrl(username: string, options?: {
 
 /** Create a new social profile (tagged with userId for isolation) */
 export async function createProfile(profile: { username: string; platform?: string; user_id?: string }): Promise<SocialProfile> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (profile.user_id) headers['x-user-id'] = profile.user_id;
   const res = await fetch('/api/upload-post/users', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify(profile),
   });
   if (!res.ok) {
@@ -257,9 +268,11 @@ export async function createProfile(profile: { username: string; platform?: stri
 
 /** Delete a social profile */
 export async function deleteProfile(username: string, userId?: string): Promise<void> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (userId) headers['x-user-id'] = userId;
   const res = await fetch('/api/upload-post/users', {
     method: 'DELETE',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify({ username, user_id: userId }),
   });
   if (!res.ok) throw new Error('Failed to delete profile');

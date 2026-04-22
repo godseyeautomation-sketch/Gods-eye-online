@@ -825,11 +825,48 @@ app.get('/api/upload-post/status', (req, res) => {
   const qs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
   proxyUploadPost(req, res, 'GET', `/api/uploadposts/status${qs}`);
 });
-app.get('/api/upload-post/history', (req, res) => {
-  const qs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
-  proxyUploadPost(req, res, 'GET', `/api/uploadposts/history${qs}`);
+// History — server-side filter by the caller's owned profiles
+app.get('/api/upload-post/history', async (req, res) => {
+  try {
+    if (!uploadPostApiKey) return res.status(500).json({ error: 'UPLOAD_POST_API_KEY not configured' });
+    const userId = callerUserId(req);
+    const owned = new Set(await getOwnedUsernames(userId));
+    const qs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+    const resp = await fetch(`${UPLOAD_POST_BASE}/api/uploadposts/history${qs}`, {
+      headers: { 'Authorization': `Apikey ${uploadPostApiKey}` },
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (Array.isArray(data?.history)) {
+      data.history = data.history.filter(h => !h.profile || owned.has(h.profile));
+    }
+    res.status(resp.status).json(data);
+  } catch (err) {
+    console.error('[Upload-Post] history filter error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
-app.get('/api/upload-post/schedule', (req, res) => proxyUploadPost(req, res, 'GET', '/api/uploadposts/schedule'));
+
+// Schedule — server-side filter by the caller's owned profiles
+app.get('/api/upload-post/schedule', async (req, res) => {
+  try {
+    if (!uploadPostApiKey) return res.status(500).json({ error: 'UPLOAD_POST_API_KEY not configured' });
+    const userId = callerUserId(req);
+    const owned = new Set(await getOwnedUsernames(userId));
+    const resp = await fetch(`${UPLOAD_POST_BASE}/api/uploadposts/schedule`, {
+      headers: { 'Authorization': `Apikey ${uploadPostApiKey}` },
+    });
+    const data = await resp.json().catch(() => ({}));
+    for (const key of ['scheduled_posts', 'schedule', 'posts']) {
+      if (Array.isArray(data?.[key])) {
+        data[key] = data[key].filter(p => !p.profile || owned.has(p.profile));
+      }
+    }
+    res.status(resp.status).json(data);
+  } catch (err) {
+    console.error('[Upload-Post] schedule filter error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
 app.delete('/api/upload-post/schedule/:jobId', (req, res) => proxyUploadPost(req, res, 'DELETE', `/api/uploadposts/schedule/${req.params.jobId}`));
 app.patch('/api/upload-post/schedule/:jobId', (req, res) => proxyUploadPost(req, res, 'PATCH', `/api/uploadposts/schedule/${req.params.jobId}`, req.body));
 app.get('/api/upload-post/queue/settings', (req, res) => proxyUploadPost(req, res, 'GET', '/api/uploadposts/queue/settings'));
@@ -841,109 +878,204 @@ app.get('/api/upload-post/impressions/:username', (req, res) => proxyUploadPost(
 app.get('/api/upload-post/facebook/pages', (req, res) => { const qs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : ''; proxyUploadPost(req, res, 'GET', `/api/uploadposts/facebook/pages${qs}`); });
 app.get('/api/upload-post/linkedin/pages', (req, res) => { const qs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : ''; proxyUploadPost(req, res, 'GET', `/api/uploadposts/linkedin/pages${qs}`); });
 app.get('/api/upload-post/pinterest/boards', (req, res) => { const qs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : ''; proxyUploadPost(req, res, 'GET', `/api/uploadposts/pinterest/boards${qs}`); });
-// ── User-scoped social profile management ────────────────────────────────────
-// The external Upload-Post API returns ALL profiles under the API key.
-// We maintain a local mapping (userId → [usernames]) so each user only sees their own.
+// ── User-scoped social profile management (Supabase-backed) ──────────────────
+// Upload-Post hosts all profiles in a single shared workspace, so the server
+// must filter responses down to the caller's owned profiles. Ownership lives
+// in public.social_profile_owners (see supabase/social_profile_owners_migration.sql).
+// We keep a local JSON fallback for offline-dev situations only.
 const SOCIAL_PROFILE_OWNERS_FILE = path.join(SYNC_DIR, 'social-profile-owners.json');
 
-function readProfileOwners() {
-  try { return JSON.parse(fs.readFileSync(SOCIAL_PROFILE_OWNERS_FILE, 'utf-8')); } catch { return {}; }
+async function getOwnedUsernames(userId) {
+  if (!userId) return [];
+  try {
+    const rows = await supabaseRest(
+      `social_profile_owners?user_id=eq.${encodeURIComponent(userId)}&select=upload_post_username`
+    );
+    if (Array.isArray(rows)) return rows.map(r => r.upload_post_username).filter(Boolean);
+  } catch (err) {
+    console.warn('[Upload-Post] Supabase owner lookup failed, falling back to local file:', err.message);
+  }
+  try {
+    const raw = JSON.parse(fs.readFileSync(SOCIAL_PROFILE_OWNERS_FILE, 'utf-8'));
+    return Array.isArray(raw?.[userId]) ? raw[userId] : [];
+  } catch { return []; }
 }
-function writeProfileOwners(data) {
-  fs.writeFileSync(SOCIAL_PROFILE_OWNERS_FILE, JSON.stringify(data, null, 2), 'utf-8');
+
+async function recordOwnership(userId, username) {
+  if (!userId || !username) return;
+  try {
+    await supabaseRest('social_profile_owners', 'POST', {
+      user_id: userId,
+      upload_post_username: username,
+    });
+    return;
+  } catch (err) {
+    console.warn('[Upload-Post] Supabase owner insert failed, writing local fallback:', err.message);
+  }
+  try {
+    let raw = {};
+    try { raw = JSON.parse(fs.readFileSync(SOCIAL_PROFILE_OWNERS_FILE, 'utf-8')); } catch {}
+    if (!Array.isArray(raw[userId])) raw[userId] = [];
+    if (!raw[userId].includes(username)) raw[userId].push(username);
+    fs.mkdirSync(path.dirname(SOCIAL_PROFILE_OWNERS_FILE), { recursive: true });
+    fs.writeFileSync(SOCIAL_PROFILE_OWNERS_FILE, JSON.stringify(raw, null, 2));
+  } catch (err) {
+    console.error('[Upload-Post] Local owner write failed:', err.message);
+  }
+}
+
+async function removeOwnership(userId, username) {
+  if (!userId || !username) return;
+  try {
+    await supabaseRest(
+      `social_profile_owners?user_id=eq.${encodeURIComponent(userId)}&upload_post_username=eq.${encodeURIComponent(username)}`,
+      'DELETE'
+    );
+  } catch (err) {
+    console.warn('[Upload-Post] Supabase owner delete failed:', err.message);
+  }
+  try {
+    const raw = JSON.parse(fs.readFileSync(SOCIAL_PROFILE_OWNERS_FILE, 'utf-8'));
+    if (Array.isArray(raw[userId])) {
+      raw[userId] = raw[userId].filter(u => u !== username);
+      fs.writeFileSync(SOCIAL_PROFILE_OWNERS_FILE, JSON.stringify(raw, null, 2));
+    }
+  } catch {}
+}
+
+function callerUserId(req) {
+  return req.headers['x-user-id']
+    || req.query?.user_id
+    || req.body?.user_id
+    || null;
 }
 
 // POST /api/upload-post/users — create profile and record ownership
 app.post('/api/upload-post/users', async (req, res) => {
   try {
-    const { user_id, ...profileData } = req.body || {};
-    // Proxy to external API (without user_id — it doesn't know about it)
     if (!uploadPostApiKey) return res.status(500).json({ error: 'UPLOAD_POST_API_KEY not configured' });
-    const url = `${UPLOAD_POST_BASE}/api/uploadposts/users`;
-    const response = await fetch(url, {
+    const userId = callerUserId(req);
+    if (!userId) return res.status(401).json({ error: 'x-user-id header required' });
+
+    const { user_id: _omit, ...profileData } = req.body || {};
+    const response = await fetch(`${UPLOAD_POST_BASE}/api/uploadposts/users`, {
       method: 'POST',
       headers: { 'Authorization': `Apikey ${uploadPostApiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(profileData),
     });
-    const data = await response.text();
-    let parsed;
-    try { parsed = JSON.parse(data); } catch { parsed = data; }
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) return res.status(response.status).json(data);
 
-    // Record ownership if user_id was provided and creation succeeded
-    if (response.ok && user_id && profileData.username) {
-      const owners = readProfileOwners();
-      if (!owners[user_id]) owners[user_id] = [];
-      if (!owners[user_id].includes(profileData.username)) {
-        owners[user_id].push(profileData.username);
-      }
-      writeProfileOwners(owners);
-      console.log(`[Social] Mapped profile "${profileData.username}" → user ${user_id}`);
+    const createdUsername = data?.profile?.username || data?.username || profileData?.username;
+    if (createdUsername) {
+      await recordOwnership(userId, createdUsername);
+      console.log(`[Social] Mapped profile "${createdUsername}" → user ${userId}`);
     }
-
-    res.status(response.status).json(parsed);
+    res.status(response.status).json(data);
   } catch (error) {
+    console.error('[Upload-Post] create profile error:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
 
-// GET /api/upload-post/users?user_id=X — fetch all, filter by ownership
+// GET /api/upload-post/users — returns ONLY the caller's owned profiles
 app.get('/api/upload-post/users', async (req, res) => {
   try {
     if (!uploadPostApiKey) return res.status(500).json({ error: 'UPLOAD_POST_API_KEY not configured' });
-    const url = `${UPLOAD_POST_BASE}/api/uploadposts/users`;
-    const response = await fetch(url, {
+    const userId = callerUserId(req);
+    const owned = new Set(await getOwnedUsernames(userId));
+
+    const response = await fetch(`${UPLOAD_POST_BASE}/api/uploadposts/users`, {
       method: 'GET',
       headers: { 'Authorization': `Apikey ${uploadPostApiKey}`, 'Content-Type': 'application/json' },
     });
-    const data = await response.text();
-    let parsed;
-    try { parsed = JSON.parse(data); } catch { return res.status(response.status).send(data); }
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) return res.status(response.status).json(data);
 
-    const userId = req.query.user_id;
-    if (userId) {
-      const owners = readProfileOwners();
-      const ownedUsernames = owners[userId] || [];
-      const allProfiles = parsed.profiles || parsed.data || parsed.users || [];
-      const filtered = allProfiles.filter(p => ownedUsernames.includes(p.username));
-      // Return in same format as external API
-      if (parsed.profiles) parsed.profiles = filtered;
-      else if (parsed.data) parsed.data = filtered;
-      else if (parsed.users) parsed.users = filtered;
+    if (Array.isArray(data?.profiles)) {
+      data.profiles = data.profiles.filter(p => owned.has(p.username));
+    } else if (Array.isArray(data?.data)) {
+      data.data = data.data.filter(p => owned.has(p.username));
+    } else if (Array.isArray(data?.users)) {
+      data.users = data.users.filter(p => owned.has(p.username));
+    } else if (Array.isArray(data)) {
+      return res.status(response.status).json(data.filter(p => owned.has(p.username)));
     }
-
-    res.status(response.status).json(parsed);
+    res.status(response.status).json(data);
   } catch (error) {
+    console.error('[Upload-Post] list profiles error:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
 
-// DELETE /api/upload-post/users — delete profile and remove ownership
+// DELETE /api/upload-post/users — guard ownership, delete, drop mapping
 app.delete('/api/upload-post/users', async (req, res) => {
   try {
-    const { user_id, ...deleteData } = req.body || {};
     if (!uploadPostApiKey) return res.status(500).json({ error: 'UPLOAD_POST_API_KEY not configured' });
-    const url = `${UPLOAD_POST_BASE}/api/uploadposts/users`;
-    const response = await fetch(url, {
+    const userId = callerUserId(req);
+    if (!userId) return res.status(401).json({ error: 'x-user-id header required' });
+
+    const { user_id: _omit, ...deleteData } = req.body || {};
+    const username = deleteData?.username;
+    if (!username) return res.status(400).json({ error: 'username required' });
+
+    const owned = await getOwnedUsernames(userId);
+    if (!owned.includes(username)) {
+      return res.status(403).json({ error: 'You do not own this profile.' });
+    }
+
+    const response = await fetch(`${UPLOAD_POST_BASE}/api/uploadposts/users`, {
       method: 'DELETE',
       headers: { 'Authorization': `Apikey ${uploadPostApiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(deleteData),
     });
-    const data = await response.text();
-    let parsed;
-    try { parsed = JSON.parse(data); } catch { parsed = data; }
-
-    // Remove from ownership mapping
-    if (response.ok && deleteData.username) {
-      const owners = readProfileOwners();
-      for (const uid of Object.keys(owners)) {
-        owners[uid] = owners[uid].filter(u => u !== deleteData.username);
-      }
-      writeProfileOwners(owners);
-      console.log(`[Social] Removed profile "${deleteData.username}" from ownership mapping`);
+    const data = await response.json().catch(() => ({}));
+    if (response.ok) {
+      await removeOwnership(userId, username);
+      console.log(`[Social] Removed profile "${username}" from ownership mapping`);
     }
-
-    res.status(response.status).json(parsed);
+    res.status(response.status).json(data);
   } catch (error) {
+    console.error('[Upload-Post] delete profile error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// One-time clean-slate wipe — see server.js for the full rationale. Same
+// route is available in dev so local leaks can be nuked too.
+app.post('/api/admin/upload-post/wipe', async (req, res) => {
+  try {
+    const expected = process.env.ADMIN_WIPE_SECRET;
+    if (!expected) return res.status(503).json({ error: 'ADMIN_WIPE_SECRET not configured on server.' });
+    if (req.headers['x-admin-secret'] !== expected) return res.status(403).json({ error: 'forbidden' });
+    if (!uploadPostApiKey) return res.status(500).json({ error: 'UPLOAD_POST_API_KEY not configured' });
+
+    const listResp = await fetch(`${UPLOAD_POST_BASE}/api/uploadposts/users`, {
+      headers: { 'Authorization': `Apikey ${uploadPostApiKey}` },
+    });
+    const listData = await listResp.json().catch(() => ({}));
+    const profiles = Array.isArray(listData?.profiles) ? listData.profiles
+                    : Array.isArray(listData) ? listData : [];
+    const usernames = profiles.map(p => p.username).filter(Boolean);
+
+    const results = { deleted: [], failed: [] };
+    for (const username of usernames) {
+      try {
+        const delResp = await fetch(`${UPLOAD_POST_BASE}/api/uploadposts/users`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Apikey ${uploadPostApiKey}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username }),
+        });
+        if (delResp.ok) results.deleted.push(username);
+        else results.failed.push({ username, status: delResp.status });
+      } catch (err) { results.failed.push({ username, error: err.message }); }
+    }
+    try { await supabaseRest('social_profile_owners?id=not.is.null', 'DELETE'); } catch {}
+    try { fs.existsSync(SOCIAL_PROFILE_OWNERS_FILE) && fs.unlinkSync(SOCIAL_PROFILE_OWNERS_FILE); } catch {}
+
+    res.json({ ok: true, ...results });
+  } catch (error) {
+    console.error('[Upload-Post] wipe error:', error.message);
     res.status(500).json({ error: error.message });
   }
 });

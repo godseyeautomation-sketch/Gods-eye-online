@@ -91,7 +91,7 @@ export const SocialAccountsPanel: React.FC<Props> = ({ brandName }) => {
   const loadHistory = async () => {
     setLoadingHistory(true);
     try {
-      const data = await getHistory(1, 50);
+      const data = await getHistory(1, 50, userId);
       const allPosts = data.data || data.history || data || [];
       // Filter to only show posts from this user's profiles
       const filtered = ownedUsernames.length > 0
@@ -105,7 +105,7 @@ export const SocialAccountsPanel: React.FC<Props> = ({ brandName }) => {
   const loadScheduled = async () => {
     setLoadingScheduled(true);
     try {
-      const data = await getScheduledPosts();
+      const data = await getScheduledPosts(userId);
       const allScheduled = Array.isArray(data) ? data : [];
       // Filter to only show scheduled posts from this user's profiles
       const filtered = ownedUsernames.length > 0
