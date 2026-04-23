@@ -29,7 +29,8 @@ export enum ModelType {
   SEEDREAM_V45 = 'fal-ai/bytedance/seedream/v4.5/text-to-image', // ByteDance Seedream 4.5 (Latest)
   SEEDREAM_V4 = 'fal-ai/bytedance/seedream/v4/text-to-image',    // ByteDance Seedream 4.0
   SEEDREAM_LITE = 'fal-ai/bytedance/seedream/v3/text-to-image',  // ByteDance Seedream v3 (Legacy)
-  GPT_IMAGE_15 = 'fal-ai/gpt-image-1.5',            // GPT Image 1.5 (OpenAI via fal.ai, Latest)
+  GPT_IMAGE_2 = 'fal-ai/gpt-image-2',               // GPT Image 2 (OpenAI via fal.ai, Apr 2026)
+  GPT_IMAGE_15 = 'fal-ai/gpt-image-1.5',            // GPT Image 1.5 (OpenAI via fal.ai)
   GPT_IMAGE = 'fal-ai/gpt-image-1/text-to-image',   // GPT Image 1 (OpenAI via fal.ai)
   FLUX2 = 'fal-ai/flux-pro/v1.1-ultra',            // FLUX.2 Ultra (Black Forest Labs)
   REVE = 'fal-ai/reve/text-to-image',              // Reve Image 1.0

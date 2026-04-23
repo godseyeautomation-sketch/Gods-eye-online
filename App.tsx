@@ -391,6 +391,41 @@ const App: React.FC = () => {
             // original pixel quality for the Base+Delta edit-chain approach.
             ...(capturedImages[0] ? { image_url: capturedImages[0], image_prompt_strength: 0.75 } : {}),
           };
+        } else if (capturedModel === ModelType.GPT_IMAGE_2) {
+          // GPT Image 2 (OpenAI via fal.ai, Apr 2026):
+          //   T2I endpoint: fal-ai/gpt-image-2
+          //   I2I endpoint: fal-ai/gpt-image-2/edit
+          // Params: prompt, image_size (preset name or {w,h}), quality (low|medium|high),
+          //         num_images, output_format (png|jpeg|webp). For /edit: image_urls (array).
+          // No negative_prompt support. No aspect_ratio — use preset names.
+          const gpt2SizeMap: Record<string, string> = {
+            '1:1': 'square_hd',
+            '16:9': 'landscape_16_9',
+            '9:16': 'portrait_16_9',
+            '4:3': 'landscape_4_3',
+            '3:4': 'portrait_4_3',
+          };
+          const gpt2Size = gpt2SizeMap[capturedAspect] || 'landscape_4_3';
+
+          if (capturedImages[0]) {
+            effectiveModelId = 'fal-ai/gpt-image-2/edit';
+            falInput = {
+              prompt: finalPrompt,
+              image_urls: [capturedImages[0]],
+              image_size: gpt2Size,
+              num_images: capturedBatch || 1,
+              quality: 'high',
+              output_format: 'png',
+            };
+          } else {
+            falInput = {
+              prompt: finalPrompt,
+              image_size: gpt2Size,
+              num_images: capturedBatch || 1,
+              quality: 'high',
+              output_format: 'png',
+            };
+          }
         } else if (capturedModel === ModelType.GPT_IMAGE_15 || capturedModel === ModelType.GPT_IMAGE) {
           // GPT Image 1.5 & 1 use fixed pixel-size strings
           const gptSizeMap: Record<string, string> = {
