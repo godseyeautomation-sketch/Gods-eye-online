@@ -6,6 +6,7 @@ import { AdminPanel } from './components/AdminPanel';
 import { DrawEditor } from './components/DrawEditor';
 import { ImageGallery } from './components/ImageGallery';
 import { ImageLightbox } from './components/ImageLightbox';
+import { GlobalImageDropZone } from './components/GlobalImageDropZone';
 import { ExplorePage } from './components/ExplorePage';
 import { HomePage } from './components/home/HomePage';
 import { VideoPage } from './components/VideoPage';
@@ -598,6 +599,26 @@ const App: React.FC = () => {
     })();
   };
 
+  // Convert dropped image files → base64 data URLs → append to inputImages.
+  // Handles multi-file drops; respects the same pipeline as the + file picker.
+  const handleDroppedImages = async (files: File[]) => {
+    const dataUrls: string[] = [];
+    for (const file of files) {
+      try {
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = (ev) => resolve(ev.target?.result as string);
+          reader.onerror = () => reject(new Error(`Failed to read ${file.name}`));
+          reader.readAsDataURL(file);
+        });
+        dataUrls.push(dataUrl);
+      } catch (err) {
+        console.error('[DropZone] Failed to read file', file.name, err);
+      }
+    }
+    if (dataUrls.length > 0) setInputImages(prev => [...prev, ...dataUrls]);
+  };
+
   const handleUseSketch = (base64: string) => {
     const dataUri = `data:image/png;base64,${base64}`;
     setInputImages(prev => [...prev, dataUri]);
@@ -803,6 +824,14 @@ const App: React.FC = () => {
           onClose={() => setLightboxAsset(null)}
         />
       )}
+
+      {/* Drag-and-drop image attach — active only on tabs where the prompt
+          bar is visible and reference images make sense. Ignored on Home,
+          Explore, Admin, Connectors, etc. to avoid catching accidental drops. */}
+      <GlobalImageDropZone
+        enabled={mode === AppMode.IMAGE || mode === AppMode.EDIT || mode === AppMode.CHARACTER}
+        onDropImages={handleDroppedImages}
+      />
 
     </div>
   );
