@@ -121,6 +121,10 @@ export const AutopilotPage: React.FC = () => {
   const [chainMode, setChainMode] = useState(true); // auto-run next agent after current finishes
   const [scoutApproved, setScoutApproved] = useState(false); // Scout report approval gate
   const [scoutApproving, setScoutApproving] = useState(false);
+  // Reject-with-feedback flow: inline textarea expand + regeneration state
+  const [scoutRejecting, setScoutRejecting] = useState(false);
+  const [scoutRejectOpen, setScoutRejectOpen] = useState(false);
+  const [scoutRejectFeedback, setScoutRejectFeedback] = useState('');
   const [showPriyaModal, setShowPriyaModal] = useState(false); // Priya questionnaire visibility
   const [fullCycleMode, setFullCycleMode] = useState(false); // Run Full Cycle shortcut
   const [priyaPlatformProgress, setPriyaPlatformProgress] = useState<{ total: number; current: number; currentName: string; slotsByPlatform: Record<string, number>; status: string } | null>(null);
@@ -645,6 +649,48 @@ export const AutopilotPage: React.FC = () => {
     setScoutApproving(false);
   };
 
+  // ── Reject Scout with written feedback → regenerates weakness + strategy only ──
+  const rejectScoutReport = async () => {
+    if (!user?.id || !selectedBrandId || scoutRejecting) return;
+    const feedback = scoutRejectFeedback.trim();
+    if (!feedback) {
+      setAgentError('Please describe what needs to change before rejecting.');
+      return;
+    }
+    setScoutRejecting(true);
+    setAgentError(null);
+    try {
+      const res = await fetch('/api/pipeline/scout/reject', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ brand_id: selectedBrandId, feedback }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        setAgentError(`Regenerate failed: ${data.error || 'unknown'}`);
+        setScoutRejecting(false);
+        return;
+      }
+      // Fresh report — mirrors the shape of scoutResult stored after a normal run
+      setScoutResult({
+        filename: data.result.filename,
+        competitors_analyzed: data.result.competitors_analyzed || 0,
+        opportunities: data.result.weakness_data?.weaknesses_opportunities?.length || 0,
+        content_pillars: data.result.content_pillars || 0,
+        hooks_generated: data.result.hooks_generated || 0,
+        generated_at: data.result.generated_at,
+      });
+      setScoutApproved(false);      // new report needs re-approval
+      setScoutRejectOpen(false);    // collapse the textarea
+      setScoutRejectFeedback('');
+      // Refresh brand so scout_report.rejection_count is reflected
+      if (user?.id) getAllBrandProfiles(user.id).then(all => setBrands(all));
+    } catch (err: any) {
+      setAgentError(`Regenerate failed: ${err.message}`);
+    }
+    setScoutRejecting(false);
+  };
+
   // ── Priya questionnaire submission → triggers Priya with the campaign ──
   const handlePriyaQuestionnaireSubmit = (campaign: any) => {
     setShowPriyaModal(false);
@@ -971,36 +1017,143 @@ export const AutopilotPage: React.FC = () => {
             )}
 
             {/* Scout result banner */}
-            {scoutResult && (
-              <div className={`flex items-center gap-3 p-3 rounded-xl border ${scoutApproved ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-brand/5 border-brand/20'}`}>
-                <span className={`text-lg ${scoutApproved ? 'text-emerald-400' : 'text-brand'}`}>
-                  {scoutApproved ? '✓' : '📄'}
-                </span>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-text-primary">
-                    {scoutApproved ? 'Scout Report Approved' : 'Scout Report Ready — Review before Priya starts'}
-                  </p>
-                  <p className="text-xs text-text-secondary truncate">{scoutResult.competitors_analyzed} competitors · {scoutResult.content_pillars} pillars · {scoutResult.hooks_generated} hooks</p>
-                </div>
-                <button onClick={downloadScoutReport} className="px-3 py-2 rounded-xl bg-white/[0.03] hover:bg-white/[0.06] text-text-primary text-xs font-medium border border-white/[0.08] transition flex items-center gap-1.5">
-                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                  Download
-                </button>
-                {!scoutApproved && (
-                  <button
-                    onClick={() => approveScoutReport(true)}
-                    disabled={scoutApproving}
-                    className="px-4 py-2 rounded-xl bg-brand text-bg text-xs font-bold hover:bg-brand-hover transition disabled:opacity-40 flex items-center gap-1.5"
-                  >
-                    {scoutApproving ? (
-                      <><div className="w-3 h-3 rounded-full border-2 border-bg border-t-transparent animate-spin" /> Approving...</>
-                    ) : (
-                      <>✓ Approve & Continue</>
+            {scoutResult && (() => {
+              // Pull platform scrape status + rejection metadata from the active brand's stored report
+              const activeBrand = brands.find(b => b.id === selectedBrandId);
+              const storedReport = activeBrand?.scout_report;
+              const platformStatus: Record<string, { status: string; profiles: number; error?: string }> =
+                (storedReport?.scan_data?.platform_scrape_status || {}) as any;
+              const rejectionCount = storedReport?.rejection_count || 0;
+              const statusEntries = Object.entries(platformStatus);
+              const hasStatus = statusEntries.length > 0;
+              const PLATFORM_EMOJI: Record<string, string> = {
+                instagram: '📸', tiktok: '🎵', facebook: '📘', youtube: '📺', linkedin: '💼', twitter: '𝕏', x: '𝕏',
+              };
+
+              return (
+                <div className={`rounded-xl border ${scoutApproved ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-brand/5 border-brand/20'}`}>
+                  <div className="flex items-center gap-3 p-3">
+                    <span className={`text-lg ${scoutApproved ? 'text-emerald-400' : 'text-brand'}`}>
+                      {scoutApproved ? '✓' : '📄'}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-text-primary flex items-center gap-2">
+                        {scoutApproved ? 'Scout Report Approved' : 'Scout Report Ready — Review before Priya starts'}
+                        {rejectionCount > 0 && (
+                          <span className="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/20">
+                            Rerun #{rejectionCount}
+                          </span>
+                        )}
+                      </p>
+                      <p className="text-xs text-text-secondary truncate">
+                        {scoutResult.competitors_analyzed} competitors · {scoutResult.content_pillars} pillars · {scoutResult.hooks_generated} hooks
+                      </p>
+                    </div>
+                    <button onClick={downloadScoutReport} className="px-3 py-2 rounded-xl bg-white/[0.03] hover:bg-white/[0.06] text-text-primary text-xs font-medium border border-white/[0.08] transition flex items-center gap-1.5">
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                      Download
+                    </button>
+                    {!scoutApproved && !scoutRejectOpen && (
+                      <>
+                        <button
+                          onClick={() => setScoutRejectOpen(true)}
+                          disabled={scoutApproving || scoutRejecting}
+                          className="px-3 py-2 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-400 text-xs font-bold border border-red-500/20 transition disabled:opacity-40 flex items-center gap-1.5"
+                        >
+                          ✗ Reject & Rerun
+                        </button>
+                        <button
+                          onClick={() => approveScoutReport(true)}
+                          disabled={scoutApproving}
+                          className="px-4 py-2 rounded-xl bg-brand text-bg text-xs font-bold hover:bg-brand-hover transition disabled:opacity-40 flex items-center gap-1.5"
+                        >
+                          {scoutApproving ? (
+                            <><div className="w-3 h-3 rounded-full border-2 border-bg border-t-transparent animate-spin" /> Approving...</>
+                          ) : (
+                            <>✓ Approve & Continue</>
+                          )}
+                        </button>
+                      </>
                     )}
-                  </button>
-                )}
-              </div>
-            )}
+                  </div>
+
+                  {/* Platform scrape coverage chips — shows which social networks were actually scraped */}
+                  {hasStatus && (
+                    <div className="flex items-center gap-1.5 flex-wrap px-3 pb-3 -mt-1">
+                      <span className="text-[10px] uppercase tracking-wider text-text-secondary/60 font-semibold mr-1">Coverage:</span>
+                      {statusEntries.map(([platform, info]) => {
+                        const style =
+                          info.status === 'ok'
+                            ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                            : info.status === 'failed'
+                              ? 'bg-red-500/10 text-red-400 border-red-500/20'
+                              : info.status === 'empty'
+                                ? 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                                : 'bg-white/[0.03] text-text-secondary/60 border-white/[0.06]'; // no_handle / skipped
+                        const label =
+                          info.status === 'ok' ? `✓ ${info.profiles}`
+                            : info.status === 'failed' ? '✗ failed'
+                              : info.status === 'empty' ? '⚠ empty'
+                                : info.status === 'no_handle' ? '— no handle'
+                                  : info.status;
+                        return (
+                          <span
+                            key={platform}
+                            title={info.error || `${platform}: ${info.status}`}
+                            className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border ${style} capitalize`}
+                          >
+                            <span>{PLATFORM_EMOJI[platform] || '📱'}</span>
+                            <span>{platform}</span>
+                            <span className="opacity-70">{label}</span>
+                          </span>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Inline reject textarea — click-to-reveal, submit regenerates */}
+                  {!scoutApproved && scoutRejectOpen && (
+                    <div className="px-3 pb-3 space-y-2 border-t border-white/[0.04] pt-3 mt-1">
+                      <label className="text-[11px] text-text-secondary font-semibold uppercase tracking-wider">
+                        What needs to change?
+                      </label>
+                      <textarea
+                        value={scoutRejectFeedback}
+                        onChange={e => setScoutRejectFeedback(e.target.value)}
+                        placeholder="e.g. The positioning is too generic — emphasize our sustainability angle more. The content pillars feel derivative; push for sharper pattern interrupts."
+                        className="w-full px-3 py-2 rounded-xl bg-red-500/5 border border-red-500/20 text-text-primary text-xs placeholder-text-secondary/30 focus:outline-none focus:border-red-500/40 resize-none transition"
+                        rows={3}
+                        autoFocus
+                        disabled={scoutRejecting}
+                      />
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={rejectScoutReport}
+                          disabled={scoutRejecting || !scoutRejectFeedback.trim()}
+                          className="flex-1 py-2 rounded-xl text-xs font-bold bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/20 transition disabled:opacity-40 flex items-center justify-center gap-1.5"
+                        >
+                          {scoutRejecting ? (
+                            <><div className="w-3 h-3 rounded-full border-2 border-red-400 border-t-transparent animate-spin" /> Regenerating… (30–60s)</>
+                          ) : (
+                            <>Submit feedback & Rerun Scout</>
+                          )}
+                        </button>
+                        <button
+                          onClick={() => { setScoutRejectOpen(false); setScoutRejectFeedback(''); }}
+                          disabled={scoutRejecting}
+                          className="px-3 py-2 rounded-xl text-xs font-medium text-text-secondary/50 hover:text-text-secondary hover:bg-white/[0.04] transition disabled:opacity-40"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                      <p className="text-[10px] text-text-secondary/60">
+                        Scout will re-run Steps 2 &amp; 3 (weakness analysis + strategy) with your feedback. Scraped data is reused — no Apify credits spent.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* Priya (Creative Agent) progress / result banner */}
             {runningAgent === 'creative' && (

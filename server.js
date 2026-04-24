@@ -1167,6 +1167,25 @@ app.patch('/api/pipeline/scout/approve', (req, res) => {
   }
 });
 
+// Reject Scout report with written feedback → re-runs Step 2 + Step 3 only,
+// reusing the existing scrape data (no Apify credits spent).
+app.post('/api/pipeline/scout/reject', async (req, res) => {
+  try {
+    const userId = req.headers['x-user-id'];
+    if (!userId) return res.status(401).json({ error: 'x-user-id header required' });
+    const { brand_id, feedback } = req.body || {};
+    if (!brand_id) return res.status(400).json({ error: 'brand_id required' });
+    if (!feedback || !feedback.trim()) return res.status(400).json({ error: 'feedback required' });
+
+    const { regenerateScoutReport } = await import('./services/scoutAgent.js');
+    const result = await regenerateScoutReport(userId, brand_id, feedback.trim());
+    res.json({ ok: true, result });
+  } catch (err) {
+    console.error('[Scout reject] error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Get Priya's progress (per-brand)
 app.get('/api/pipeline/priya-progress/:brandId', (req, res) => {
   const data = readSyncFile(`priya_progress_${req.params.brandId}`);

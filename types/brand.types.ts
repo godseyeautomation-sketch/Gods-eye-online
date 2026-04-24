@@ -24,11 +24,19 @@ export interface BrandCompetitor {
   notes?: string;
 }
 
+/** Per-platform scrape result tracked by Scout so the UI can show coverage chips. */
+export type PlatformScrapeStatus = 'ok' | 'failed' | 'empty' | 'no_handle' | 'skipped';
+export interface PlatformScrapeInfo {
+  status: PlatformScrapeStatus;
+  profiles: number;
+  error?: string;
+}
+
 /** Scout agent's research output — consumed by Priya to generate calendar content. */
 export interface ScoutReport {
   filename: string;           // downloadable .docx filename
   generated_at: string;       // ISO date
-  scan_data: any;             // brand + competitor intel
+  scan_data: any;             // brand + competitor intel (includes platform_scrape_status)
   weakness_data: any;         // opportunities & positioning
   strategy_data: any;         // content pillars, calendar, hooks, scripts (Priya consumes this)
   sources: { title: string; url: string }[];
@@ -38,6 +46,9 @@ export interface ScoutReport {
   /** Gate fields — user must approve before Priya runs */
   awaiting_approval?: boolean;
   approved_at?: string | null;
+  /** Rejection fields — populated when the report was re-generated from user feedback */
+  review_feedback?: string;
+  rejection_count?: number;
 }
 
 /** Priya's campaign setup from the questionnaire modal */
@@ -92,6 +103,8 @@ export interface BrandProfile {
   competitors?: BrandCompetitor[];
   /** Latest Scout research report — consumed by Priya */
   scout_report?: ScoutReport | null;
+  /** Last N previous Scout reports (most-recent last) — kept after user rejects with feedback */
+  scout_report_history?: (ScoutReport & { rejected_at?: string; rejection_reason?: string })[];
   priya_campaign?: PriyaCampaign | null;
   created_at: string;
   updated_at: string;

@@ -148,6 +148,14 @@ async function scanBrandAndCompetitors(brand, competitors, platforms = ['instagr
         return d && Object.keys(d).filter(k => k !== '_error').length > 0;
       });
       console.log(`[Scout] Apify returned data for platforms: ${platformsWithData.join(', ') || 'none'}`);
+      // Log per-platform status for debugging the "na" placeholders
+      for (const p of Object.keys(allScrapedData)) {
+        const d = allScrapedData[p] || {};
+        const profileCount = Object.keys(d).filter(k => k !== '_error').length;
+        if (d._error) console.warn(`[Scout]   ✗ ${p}: FAILED — ${d._error}`);
+        else if (profileCount === 0) console.warn(`[Scout]   ⚠ ${p}: returned 0 profiles (handles may be invalid)`);
+        else console.log(`[Scout]   ✓ ${p}: ${profileCount} profile(s) scraped`);
+      }
       // Maintain legacy apifyData for backward compat (Instagram stats in prompt JSON)
       if (allScrapedData.instagram) apifyData = allScrapedData.instagram;
     } catch (err) {
@@ -155,6 +163,35 @@ async function scanBrandAndCompetitors(brand, competitors, platforms = ['instagr
     }
   } else {
     console.log(`[Scout] No Apify token — using Gemini web search only`);
+  }
+
+  // ── Build per-platform scrape status so we can SHOW the user which platforms
+  // actually returned data vs which failed/were skipped. Previously silent — the
+  // user would see "na" values and have no idea why.
+  const PLATFORMS_MONITORED = ['instagram', 'tiktok', 'facebook', 'youtube', 'twitter', 'linkedin'];
+  const platformScrapeStatus = {};
+  for (const p of PLATFORMS_MONITORED) {
+    const handleKey = p === 'twitter' ? 'x' : p;
+    const brandHandle = (brandHandles[handleKey] || '').trim();
+    const compHandles = competitors
+      .map(c => (c.instagram || c.handle || '').toString())  // best-effort — only checks IG for the "any handle?" test
+      .filter(Boolean);
+
+    const anyHandleForPlatform =
+      !!brandHandle ||
+      competitors.some(c => (c[p === 'twitter' ? 'x' : p] || c[p] || '').toString().trim());
+
+    const platformData = allScrapedData[p];
+    if (!anyHandleForPlatform) {
+      platformScrapeStatus[p] = { status: 'no_handle', profiles: 0 };
+    } else if (!platformData) {
+      platformScrapeStatus[p] = { status: 'skipped', profiles: 0 };
+    } else if (platformData._error) {
+      platformScrapeStatus[p] = { status: 'failed', profiles: 0, error: platformData._error };
+    } else {
+      const count = Object.keys(platformData).filter(k => k !== '_error').length;
+      platformScrapeStatus[p] = count > 0 ? { status: 'ok', profiles: count } : { status: 'empty', profiles: 0 };
+    }
   }
 
   // Legacy Instagram-only fallback: if multi-platform didn't get IG data, try standalone
@@ -280,6 +317,17 @@ ${competitorDataSection}
 
 IMPORTANT: The numbers above are REAL scraped data from ${scrapedPlatformsList.length ? scrapedPlatformsList.join(', ') : 'APIs'}. Use them EXACTLY as provided. Do NOT make up different numbers.
 
+═══ SCRAPING COVERAGE ═══
+${Object.entries(platformScrapeStatus).map(([p, s]) => {
+  if (s.status === 'ok') return `• ${p}: ✓ ${s.profiles} profile(s) scraped`;
+  if (s.status === 'failed') return `• ${p}: ✗ scrape failed (${s.error?.slice(0, 80) || 'unknown error'})`;
+  if (s.status === 'empty') return `• ${p}: ⚠ scraper ran but returned 0 profiles (handles may be invalid)`;
+  if (s.status === 'no_handle') return `• ${p}: — no handle provided by user`;
+  return `• ${p}: ${s.status}`;
+}).join('\n')}
+
+For platforms marked ✗ or ⚠ above, DO NOT invent numbers. Use null values or write "data unavailable" in narrative fields. Never use '?' or 'na' — the UI will detect null and display a helpful message to the user.
+
 Use web search ONLY for: website content analysis, positioning insights, content strategy analysis, visual aesthetic description, and platforms without scraped data above (e.g. Pinterest, Threads). NOT for follower counts or engagement rates that are already provided above.
 
 ═══ PLATFORM-SPECIFIC STRATEGY ═══
@@ -299,11 +347,14 @@ Return detailed JSON:
         const handleKey = p === 'twitter' ? 'x' : p;
         const brandHandle = (brandHandles[handleKey] || '').replace('@', '').toLowerCase();
         const profile = allScrapedData[p]?.[brandHandle];
-        if (!profile) return `"${p}": {}`;
-        return `"${p}": { "followers": "${profile.followers || '?'}", "posts": "${profile.posts_count || '?'}", "engagement_rate": "${profile.engagement_rate || '?'}", "avg_likes": "${profile.avg_likes || '?'}", "avg_comments": "${profile.avg_comments || '?'}", "verified": ${profile.verified || false} }`;
+        if (!profile) return `"${p}": { "scrape_status": "${platformScrapeStatus[p]?.status || 'no_data'}" }`;
+        // Use real numbers, or null when missing. null tells the UI to render
+        // a "data unavailable" message instead of the literal '?' / 'na' characters.
+        const n = (v) => (v == null || v === '' ? 'null' : JSON.stringify(v));
+        return `"${p}": { "followers": ${n(profile.followers)}, "posts": ${n(profile.posts_count)}, "engagement_rate": ${n(profile.engagement_rate)}, "avg_likes": ${n(profile.avg_likes)}, "avg_comments": ${n(profile.avg_comments)}, "verified": ${profile.verified || false} }`;
       }).join(',\n      ')}
     },
-    "instagram_stats": { "followers": "${brandIG?.followers || '?'}", "posts": "${brandIG?.posts_count || '?'}", "engagement_rate": "${brandIG?.engagement_rate || '?'}", "avg_likes": "${brandIG?.avg_likes || '?'}", "avg_comments": "${brandIG?.avg_comments || '?'}", "verified": ${brandIG?.verified || false}, "bio": "${brandIG?.bio || ''}" },
+    "instagram_stats": { "followers": ${brandIG?.followers != null ? brandIG.followers : 'null'}, "posts": ${brandIG?.posts_count != null ? brandIG.posts_count : 'null'}, "engagement_rate": ${brandIG?.engagement_rate != null ? JSON.stringify(brandIG.engagement_rate) : 'null'}, "avg_likes": ${brandIG?.avg_likes != null ? brandIG.avg_likes : 'null'}, "avg_comments": ${brandIG?.avg_comments != null ? brandIG.avg_comments : 'null'}, "verified": ${brandIG?.verified || false}, "bio": "${brandIG?.bio || ''}" },
     "website_insights": "analyze their website positioning, products, messaging",
     "current_content_strategy": "based on the real post data above, describe their strategy",
     "visual_aesthetic": "describe their visual identity",
@@ -335,7 +386,7 @@ Return detailed JSON:
     {
       "handle": "@${c.scraped?.username || c.instagram || c.handle}",
       "platform_stats": ${JSON.stringify(compPlatformStats)},
-      "stats": { "followers": "${c.scraped?.followers || '?'}", "posts": "${c.scraped?.posts_count || '?'}", "engagement_rate": "${c.scraped?.engagement_rate || '?'}", "avg_likes": "${c.scraped?.avg_likes || '?'}", "avg_comments": "${c.scraped?.avg_comments || '?'}" },
+      "stats": { "followers": ${c.scraped?.followers != null ? c.scraped.followers : 'null'}, "posts": ${c.scraped?.posts_count != null ? c.scraped.posts_count : 'null'}, "engagement_rate": ${c.scraped?.engagement_rate != null ? JSON.stringify(c.scraped.engagement_rate) : 'null'}, "avg_likes": ${c.scraped?.avg_likes != null ? c.scraped.avg_likes : 'null'}, "avg_comments": ${c.scraped?.avg_comments != null ? c.scraped.avg_comments : 'null'} },
       "bio": "${c.scraped?.bio || ''}",
       "positioning_summary": "analyze based on bio and content...",
       "target_audience": "...",
@@ -353,7 +404,10 @@ Return detailed JSON:
 }`;
 
   const { text, sources } = await callGemini(prompt, { useSearch: true, maxTokens: 20480 });
-  const result = parseJSON(text);
+  const result = parseJSON(text) || {};
+  // Attach the per-platform scrape status so the UI can show coverage chips
+  // and downstream prompts know what's real vs guessed.
+  result.platform_scrape_status = platformScrapeStatus;
   console.log(`[Scout] Step 1 complete: brand analyzed + ${result?.competitors?.length || 0} competitors across ${scrapedPlatformsList.length} platforms`);
   return { data: result, rawText: text, sources };
 }
@@ -362,11 +416,20 @@ Return detailed JSON:
 // STEP 2: Weakness Analysis & Opportunities
 // ══════════════════════════════════════════════════════════════════════════════
 
-async function analyzeWeaknesses(brand, scanData) {
-  console.log(`[Scout] Step 2: Analyzing weaknesses & opportunities...`);
+async function analyzeWeaknesses(brand, scanData, userFeedback = '') {
+  console.log(`[Scout] Step 2: Analyzing weaknesses & opportunities${userFeedback ? ' (with user feedback)' : ''}...`);
+
+  const feedbackBlock = userFeedback ? `
+
+═══ USER FEEDBACK ON PREVIOUS REPORT ═══
+The user rejected a previous version of this analysis with the following feedback. Address these specific concerns in the new analysis:
+"${userFeedback}"
+
+Make the new output meaningfully different — different opportunities, sharper positioning, rework the angles that were flagged. Do not repeat what the user rejected.
+` : '';
 
   const prompt = `You are a brand strategist. Based on this intelligence, identify weaknesses and opportunities.
-
+${feedbackBlock}
 OUR BRAND: ${brand.name}
 INDUSTRY: ${brand.industry || 'General'}
 AUDIENCE: ${brand.audience || 'General'}
@@ -404,8 +467,8 @@ Return JSON:
 // STEP 3: Content Strategy + Calendar + Hooks + Scripts
 // ══════════════════════════════════════════════════════════════════════════════
 
-async function generateStrategy(brand, scanData, weaknessData, platforms = ['instagram']) {
-  console.log(`[Scout] Step 3: Generating content strategy for platforms: ${platforms.join(', ')}...`);
+async function generateStrategy(brand, scanData, weaknessData, platforms = ['instagram'], userFeedback = '') {
+  console.log(`[Scout] Step 3: Generating content strategy for platforms: ${platforms.join(', ')}${userFeedback ? ' (with user feedback)' : ''}...`);
 
   const isMultiPlatform = platforms.length > 1;
 
@@ -433,8 +496,17 @@ async function generateStrategy(brand, scanData, weaknessData, platforms = ['ins
     }`).join(',\n    ')}
   },` : '';
 
-  const prompt = `You are a world-class social media content strategist. Create a comprehensive content strategy.
+  const feedbackBlock = userFeedback ? `
 
+═══ USER FEEDBACK ON PREVIOUS REPORT ═══
+The user rejected a previous version of this strategy with the following feedback. Address these specific concerns in the new strategy:
+"${userFeedback}"
+
+Make the new content meaningfully different — different pillars, fresh hooks, new calendar angles. Do not repeat what the user rejected.
+` : '';
+
+  const prompt = `You are a world-class social media content strategist. Create a comprehensive content strategy.
+${feedbackBlock}
 BRAND: ${brand.name}
 WEBSITE: ${brand.website_url || 'N/A'}
 INSTAGRAM: ${brand.instagram_handle ? '@' + brand.instagram_handle : 'N/A'}
@@ -868,4 +940,110 @@ async function executeScout(userId, brandId, config = {}) {
   return result;
 }
 
-export { executeScout };
+// ══════════════════════════════════════════════════════════════════════════════
+// REGENERATE: Re-run weakness + strategy stages ONLY, reusing the existing
+// scrape data. Called when the user rejects the current report with feedback.
+// No Apify calls — just Gemini re-analysis with the feedback injected.
+// ══════════════════════════════════════════════════════════════════════════════
+
+async function regenerateScoutReport(userId, brandId, feedback) {
+  if (!feedback || !feedback.trim()) {
+    throw new Error('Feedback is required to regenerate the Scout report.');
+  }
+
+  // Load brand + existing scout_report from local sync or Supabase
+  const syncDir = path.join(process.env.HOME || '', '.klint', 'sync');
+  const syncFile = path.join(syncDir, 'brand_profiles.json');
+  let brand = null;
+  let syncData = null;
+  try {
+    if (fs.existsSync(syncFile)) {
+      syncData = JSON.parse(fs.readFileSync(syncFile, 'utf-8'));
+      const allBrands = syncData?.data || syncData || [];
+      brand = allBrands.find(b => b.id === brandId);
+    }
+  } catch (e) { console.warn('[Scout Regen] Local sync read failed:', e.message); }
+
+  if (!brand) {
+    try {
+      const brands = await supabaseRest(`brand_profiles?id=eq.${brandId}&select=*`);
+      if (brands?.length) brand = brands[0];
+    } catch (e) { console.warn('[Scout Regen] Supabase fallback failed:', e.message); }
+  }
+  if (!brand) throw new Error(`Brand not found: ${brandId}`);
+
+  const existing = brand.scout_report;
+  if (!existing?.scan_data) {
+    throw new Error('No existing Scout scan_data to regenerate from. Run Scout once first.');
+  }
+
+  const platforms = (brand.priya_campaign?.platforms?.length ? brand.priya_campaign.platforms : ['instagram']);
+  const rejectionCount = (existing.rejection_count || 0) + 1;
+  console.log(`\n[Scout Regen] ═══ Regenerating for "${brand.name}" (rejection #${rejectionCount}) ═══`);
+  console.log(`[Scout Regen] Feedback: "${feedback.slice(0, 120)}${feedback.length > 120 ? '…' : ''}"`);
+
+  // Re-run Step 2 + Step 3 with feedback — NO re-scrape
+  const weaknessData = await analyzeWeaknesses(brand, existing.scan_data, feedback);
+  const strategyData = await generateStrategy(brand, existing.scan_data, weaknessData, platforms, feedback);
+
+  // Rebuild .docx
+  const doc = buildDocument(brand, existing.scan_data, weaknessData, strategyData);
+  const buffer = await Packer.toBuffer(doc);
+
+  const docsDir = path.join(process.env.HOME || process.env.USERPROFILE || '', '.klint', 'scout-reports');
+  if (!fs.existsSync(docsDir)) fs.mkdirSync(docsDir, { recursive: true });
+  const filename = `${brand.name.replace(/[^a-zA-Z0-9]/g, '_')}_Scout_Report_${new Date().toISOString().split('T')[0]}_v${rejectionCount + 1}.docx`;
+  const filepath = path.join(docsDir, filename);
+  fs.writeFileSync(filepath, buffer);
+
+  const newReport = {
+    filename,
+    generated_at: new Date().toISOString(),
+    scan_data: existing.scan_data,  // reuse — no re-scrape
+    weakness_data: weaknessData,
+    strategy_data: strategyData,
+    sources: existing.sources || [],
+    competitors_analyzed: existing.competitors_analyzed || 0,
+    content_pillars: strategyData?.content_pillars?.length || 0,
+    hooks_generated: Object.values(strategyData?.hook_bank || {}).flat().length,
+    awaiting_approval: true,
+    approved_at: null,
+    review_feedback: feedback,
+    rejection_count: rejectionCount,
+  };
+
+  // Persist to local sync file + keep history
+  try {
+    if (syncData) {
+      const allBrands = Array.isArray(syncData?.data) ? syncData.data : (Array.isArray(syncData) ? syncData : []);
+      const idx = allBrands.findIndex(b => b.id === brandId);
+      if (idx >= 0) {
+        const prevHistory = Array.isArray(allBrands[idx].scout_report_history) ? allBrands[idx].scout_report_history : [];
+        allBrands[idx] = {
+          ...allBrands[idx],
+          scout_report: newReport,
+          scout_report_history: [...prevHistory, { ...existing, rejected_at: new Date().toISOString(), rejection_reason: feedback }].slice(-5), // keep last 5
+          updated_at: new Date().toISOString(),
+        };
+        const updatedSyncData = Array.isArray(syncData?.data)
+          ? { ...syncData, data: allBrands, _updatedAt: new Date().toISOString() }
+          : allBrands;
+        fs.writeFileSync(syncFile, JSON.stringify(updatedSyncData, null, 2), 'utf-8');
+        console.log(`[Scout Regen] Saved regenerated report to brand "${brand.name}"`);
+      }
+    }
+  } catch (e) { console.warn('[Scout Regen] Sync save failed:', e.message); }
+
+  console.log(`[Scout Regen] ═══ Complete: ${filename} (${(buffer.length / 1024).toFixed(0)}KB) ═══\n`);
+  return {
+    brand_id: brandId,
+    brand_name: brand.name,
+    filename,
+    filepath,
+    file_size: buffer.length,
+    rejection_count: rejectionCount,
+    ...newReport,
+  };
+}
+
+export { executeScout, regenerateScoutReport };
