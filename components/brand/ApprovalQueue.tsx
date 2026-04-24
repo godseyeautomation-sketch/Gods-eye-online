@@ -41,11 +41,17 @@ export default function ApprovalQueue({ brandId, onRefresh }: ApprovalQueueProps
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
+  // Always fetch ALL statuses from the server, then filter client-side.
+  // Previously we'd pass ?status=pending and re-fetch on every filter change,
+  // which meant: if an item got auto-approved in the background (via the Review
+  // agent's batch threshold logic), the default 'pending' view came back empty
+  // and the user thought the dashboard was lost. Fetching all lets us show
+  // accurate counts on every filter pill so nothing appears to "disappear".
   const fetchQueue = useCallback(async () => {
     if (!user?.id) return;
     setLoading(true);
     try {
-      const res = await fetch(`/api/approval-queue?brand_id=${brandId}&status=${filter}&limit=50`, {
+      const res = await fetch(`/api/approval-queue?brand_id=${brandId}&status=all&limit=200`, {
         headers: { 'x-user-id': user.id },
       });
       const data = await res.json();
@@ -59,16 +65,17 @@ export default function ApprovalQueue({ brandId, onRefresh }: ApprovalQueueProps
       setItems([]);
     }
     setLoading(false);
-  }, [user?.id, brandId, filter]);
+  }, [user?.id, brandId]);
 
   useEffect(() => { fetchQueue(); }, [fetchQueue]);
 
-  // Auto-refresh every 30s for pending items
+  // Auto-refresh every 30s as long as any item is still pending
   useEffect(() => {
-    if (filter !== 'pending') return;
+    const hasPending = items.some(i => i.status === 'pending');
+    if (!hasPending) return;
     const interval = setInterval(fetchQueue, 30000);
     return () => clearInterval(interval);
-  }, [filter, fetchQueue]);
+  }, [items, fetchQueue]);
 
   const handleApprove = async (id: string) => {
     if (!user?.id) return;
@@ -162,10 +169,14 @@ export default function ApprovalQueue({ brandId, onRefresh }: ApprovalQueueProps
     return acc;
   }, { standalone: [], abGroups: new Map() });
 
-  // Filter displayed items based on status
+  // Filter displayed items based on status. Treat `auto_approved` as
+  // `approved` from the user's perspective — both mean "accepted, scheduled".
   const filteredStandalone = filter === 'all'
     ? groupedItems.standalone
-    : groupedItems.standalone.filter(i => i.status === filter);
+    : groupedItems.standalone.filter(i => {
+        if (filter === 'approved') return i.status === 'approved' || i.status === 'auto_approved';
+        return i.status === filter;
+      });
 
   const getTimeRemaining = (autoApproveAt?: string) => {
     if (!autoApproveAt) return null;
@@ -220,15 +231,21 @@ export default function ApprovalQueue({ brandId, onRefresh }: ApprovalQueueProps
           )}
 
           <div className="flex rounded-xl overflow-hidden border border-white/[0.06]">
-            {(['pending', 'approved', 'rejected', 'all'] as const).map(f => (
-              <button
-                key={f}
-                onClick={() => { setFilter(f); setSelectedIds(new Set()); }}
-                className={`px-3.5 py-1.5 text-xs capitalize font-medium transition ${filter === f ? 'bg-white/[0.08] text-text-primary' : 'bg-white/[0.02] text-text-secondary/50 hover:text-text-secondary'}`}
-              >
-                {f}
-              </button>
-            ))}
+            {(['pending', 'approved', 'rejected', 'all'] as const).map(f => {
+              const count = f === 'all'
+                ? items.length
+                : items.filter(i => i.status === f || (f === 'approved' && i.status === 'auto_approved')).length;
+              return (
+                <button
+                  key={f}
+                  onClick={() => { setFilter(f); setSelectedIds(new Set()); }}
+                  className={`px-3.5 py-1.5 text-xs capitalize font-medium transition flex items-center gap-1.5 ${filter === f ? 'bg-white/[0.08] text-text-primary' : 'bg-white/[0.02] text-text-secondary/50 hover:text-text-secondary'}`}
+                >
+                  <span>{f}</span>
+                  <span className={`text-[10px] tabular-nums ${filter === f ? 'text-text-secondary' : 'text-text-secondary/40'}`}>({count})</span>
+                </button>
+              );
+            })}
           </div>
 
           <button onClick={fetchQueue} className="p-2 rounded-xl hover:bg-white/[0.04] text-text-secondary/50 hover:text-text-secondary transition" title="Refresh">
@@ -284,14 +301,52 @@ export default function ApprovalQueue({ brandId, onRefresh }: ApprovalQueueProps
         </div>
       )}
 
-      {/* Empty state */}
+      {/* Empty state — truly empty (no items at all for this brand) */}
       {!loading && items.length === 0 && (
         <div className="text-center py-16 border border-dashed border-white/[0.06] rounded-2xl">
-          <div className="text-4xl mb-3 opacity-40">
-            {filter === 'pending' ? '' : filter === 'approved' ? '' : filter === 'rejected' ? '' : ''}
+          <p className="text-base text-text-secondary mb-1">No items yet</p>
+          <p className="text-sm text-text-secondary/50">Run the Review agent to populate the approval queue</p>
+        </div>
+      )}
+
+      {/* Redirect state — items exist, but the current filter is empty.
+          Usually means batch-level auto-approval flipped pending → approved
+          in the background. Guide the user to the right pill instead of
+          showing a scary "no items" message. */}
+      {!loading && items.length > 0 && filteredStandalone.length === 0 && (
+        <div className="text-center py-12 border border-dashed border-white/[0.06] rounded-2xl">
+          <p className="text-base text-text-secondary mb-1">No {filter} items</p>
+          <p className="text-sm text-text-secondary/60 mb-4">
+            {filter === 'pending' && items.some(i => i.status === 'approved' || i.status === 'auto_approved')
+              ? 'Looks like this batch was auto-approved. Your content is scheduled for publishing.'
+              : `${items.length} item${items.length === 1 ? '' : 's'} exist under a different filter.`}
+          </p>
+          <div className="flex items-center justify-center gap-2">
+            {filter !== 'approved' && items.filter(i => i.status === 'approved' || i.status === 'auto_approved').length > 0 && (
+              <button
+                onClick={() => setFilter('approved')}
+                className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/25 transition"
+              >
+                View {items.filter(i => i.status === 'approved' || i.status === 'auto_approved').length} approved
+              </button>
+            )}
+            {filter !== 'rejected' && items.filter(i => i.status === 'rejected').length > 0 && (
+              <button
+                onClick={() => setFilter('rejected')}
+                className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-red-500/15 text-red-400 border border-red-500/20 hover:bg-red-500/25 transition"
+              >
+                View {items.filter(i => i.status === 'rejected').length} rejected
+              </button>
+            )}
+            {filter !== 'all' && (
+              <button
+                onClick={() => setFilter('all')}
+                className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-white/[0.04] text-text-secondary border border-white/[0.08] hover:bg-white/[0.08] transition"
+              >
+                View all {items.length}
+              </button>
+            )}
           </div>
-          <p className="text-base text-text-secondary mb-1">No {filter !== 'all' ? filter : ''} items</p>
-          <p className="text-sm text-text-secondary/50">Run an autopilot cycle to generate content for review</p>
         </div>
       )}
 

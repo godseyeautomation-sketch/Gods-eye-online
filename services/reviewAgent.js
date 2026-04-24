@@ -576,14 +576,33 @@ async function executeReview(userId, brandId, config = {}) {
   const brand = allBrands.find(b => b.id === brandId);
   if (!brand) throw new Error(`Brand not found: ${brandId}`);
 
-  // Extract the first product for product-locked image generation
-  const product = brand.products?.[0] || null;
-  if (product && isUsableImageUrl(product.imageDataUrl)) {
-    console.log(`[Review] Product lock: "${product.name}" (image type: ${product.imageDataUrl.slice(0, 20)}...)`);
-  } else if (product) {
-    console.log(`[Review] Product "${product.name}" found but image not usable server-side (${product.imageDataUrl?.slice(0, 20) || 'none'}), generating without base image`);
+  // Per-slot product resolver — Priya auto-matches a product for each slot
+  // and stores the name on `slot.selected_product`. Review should use THAT
+  // product's image as the image-to-image base, NOT the first product.
+  // Falls back to first product when slot has no selected_product (legacy
+  // slots before the matcher existed).
+  const brandProducts = Array.isArray(brand.products) ? brand.products : [];
+  const firstProduct = brandProducts[0] || null;
+
+  function pickProductForSlot(slot) {
+    const wanted = (slot?.selected_product || '').trim().toLowerCase();
+    if (wanted) {
+      const match = brandProducts.find(p => (p.name || '').trim().toLowerCase() === wanted);
+      if (match) return match;
+      // Partial match fallback (e.g. slot says "Citrus Charge" but product is "Citrus Charge 250ml")
+      const partial = brandProducts.find(p => {
+        const n = (p.name || '').toLowerCase();
+        return n.includes(wanted) || wanted.includes(n);
+      });
+      if (partial) return partial;
+    }
+    return firstProduct;
+  }
+
+  if (brandProducts.length === 0) {
+    console.log(`[Review] No products on brand — generating pure lifestyle scenes`);
   } else {
-    console.log(`[Review] No product found — generating pure lifestyle scenes`);
+    console.log(`[Review] ${brandProducts.length} products available for per-slot lock matching`);
   }
 
   const slotsFile = readSync('content_slots');
@@ -664,12 +683,19 @@ async function executeReview(userId, brandId, config = {}) {
     const prompt = slot.brief?.image_prompt || slot.idea || 'brand content';
     const direction = slot.brief?.visual_direction || '';
     const aspectRatio = (slot.format === 'story' || slot.format === 'reel') ? '9:16' : '1:1';
+    // Pick the product matched to this slot's content (Priya sets selected_product)
+    const slotProduct = pickProductForSlot(slot);
+    const productLabel = slotProduct
+      ? (isUsableImageUrl(slotProduct.imageDataUrl)
+          ? `🔒 ${slotProduct.name}`
+          : `⚠ ${slotProduct.name} (unusable image — lifestyle fallback)`)
+      : 'no product';
     try {
-      const imageBuffer = await generateImage(prompt, direction, aspectRatio, product);
+      const imageBuffer = await generateImage(prompt, direction, aspectRatio, slotProduct);
       entry.imageBuffer = imageBuffer;
-      console.log(`[Review] ✓ ${slot.platform || 'instagram'}/${slot.slot_date}/${slot.format} (${imageBuffer.length}b)`);
+      console.log(`[Review] ✓ ${slot.platform || 'instagram'}/${slot.slot_date}/${slot.format} [${productLabel}] (${imageBuffer.length}b)`);
     } catch (err) {
-      console.error(`[Review] ✗ ${slot.platform || 'instagram'}/${slot.slot_date}/${slot.format} image failed:`, err.message);
+      console.error(`[Review] ✗ ${slot.platform || 'instagram'}/${slot.slot_date}/${slot.format} [${productLabel}] image failed:`, err.message);
     }
   }));
 
