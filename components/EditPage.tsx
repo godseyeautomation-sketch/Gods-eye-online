@@ -726,8 +726,12 @@ export const EditPage: React.FC<EditPageProps> = ({ initialImage, onAssetGenerat
 
     return (
         <div className="relative w-full h-full bg-bg overflow-hidden flex items-center justify-center pt-40" ref={containerRef}>
-            {/* Vertical toolbar — anchored center-left so it never blocks the image */}
-            <div className="absolute left-4 top-1/2 -translate-y-1/2 z-50 bg-panel border border-border rounded-3xl px-2 py-3 flex flex-col items-center gap-2 shadow-lg max-h-[calc(100vh-8rem)] overflow-y-auto">
+            {/* Vertical toolbar — wrapped in a positioned band that sits between
+                the header (logo lives at top-32) and the prompt bar (bottom-32),
+                then vertically centers the toolbar within that band. Prevents
+                collision with the Gods Eye logo on shorter viewports. */}
+            <div className="absolute left-4 top-36 bottom-32 z-50 flex items-center pointer-events-none">
+              <div className="bg-panel border border-border rounded-3xl px-2 py-3 flex flex-col items-center gap-2 shadow-lg max-h-full overflow-y-auto pointer-events-auto">
                 <div className="flex flex-col items-center gap-1 shrink-0">
                     <button onClick={() => setTool('paint')} className={`p-1.5 rounded-full transition-colors ${tool === 'paint' ? 'bg-brand text-bg' : 'text-text-secondary hover:text-text-primary'}`} title="Paint"><Pen size={16} /></button>
                     <button onClick={() => setTool('erase')} className={`p-1.5 rounded-full transition-colors ${tool === 'erase' ? 'bg-brand text-bg' : 'text-text-secondary hover:text-text-primary'}`} title="Erase"><Eraser size={16} /></button>
@@ -818,6 +822,7 @@ export const EditPage: React.FC<EditPageProps> = ({ initialImage, onAssetGenerat
                     </button>
                     <button onClick={handleDownload} className="p-1.5 rounded-full text-text-secondary hover:text-text-primary transition-colors" title="Download"><Download size={16} /></button>
                 </div>
+              </div>
             </div>
 
             {/* Project tag + favorite — moved out of the editing toolbar to a
