@@ -264,21 +264,49 @@ export const generateFalImage = async ({
 }: GenerateFalImageOptions): Promise<string[]> => {
   onStatus?.('submitting', 'Uploading assets & submitting…');
   const { statusUrl, responseUrl } = await submitJob(modelId, input);
+  console.log('[falService] generateFalImage entering poll loop with statusUrl:', statusUrl);
 
   let elapsed = 0;
   const POLL_INTERVAL = 3000;
-  const MAX_WAIT = 120000;
+  // 5 min cap — was 2 min, but high-quality models like GPT Image 2 with
+  // reference image + num_images=4 routinely run 90-180s. 2 min was hitting
+  // false timeouts. Match the video timeout (5 min) for consistency.
+  const MAX_WAIT = 300000;
+  let lastLogMessage = '';
 
   while (elapsed < MAX_WAIT) {
     await new Promise(r => setTimeout(r, POLL_INTERVAL));
     elapsed += POLL_INTERVAL;
 
-    const status = await pollStatus(statusUrl);
+    let status;
+    try {
+      status = await pollStatus(statusUrl);
+    } catch (err: any) {
+      console.error('[falService] image poll threw:', err?.message || err);
+      throw err;
+    }
+
+    // Surface fal's internal log line so we can see when a model is genuinely
+    // making progress vs stuck. Same pattern as the video poll loop.
+    const latestLog = status.logs && status.logs.length > 0
+      ? status.logs[status.logs.length - 1]?.message
+      : undefined;
+    console.log('[falService] image poll', Math.round(elapsed / 1000) + 's',
+      'status:', status.status,
+      'queue_position:', status.queue_position ?? '—',
+      'logs:', status.logs?.length ?? 0);
+    if (latestLog && latestLog !== lastLogMessage) {
+      console.log('[falService] fal image log:', latestLog);
+      lastLogMessage = latestLog;
+    }
 
     if (status.status === 'IN_QUEUE') {
-      onStatus?.('queued', `In queue…`);
+      const pos = status.queue_position != null ? ` (position ${status.queue_position})` : '';
+      onStatus?.('queued', `In queue${pos}…`);
     } else if (status.status === 'IN_PROGRESS') {
-      onStatus?.('processing', 'Generating layers…');
+      const secs = Math.round(elapsed / 1000);
+      const logSuffix = latestLog ? ` — ${latestLog.slice(0, 60)}` : '';
+      onStatus?.('processing', `Generating… ${secs}s${logSuffix}`);
     } else if (status.status === 'COMPLETED') {
       const result = await fetchResult(responseUrl) as any;
 
@@ -323,11 +351,15 @@ export const generateFalImage = async ({
       onStatus?.('done');
       return urls;
     } else if (status.status === 'FAILED') {
-      throw new Error('Image generation failed on fal.ai servers.');
+      // Use fal's own log line if available — much more actionable than a
+      // generic "failed on servers" message.
+      const reason = latestLog || 'Image generation failed on fal.ai servers.';
+      throw new Error(reason);
     }
   }
 
-  throw new Error('Generation timed out after 2 minutes.');
+  const tail = lastLogMessage ? ` Last log: ${lastLogMessage}` : '';
+  throw new Error(`Image generation timed out after 5 minutes.${tail} Try a lower quality, fewer images, or a faster model.`);
 };
 
 // ── High-level generate + poll helper ──────────────────────────────────────
