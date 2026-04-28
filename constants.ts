@@ -182,6 +182,81 @@ export const MODELS = [
   }
 ];
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Character (face-reference) compatibility
+// ─────────────────────────────────────────────────────────────────────────────
+// Determines how the Image / Video tab Character picker behaves for each model.
+//   'full'    → model accepts character reference images natively (Gemini, GPT
+//               Image 2, FLUX2, Veo 3.1 image-to-video). Picker enabled, no
+//               warning shown.
+//   'limited' → model accepts a reference image but with caveats. ByteDance
+//               models (Seedream image, Seedance video) have stricter face
+//               content policies that may reject some prompts — show an inline
+//               warning when a character is selected.
+//   'none'    → model doesn't take a reference image at all (Topaz upscaler,
+//               Qwen layered extractor, pure text-to-video models). Picker is
+//               disabled with a tooltip.
+
+export type CharacterSupport = 'full' | 'limited' | 'none';
+
+export interface CharacterSupportInfo {
+  support: CharacterSupport;
+  warning?: string;
+}
+
+/** Look up a model's character-reference compatibility by ModelType id (image)
+ *  or fal endpoint string (video). Returns a sensible default for unknown ids. */
+export function getCharacterSupport(modelId: string): CharacterSupportInfo {
+  // ── Image models (matched by ModelType enum value) ──
+  // Gemini family, GPT Image *, FLUX, Reve → full
+  if (
+    modelId.startsWith('gemini-') ||
+    modelId.includes('gpt-image') ||
+    modelId.includes('flux') ||
+    modelId.includes('reve')
+  ) {
+    return { support: 'full' };
+  }
+  // Seedream image (ByteDance) → limited (face policy)
+  if (modelId.includes('seedream')) {
+    return {
+      support: 'limited',
+      warning: "ByteDance Seedream's content policy may reject some prompts containing recognizable faces. Use Gemini or GPT Image 2 for the most reliable character consistency.",
+    };
+  }
+  // Z-Image → limited
+  if (modelId.includes('z-image')) {
+    return {
+      support: 'limited',
+      warning: 'Z-Image Turbo prioritizes style over identity. Use Gemini, GPT Image 2, or FLUX2 if exact face match matters.',
+    };
+  }
+  // Topaz upscaler & Qwen layered → none
+  if (modelId.includes('topaz') || modelId.includes('qwen-image-layered')) {
+    return { support: 'none' };
+  }
+
+  // ── Video models (fal.ai endpoint strings) ──
+  // Image-to-video endpoints accept a reference image → full
+  if (modelId.includes('image-to-video') || modelId.includes('reference-to-video')) {
+    // ByteDance Seedance video → limited (face policy)
+    if (modelId.includes('seedance')) {
+      return {
+        support: 'limited',
+        warning: "ByteDance Seedance video has restricted human-face support. For brand videos featuring people, switch to Veo 3.1 or Hailuo.",
+      };
+    }
+    return { support: 'full' };
+  }
+  // Pure text-to-video can't accept a character reference at all
+  if (modelId.includes('text-to-video')) {
+    return { support: 'none' };
+  }
+
+  // Default — assume full so we don't accidentally block users
+  return { support: 'full' };
+}
+
 export const VIDEO_MODELS = [
   { id: 'veo-3.1-fast-generate-preview', name: 'Veo 3.1 - Fast', badge: 'Fast', description: 'Optimized for speed and fluid motion' },
   { id: 'veo-3.1-generate-preview', name: 'Veo 3.1 - Quality', badge: 'Quality', description: 'Highest fidelity with advanced physics' },

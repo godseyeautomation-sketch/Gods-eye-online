@@ -4,9 +4,10 @@ import {
   Clapperboard, Image as ImageIcon, Film, Sparkles,
   Video, Wand2, Move, ChevronDown, ChevronUp, Link,
   ArrowRight, Clock, Zap, Search, Volume2, Scissors,
-  MonitorPlay, RefreshCw, Trash2,
+  MonitorPlay, RefreshCw, Trash2, AlertTriangle,
 } from 'lucide-react';
 import { generateVideo, submitJob, pollStatus, fetchResult, extractVideoUrl, GenerationStatus } from '../../services/falService';
+import { getCharacterSupport } from '../../constants';
 import {
   StoredVideo,
   saveVideoGeneration,
@@ -509,6 +510,28 @@ export const FalVideoPage: React.FC<FalVideoPageProps> = ({ initialImage }) => {
   const [createPrompt, setCreatePrompt] = useState('');
   const [createNegPrompt, setCreateNegPrompt] = useState('');
   const [showNegPrompt, setShowNegPrompt] = useState(false);
+
+  // Character picker — picks a saved Character profile and uses its first
+  // reference photo as the source frame for image-to-video. Wired to
+  // createImage so the model gets a real face anchor instead of t2v-ing.
+  const [videoCharacters, setVideoCharacters] = useState<{ id: string; name: string; thumbnail: string; images: string[] }[]>([]);
+  const [selectedVideoCharacterId, setSelectedVideoCharacterId] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { listCharacters } = await import('../../services/characterStore');
+        const { supabase } = await import('../../services/supabaseClient');
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user?.id) return;
+        const chars = await listCharacters(user.id);
+        if (!cancelled) setVideoCharacters(chars);
+      } catch (err) {
+        console.warn('[FalVideoPage] character load failed:', err);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
   const [editPrompt, setEditPrompt] = useState('');
   const [motionPrompt, setMotionPrompt] = useState('');
 
@@ -931,6 +954,63 @@ export const FalVideoPage: React.FC<FalVideoPageProps> = ({ initialImage }) => {
                   <input className="w-full mt-1.5 bg-white dark:bg-white/[0.03] border border-zinc-200 dark:border-white/8 rounded-xl px-3 py-2 text-zinc-600 dark:text-white/50 text-[11px] placeholder-zinc-300 dark:placeholder-white/15 outline-none focus:border-zinc-400 dark:focus:border-white/20 transition-colors" placeholder="blur, shaky, low quality, watermark" value={createNegPrompt} onChange={e => setCreateNegPrompt(e.target.value)} onKeyDown={e => e.stopPropagation()} />
                 )}
               </div>
+
+              {/* Character picker — face anchor for image-to-video.
+                  Auto-loads the character's first reference photo as the
+                  start frame, switches to i2v mode. Shows a Seedance face-
+                  policy warning when the selected video model is incompatible. */}
+              {videoCharacters.length > 0 && (() => {
+                const charSupport = getCharacterSupport(selectedCreate.t2vId || selectedCreate.i2vId || '');
+                const selectedChar = videoCharacters.find(c => c.id === selectedVideoCharacterId);
+                return (
+                  <div>
+                    <p className="text-[11px] text-zinc-500 dark:text-white/40 font-medium mb-1.5 flex items-center gap-1.5">
+                      <span>Character</span>
+                      <span className="text-[9px] uppercase tracking-wider text-zinc-400 dark:text-white/25 font-bold">Optional · Face anchor</span>
+                    </p>
+                    <select
+                      value={selectedVideoCharacterId || ''}
+                      onChange={e => {
+                        const id = e.target.value || null;
+                        setSelectedVideoCharacterId(id);
+                        if (id) {
+                          const c = videoCharacters.find(ch => ch.id === id);
+                          if (c) {
+                            setCreateImage(c.thumbnail);
+                            // Auto-flip to image-to-video so the character face is honored
+                            if (selectedCreate.supportsI2V) setCreateMode('i2v');
+                          }
+                        }
+                      }}
+                      className="w-full bg-white dark:bg-white/[0.03] border border-zinc-200 dark:border-white/8 rounded-xl px-3 py-2.5 text-[12px] text-zinc-800 dark:text-white/80 outline-none focus:border-zinc-400 dark:focus:border-white/20 transition-colors"
+                    >
+                      <option value="">— None —</option>
+                      {videoCharacters.map(c => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </select>
+                    {/* Compatibility warnings */}
+                    {selectedChar && charSupport.support === 'limited' && (
+                      <div className="mt-2 flex items-start gap-2 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 text-[11px] leading-relaxed">
+                        <AlertTriangle size={14} className="shrink-0 mt-0.5" />
+                        <span>
+                          <span className="font-bold block mb-0.5">Limited compatibility with {selectedCreate.name}</span>
+                          {charSupport.warning}
+                        </span>
+                      </div>
+                    )}
+                    {selectedChar && charSupport.support === 'none' && (
+                      <div className="mt-2 flex items-start gap-2 px-3 py-2 rounded-xl bg-red-500/10 border border-red-500/20 text-red-500 text-[11px] leading-relaxed">
+                        <AlertTriangle size={14} className="shrink-0 mt-0.5" />
+                        <span>
+                          <span className="font-bold block mb-0.5">Not supported by {selectedCreate.name}</span>
+                          This text-to-video model can't accept a character reference. Switch to an image-to-video model (Veo 3.1, Hailuo, Sora 2) to use this character.
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* Model selector button */}
               <div>

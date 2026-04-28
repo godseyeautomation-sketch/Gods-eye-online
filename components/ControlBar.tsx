@@ -26,10 +26,11 @@ import {
   ArrowDown,
   ArrowUp,
   ArrowUpRight,
-  ArrowDownRight
+  ArrowDownRight,
+  AlertTriangle,
 } from 'lucide-react';
 import { Button } from './Button';
-import { MODELS, ASPECT_RATIOS } from '../constants';
+import { MODELS, ASPECT_RATIOS, getCharacterSupport } from '../constants';
 import {
   GenerationConfig,
   ModelType,
@@ -140,24 +141,26 @@ export const ControlBar: React.FC<ControlBarProps> = ({
   const [selectedCharacterId, setSelectedCharacterId] = useState<string | null>(null);
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
 
-  // Fetch characters on mount
+  // Fetch characters from IndexedDB on mount + when user changes.
+  // (Was Supabase before — the create flow was broken. Local store now.)
   useEffect(() => {
-    if (!user) return;
-    supabase
-      .from('characters')
-      .select('*, character_images(image_url)')
-      .order('created_at', { ascending: false })
-      .then(({ data }) => {
-        if (data) {
-          setCharacters(data.map((c: any) => ({
-            id: c.id,
-            name: c.name,
-            thumbnail: c.thumbnail_url,
-            images: c.character_images?.map((img: any) => img.image_url) || [],
-          })));
-        }
-      });
-  }, [user]);
+    if (!user?.id) {
+      setCharacters([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const { listCharacters } = await import('../services/characterStore');
+        const chars = await listCharacters(user.id);
+        if (!cancelled) setCharacters(chars);
+      } catch (err) {
+        console.warn('[ControlBar] Failed to load characters:', err);
+        if (!cancelled) setCharacters([]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [user?.id]);
 
   // Get active brand's products
   const activeBrandProducts = activeBrandId
@@ -821,22 +824,51 @@ export const ControlBar: React.FC<ControlBarProps> = ({
               )}
 
               {/* Character selector chip */}
-              {characters.length > 0 && (
-                <button
-                  onClick={() => togglePopup('character')}
-                  className={`h-8 px-3 rounded-lg text-xs font-bold flex items-center gap-2 transition-all whitespace-nowrap border relative
-                    ${activePopup === 'character' ? 'bg-violet-500/20 text-violet-400 border-violet-500/50'
-                      : selectedCharacterId ? 'bg-violet-500/10 text-violet-400 border-violet-500/30 hover:border-violet-500/60'
-                        : 'hover:bg-black/5 dark:hover:bg-white/10 text-text-secondary hover:text-text-primary border-transparent'}`}
-                  title="Select Character"
-                >
-                  <Users size={14} />
-                  <span className="max-w-[80px] truncate">
-                    {selectedCharacterId ? characters.find(c => c.id === selectedCharacterId)?.name || 'Character' : 'Character'}
-                  </span>
-                  {selectedCharacterId && <span className="absolute -top-1 -right-1 w-2 h-2 bg-violet-400 rounded-full shadow-lg shadow-violet-400/50" />}
-                </button>
-              )}
+              {characters.length > 0 && (() => {
+                const charSupport = getCharacterSupport(config.model);
+                const charSelected = !!selectedCharacterId;
+                return (
+                  <>
+                    <button
+                      onClick={() => togglePopup('character')}
+                      className={`h-8 px-3 rounded-lg text-xs font-bold flex items-center gap-2 transition-all whitespace-nowrap border relative
+                        ${activePopup === 'character' ? 'bg-violet-500/20 text-violet-400 border-violet-500/50'
+                          : selectedCharacterId ? 'bg-violet-500/10 text-violet-400 border-violet-500/30 hover:border-violet-500/60'
+                            : 'hover:bg-black/5 dark:hover:bg-white/10 text-text-secondary hover:text-text-primary border-transparent'}`}
+                      title="Select Character"
+                    >
+                      <Users size={14} />
+                      <span className="max-w-[80px] truncate">
+                        {selectedCharacterId ? characters.find(c => c.id === selectedCharacterId)?.name || 'Character' : 'Character'}
+                      </span>
+                      {selectedCharacterId && <span className="absolute -top-1 -right-1 w-2 h-2 bg-violet-400 rounded-full shadow-lg shadow-violet-400/50" />}
+                    </button>
+
+                    {/* Compatibility warning — shown only when a character is
+                        actively selected AND the current model has limited /
+                        no support for character-reference. Inline so the user
+                        sees it immediately, not after a failed generation. */}
+                    {charSelected && charSupport.support === 'limited' && (
+                      <div
+                        className="h-8 px-3 rounded-lg text-xs font-bold flex items-center gap-1.5 whitespace-nowrap border bg-amber-500/10 text-amber-400 border-amber-500/30"
+                        title={charSupport.warning}
+                      >
+                        <AlertTriangle size={14} />
+                        <span>Limited compatibility</span>
+                      </div>
+                    )}
+                    {charSelected && charSupport.support === 'none' && (
+                      <div
+                        className="h-8 px-3 rounded-lg text-xs font-bold flex items-center gap-1.5 whitespace-nowrap border bg-red-500/10 text-red-400 border-red-500/30"
+                        title="This model doesn't accept reference images. Switch to Gemini, GPT Image 2, or FLUX2 to use a character."
+                      >
+                        <AlertTriangle size={14} />
+                        <span>Not supported by this model</span>
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
 
               {/* Product selector chip */}
               {activeBrandProducts.length > 0 && (

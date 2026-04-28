@@ -19,8 +19,14 @@ import {
 } from 'lucide-react';
 import { Character } from '../types';
 import { generateImage } from '../services/geminiService';
-import { supabase } from '../services/supabaseClient';
 import { useAuth } from '../context/AuthContext';
+import {
+  createCharacter as storeCreateCharacter,
+  listCharacters as storeListCharacters,
+  deleteCharacter as storeDeleteCharacter,
+  MIN_REFERENCE_IMAGES,
+  MAX_REFERENCE_IMAGES,
+} from '../services/characterStore';
 
 const GUIDELINE_GOOD = ['https://picsum.photos/200/200?random=g1', 'https://picsum.photos/200/200?random=g2', 'https://picsum.photos/200/200?random=g3', 'https://picsum.photos/200/200?random=g4'];
 const GUIDELINE_BAD = ['https://picsum.photos/200/200?random=b1', 'https://picsum.photos/200/200?random=b2', 'https://picsum.photos/200/200?random=b3', 'https://picsum.photos/200/200?random=b4'];
@@ -54,30 +60,14 @@ export const CharacterPage: React.FC<CharacterPageProps> = ({ onUseCharacter }) 
     }, [user]);
 
     const fetchCharacters = async () => {
+        if (!user?.id) return;
         try {
             setIsLoading(true);
-            const { data: chars, error } = await supabase
-                .from('characters')
-                .select(`
-                    *,
-                    character_images (
-                        image_url
-                    )
-                `)
-                .order('created_at', { ascending: false });
-
-            if (error) throw error;
-
-            const formatted: Character[] = chars.map((c: any) => ({
-                id: c.id,
-                name: c.name,
-                thumbnail: c.thumbnail_url,
-                images: c.character_images?.map((img: any) => img.image_url) || []
-            }));
-
-            setAllCharacters(formatted);
+            const chars = await storeListCharacters(user.id);
+            setAllCharacters(chars);
         } catch (error) {
             console.error('Error fetching characters:', error);
+            setAllCharacters([]);
         } finally {
             setIsLoading(false);
         }
@@ -119,66 +109,38 @@ export const CharacterPage: React.FC<CharacterPageProps> = ({ onUseCharacter }) 
         setSelectedFiles(prev => prev.filter((_, i) => i !== index));
     };
 
-    const uploadToHostinger = async (base64: string): Promise<string> => {
-        const response = await fetch('/api/hostinger-upload', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ media: base64, type: 'image', userId: user?.id }),
-        });
-        if (!response.ok) {
-            const err = await response.json().catch(() => ({}));
-            throw new Error(err.error || 'Upload failed');
-        }
-        const data = await response.json();
-        if (!data?.url) throw new Error('Upload failed: no URL returned');
-        return data.url;
-    };
-
     const handleUploadAndCreate = async () => {
-        if (selectedFiles.length === 0 || !charName || !user) return;
+        if (!user?.id) {
+            alert('You must be signed in to create a character.');
+            return;
+        }
+        const cleanName = charName.trim();
+        if (!cleanName) {
+            alert('Please give the character a name.');
+            return;
+        }
+        if (selectedFiles.length < MIN_REFERENCE_IMAGES) {
+            alert(`Please add at least ${MIN_REFERENCE_IMAGES} reference photos.`);
+            return;
+        }
+        if (selectedFiles.length > MAX_REFERENCE_IMAGES) {
+            alert(`Please remove some photos — maximum is ${MAX_REFERENCE_IMAGES}.`);
+            return;
+        }
 
         setIsTraining(true);
         try {
-            // 1. Upload all reference images to Hostinger
-            const uploadedUrls = await Promise.all(selectedFiles.map(file => uploadToHostinger(file)));
-
-            if (uploadedUrls.length === 0) throw new Error("No images uploaded");
-
-            // 2. Create Character Record
-            const { data: charData, error: charError } = await supabase
-                .from('characters')
-                .insert({
-                    user_id: user.id,
-                    name: charName.toUpperCase(),
-                    thumbnail_url: uploadedUrls[0] // Use first image as thumbnail
-                })
-                .select()
-                .single();
-
-            if (charError) throw charError;
-
-            // 3. Create Image Records
-            const imageRecords = uploadedUrls.map(url => ({
-                character_id: charData.id,
-                image_url: url
-            }));
-
-            const { error: imgError } = await supabase
-                .from('character_images')
-                .insert(imageRecords);
-
-            if (imgError) throw imgError;
-
-            // 4. Update Local State
-            await fetchCharacters(); // Refetch to be safe/consistent
-
-            setIsTraining(false);
+            // Save locally to IndexedDB — no external uploads, no DB round-trip,
+            // works offline. Each reference image is stored as its full base64
+            // data URL so it can be passed directly to image/video models.
+            await storeCreateCharacter(user.id, cleanName.toUpperCase(), selectedFiles);
+            await fetchCharacters();
             setShowCreateModal(false);
-            // setView('detail'); // Optional: auto open
-
-        } catch (error) {
+            setSelectedFiles([]);
+            setCharName('');
+        } catch (error: any) {
             console.error('Failed to create character:', error);
-            alert('Failed to create character. Please try again.');
+            alert(error?.message || 'Failed to create character. Please try again.');
         } finally {
             setIsTraining(false);
         }
@@ -226,13 +188,7 @@ export const CharacterPage: React.FC<CharacterPageProps> = ({ onUseCharacter }) 
         if (!activeCharacter) return;
         if (confirm(`Are you sure you want to delete ${activeCharacter.name}?`)) {
             try {
-                const { error } = await supabase
-                    .from('characters')
-                    .delete()
-                    .eq('id', activeCharacter.id);
-
-                if (error) throw error;
-
+                await storeDeleteCharacter(activeCharacter.id);
                 setAllCharacters(prev => prev.filter(c => c.id !== activeCharacter.id));
                 handleBack();
             } catch (error) {
@@ -470,20 +426,50 @@ export const CharacterPage: React.FC<CharacterPageProps> = ({ onUseCharacter }) 
                                 </div>
                             )}
 
-                            <div className="flex justify-center flex-col items-center gap-6">
+                            <div className="flex justify-center flex-col items-center gap-3">
+                                {/* Live count indicator — must be 3..12 to enable Create */}
+                                {selectedFiles.length > 0 && (
+                                    <div className="text-[11px] font-bold tracking-wider uppercase">
+                                        <span className={
+                                            selectedFiles.length < MIN_REFERENCE_IMAGES ? 'text-amber-400'
+                                            : selectedFiles.length > MAX_REFERENCE_IMAGES ? 'text-red-400'
+                                            : 'text-emerald-400'
+                                        }>
+                                            {selectedFiles.length}/{MAX_REFERENCE_IMAGES} photos
+                                        </span>
+                                        <span className="text-text-secondary/50 ml-2">
+                                            (need {MIN_REFERENCE_IMAGES}–{MAX_REFERENCE_IMAGES})
+                                        </span>
+                                    </div>
+                                )}
                                 {selectedFiles.length === 0 ? (
                                     <button onClick={triggerFileSelect} className="bg-brand hover:bg-brand-hover text-bg font-black uppercase tracking-widest py-5 px-16 rounded-[24px] flex items-center gap-4 transition-all hover:scale-105 shadow-2xl shadow-brand/20">
-                                        <Upload size={24} /> Select Assets
+                                        <Upload size={24} /> Select {MIN_REFERENCE_IMAGES}–{MAX_REFERENCE_IMAGES} Photos
                                     </button>
                                 ) : (
-                                    <button
-                                        onClick={handleUploadAndCreate}
-                                        disabled={isTraining || !charName}
-                                        className="bg-brand hover:bg-brand-hover text-bg font-black uppercase tracking-widest py-5 px-16 rounded-[24px] flex items-center gap-4 transition-all hover:scale-105 shadow-2xl shadow-brand/20 disabled:opacity-50"
-                                    >
-                                        {isTraining ? <Loader2 size={24} className="animate-spin" /> : <Sparkles size={24} />}
-                                        {isTraining ? 'Initializing' : 'Create Identity'}
-                                    </button>
+                                    <div className="flex flex-col items-center gap-3">
+                                        {selectedFiles.length < MAX_REFERENCE_IMAGES && (
+                                            <button
+                                                onClick={triggerFileSelect}
+                                                className="text-xs font-bold uppercase tracking-widest text-text-secondary hover:text-text-primary border border-white/10 hover:border-white/20 px-4 py-2 rounded-xl transition-colors"
+                                            >
+                                                + Add more photos
+                                            </button>
+                                        )}
+                                        <button
+                                            onClick={handleUploadAndCreate}
+                                            disabled={
+                                                isTraining
+                                                || !charName.trim()
+                                                || selectedFiles.length < MIN_REFERENCE_IMAGES
+                                                || selectedFiles.length > MAX_REFERENCE_IMAGES
+                                            }
+                                            className="bg-brand hover:bg-brand-hover text-bg font-black uppercase tracking-widest py-5 px-16 rounded-[24px] flex items-center gap-4 transition-all hover:scale-105 shadow-2xl shadow-brand/20 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100"
+                                        >
+                                            {isTraining ? <Loader2 size={24} className="animate-spin" /> : <Sparkles size={24} />}
+                                            {isTraining ? 'Saving' : 'Create Identity'}
+                                        </button>
+                                    </div>
                                 )}
                             </div>
                         </div>
