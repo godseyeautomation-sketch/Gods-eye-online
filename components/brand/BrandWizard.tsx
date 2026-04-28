@@ -347,7 +347,7 @@ export const BrandWizard: React.FC<Props> = ({ userId, onComplete, initialDNA })
 
     return (
       <div className="h-full bg-black flex flex-col overflow-hidden">
-        <div className="flex-1 overflow-y-auto py-6 px-4">
+        <div className="flex-1 overflow-y-auto pt-32 pb-6 px-4">
           <div className="max-w-5xl mx-auto">
             {/* Header */}
             <div className="text-center mb-8">
@@ -428,12 +428,24 @@ export const BrandWizard: React.FC<Props> = ({ userId, onComplete, initialDNA })
                     </div>
                     <div className="flex gap-3 flex-wrap">
                       {dna.colors.map((c, i) => (
-                        <div key={i} className="flex flex-col items-center gap-1">
-                          <div
-                            className="w-10 h-10 rounded-full border-2 border-border cursor-pointer hover:ring-2 ring-white/20 shadow-sm"
-                            style={{ backgroundColor: c }}
-                            title={c}
-                          />
+                        <div key={i} className="flex flex-col items-center gap-1 group">
+                          <div className="relative">
+                            <div
+                              className="w-10 h-10 rounded-full border-2 border-border cursor-pointer hover:ring-2 ring-white/20 shadow-sm"
+                              style={{ backgroundColor: c }}
+                              title={c}
+                            />
+                            {/* Hover-× remove button — only shows on hover, prevents accidental clicks */}
+                            <button
+                              type="button"
+                              onClick={() => patch({ colors: dna.colors.filter((_, j) => j !== i) })}
+                              className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-red-500/90 hover:bg-red-500 text-white shadow-md border border-white/20 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                              title={`Remove ${c}`}
+                              aria-label={`Remove color ${c}`}
+                            >
+                              <X size={11} strokeWidth={3} />
+                            </button>
+                          </div>
                           <span className="text-[9px] text-text-secondary font-mono">{c}</span>
                         </div>
                       ))}
