@@ -513,28 +513,45 @@ export const BrandPage: React.FC = () => {
 
 
 
+  // Single source of truth for calendar generation: route every Brand calendar
+  // request through the same Priya agent the Autopilot tab uses. Avoids drift
+  // between the two calendar generators that produced inconsistent counts /
+  // distribution when the user picked 15/30/45 days. (Item #3.)
+  const runPriyaForBrand = async (campaign: { duration_days: number; target_audience: string; campaign_goals: string; themes: string[]; platforms: string[] }) => {
+    const res = await fetch('/api/pipeline/run-agent', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-user-id': userId },
+      body: JSON.stringify({
+        agent_id: 'creative',
+        brand_id: brand!.id,
+        brand: brand,
+        config: { campaign },
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err?.error || `Priya failed: ${res.status}`);
+    }
+    return res.json();
+  };
+
   const handleCreateCampaign = async (campaign: CampaignSuggestion, postCount: number) => {
     if (!brand) return;
     setPopulatingCalendar(true);
     setActiveTab('calendar');
     try {
-      const context = `Campaign: "${campaign.title}" — ${campaign.description}. Build the entire month's content around this campaign theme.`;
-      const planned = await generateMonthPlan(brand, calYear, calMonth, context, postCount);
-      const saved: any[] = [];
-      for (const item of planned) {
-        const slot = await upsertSlot(userId, brand.id, item.date, item.format, { idea: item.idea, status: 'ideated' });
-        if (slot) saved.push(slot);
-        await new Promise(r => setTimeout(r, 250)); // small gap to avoid API rate limit
-      }
-      const newSlots = saved;
-      setSlots(prev => {
-        const updated = [...prev];
-        for (const ns of newSlots) {
-          const idx = updated.findIndex(s => s.slot_date === ns.slot_date && s.format === ns.format);
-          if (idx >= 0) updated[idx] = ns; else updated.push(ns);
-        }
-        return updated;
+      // Map postCount → duration_days using the same brackets Priya uses
+      const duration: 15 | 30 | 45 = postCount >= 60 ? 45 : postCount >= 30 ? 30 : 15;
+      await runPriyaForBrand({
+        duration_days: duration,
+        target_audience: brand.audience || 'General',
+        campaign_goals: `${campaign.title} — ${campaign.description}`,
+        themes: [campaign.title],
+        platforms: ['instagram'],
       });
+      // Priya writes slots directly to content_slots.json. Refetch from there.
+      const refreshed = await getSlotsForMonth(userId, brand.id, calYear, calMonth);
+      setSlots(refreshed);
     } catch (err) {
       console.error('[Brand] Calendar population failed:', err);
     } finally {
@@ -575,49 +592,35 @@ export const BrandPage: React.FC = () => {
         return { inlineData: { mimeType, data: base64 } };
       });
 
-      const planned = await generateMonthPlan(
-        brand, calYear, calMonth,
-        contextLines.join('\n'),
-        answers.postCount,
-        imageParts
-      );
-
-      // Sequential upserts with small delay to avoid rate limits
-      // Auto-match product from idea text
-      const saved: ContentSlot[] = [];
-      for (const item of planned) {
-        const slot = await upsertSlot(userId, brand.id, item.date, item.format, {
-          idea: item.idea,
-          status: 'ideated',
-          selected_product: (item as any).matched_product || undefined,
-        });
-        if (slot) saved.push(slot as ContentSlot);
-        await new Promise(r => setTimeout(r, 250));
-      }
-
-      setSlots(prev => {
-        const updated = [...prev];
-        for (const ns of saved) {
-          const idx = updated.findIndex(s => s.slot_date === ns.slot_date && s.format === ns.format);
-          if (idx >= 0) updated[idx] = ns; else updated.push(ns);
-        }
-        return updated;
+      // Route through Priya for the same one-logic guarantee (item #3)
+      const duration: 15 | 30 | 45 = answers.postCount >= 60 ? 45 : answers.postCount >= 30 ? 30 : 15;
+      await runPriyaForBrand({
+        duration_days: duration,
+        target_audience: answers.targetAudience || brand.audience || 'General',
+        campaign_goals: answers.campaignGoal || 'Brand awareness',
+        themes: contextLines,
+        platforms: ['instagram'],
       });
-
+      const planned = await getSlotsForMonth(userId, brand.id, calYear, calMonth);
+      setSlots(planned);
       setPopulatingCalendar(false);
 
       // Resolve brand DNA reference images once for all reel thumbnails
       const brandRefImgs = await resolveBrandReferenceImages(brand);
       const reelIdentityPrefix = brandRefImgs.length > 0 ? PRODUCT_IDENTITY_LOCK : '';
 
-      // Generate 1st-scene thumbnail for every reel in background
+      // Generate 1st-scene thumbnail for every reel in background.
+      // After consolidation `planned` is ContentSlot[] from Priya — fields are
+      // slot_date (snake_case) and idea may already include a brief.
       const reelItems = planned.filter(item => item.format === 'reel');
       for (const reel of reelItems) {
+        const reelDate = reel.slot_date;
+        const reelIdea = reel.idea || reel.brief?.image_prompt || '';
         try {
-          const scene1Match = reel.idea.match(/Scene 1:\s*([^.]+)/i);
+          const scene1Match = reelIdea.match(/Scene 1:\s*([^.]+)/i);
           const sceneDesc = scene1Match
             ? scene1Match[1].trim()
-            : reel.idea.split('.')[0].trim();
+            : reelIdea.split('.')[0].trim();
           const imgPrompt = `${reelIdentityPrefix}${sceneDesc}, ${brand.visual_style} aesthetic, ${(brand.colors || [])[0] || ''} dominant color, vertical 9:16 social media visual, professional photography, no text overlay`;
 
           const imgs = await generateImage({
@@ -633,17 +636,17 @@ export const BrandPage: React.FC = () => {
           });
 
           if (imgs[0]) {
-            await upsertSlot(userId, brand.id, reel.date, 'reel', { generated_image: imgs[0] });
+            await upsertSlot(userId, brand.id, reelDate, 'reel', { generated_image: imgs[0] });
             setSlots(prev =>
               prev.map(s =>
-                s.slot_date === reel.date && s.format === 'reel'
+                s.slot_date === reelDate && s.format === 'reel'
                   ? { ...s, generated_image: imgs[0] }
                   : s
               )
             );
           }
         } catch (err) {
-          console.warn('[Brand] Reel thumbnail failed:', reel.date, err);
+          console.warn('[Brand] Reel thumbnail failed:', reelDate, err);
         }
         await new Promise(r => setTimeout(r, 600));
       }
