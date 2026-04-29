@@ -146,6 +146,17 @@ export const AutopilotPage: React.FC<AutopilotPageProps> = ({ onNavigate }) => {
 
   const selectedBrand = brands.find(b => b.id === selectedBrandId) || null;
 
+  // Self-heal: if the selected brand was deleted (or never loaded), auto-pick
+  // the first available brand. Prevents UI dropping into half-broken state
+  // where the selector points at a ghost brand that no longer exists.
+  useEffect(() => {
+    if (selectedBrandId && brands.length && !selectedBrand) {
+      setSelectedBrandId(brands[0].id);
+    } else if (selectedBrandId && !brands.length) {
+      setSelectedBrandId(null);
+    }
+  }, [brands, selectedBrandId, selectedBrand]);
+
   // ── Load brands ──────────────────────────────────────────────────────────
   useEffect(() => {
     if (!user?.id) return;
@@ -819,18 +830,8 @@ export const AutopilotPage: React.FC<AutopilotPageProps> = ({ onNavigate }) => {
           {selectedBrand && (
             <>
               <p className="text-xs text-text-secondary/40 mt-2 px-1 truncate">{selectedBrand.industry || 'General'}</p>
-              {/* Edit profile / view calendar links — Brand tab is no longer
-                  in the top nav (consolidated into Agents per item #2), so we
-                  expose its key actions here so users can still reach them. */}
-              <div className="flex items-center gap-2 mt-2 px-1">
-                <button
-                  onClick={() => setView('profile')}
-                  className="flex-1 text-[11px] font-medium text-text-secondary hover:text-brand transition flex items-center justify-center gap-1 py-1.5 rounded-lg bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.04]"
-                  title="Open the brand profile editor (inline)"
-                >
-                  ✏️ Edit Brand
-                </button>
-              </div>
+              {/* (Removed the duplicate "Edit Brand" button — it pointed to the
+                  same place as the "Brand Profile" sidebar item below.) */}
               {/* Slack OAuth — per-brand workspace connection. One-click
                   install, no API keys for the user. (Item #12) */}
               <SlackConnectionPanel brandId={selectedBrand.id} userId={user?.id || ''} />
@@ -920,9 +921,10 @@ export const AutopilotPage: React.FC<AutopilotPageProps> = ({ onNavigate }) => {
       {/* ── Main Content ──────────────────────────────────────────────── */}
       <div className="flex-1 overflow-y-auto">
         {/* ── BRAND PROFILE VIEW (embedded — was a separate tab before) ── */}
-        {view === 'profile' && selectedBrandId && (
+        {view === 'profile' && selectedBrandId && selectedBrand && (
           <BrandProfilePane
             brandId={selectedBrandId}
+            brand={selectedBrand}
             userId={user?.id || ''}
             onSaved={() => {
               if (user?.id) getAllBrandProfiles(user.id).then(all => setBrands(all));
@@ -1771,32 +1773,77 @@ export const AutopilotPage: React.FC<AutopilotPageProps> = ({ onNavigate }) => {
 // SlackConnectionPanel — per-brand "Add to Slack" OAuth button
 // ─────────────────────────────────────────────────────────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
-// BrandProfilePane — embeds the existing BrandPage profile editor as a sub-view
-// of the Agents tab, so users never have to navigate away to edit brand details.
+// BrandProfilePane — focused brand DNA editor inside the Agents tab.
+// Renders the BrandWizard component (DNA-only step) populated with the
+// current brand's data. NO internal tabs, NO duplicate calendar — those live
+// in their own sidebar items (Calendar / Run Agents / etc.).
 // ─────────────────────────────────────────────────────────────────────────────
-const BrandProfilePane: React.FC<{ brandId: string; userId: string; onSaved?: () => void }> = ({ brandId, userId, onSaved }) => {
-  // We render the existing BrandPage in 'embedded' mode by routing through it
-  // — the page is heavy (handles its own state) but reuses all existing logic
-  // for save, image upload, products, fonts, colors, etc.
-  // Lazy-load to avoid a circular import (BrandPage may import from Autopilot).
-  const [BrandPage, setBrandPage] = useState<React.ComponentType<any> | null>(null);
+const BrandProfilePane: React.FC<{ brandId: string; userId: string; brand: BrandProfile; onSaved?: () => void }> = ({ brandId, userId, brand, onSaved }) => {
+  const [BrandWizard, setBrandWizard] = useState<React.ComponentType<any> | null>(null);
   useEffect(() => {
     let cancelled = false;
-    import('./brand/BrandPage').then(m => {
-      if (!cancelled) setBrandPage(() => m.BrandPage);
+    import('./brand/BrandWizard').then(m => {
+      if (!cancelled) setBrandWizard(() => m.BrandWizard);
     });
     return () => { cancelled = true; };
   }, []);
-  if (!BrandPage) {
+
+  if (!BrandWizard) {
     return (
       <div className="flex items-center justify-center py-20">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand" />
       </div>
     );
   }
+
+  // Convert the live BrandProfile into the BrandDNA shape BrandWizard expects.
+  // Both share most fields — wizard expects no id/user_id/timestamps.
+  const initialDNA: any = {
+    name: brand.name || '',
+    website_url: brand.website_url || '',
+    logo_url: brand.logo_url || '',
+    tagline: brand.tagline || '',
+    industry: brand.industry || '',
+    audience: brand.audience || '',
+    tone: brand.tone || [],
+    colors: brand.colors || [],
+    fonts: brand.fonts || [],
+    visual_style: brand.visual_style || '',
+    keywords: brand.keywords || [],
+    avoid: brand.avoid || [],
+    example_images: brand.example_images || [],
+    product_images: brand.product_images || [],
+    lifestyle_images: brand.lifestyle_images || [],
+    products: brand.products || [],
+    brand_values: brand.brand_values || [],
+    aesthetic: brand.aesthetic || [],
+    overview: brand.overview || '',
+    visual_style_rules: brand.visual_style_rules,
+    instagram_handle: brand.instagram_handle,
+    facebook_url: brand.facebook_url,
+    tiktok_handle: brand.tiktok_handle,
+    youtube_handle: brand.youtube_handle,
+    linkedin_handle: brand.linkedin_handle,
+    x_handle: brand.x_handle,
+    pinterest_handle: brand.pinterest_handle,
+    threads_handle: brand.threads_handle,
+    competitors: brand.competitors || [],
+  };
+
+  const handleComplete = async (dna: any) => {
+    // Save the updated DNA back to the brand profile
+    try {
+      const { saveBrandProfile } = await import('../services/brandService');
+      await saveBrandProfile(userId, { ...brand, ...dna, updated_at: new Date().toISOString() });
+      onSaved?.();
+    } catch (err) {
+      console.error('[BrandProfilePane] Save failed:', err);
+    }
+  };
+
   return (
-    <div className="pt-20 pb-6">
-      <BrandPage initialBrandId={brandId} embedded onSaved={onSaved} />
+    <div className="pt-20 pb-6 h-full overflow-y-auto">
+      <BrandWizard userId={userId} onComplete={handleComplete} initialDNA={initialDNA} />
     </div>
   );
 };
