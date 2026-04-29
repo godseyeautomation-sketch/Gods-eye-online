@@ -365,12 +365,22 @@ Return ONLY valid JSON (no markdown):
 };
 
 // ── Main BrandPage ─────────────────────────────────────────────────────────────
-export const BrandPage: React.FC = () => {
+interface BrandPageProps {
+  /** When true, hides the standalone-page chrome (top-nav padding, brand-list
+   *  sidebar). Used when embedded inside the Agents tab. */
+  embedded?: boolean;
+  /** Pre-select this brand on mount (used in embedded mode). */
+  initialBrandId?: string;
+  /** Called after a successful save in embedded mode so the parent can refresh. */
+  onSaved?: () => void;
+}
+
+export const BrandPage: React.FC<BrandPageProps> = ({ embedded = false, initialBrandId, onSaved }) => {
   const { session } = useAuth();
   const userId = session?.user?.id || '';
 
   const [brands, setBrands] = useState<BrandProfile[]>([]);
-  const [activeBrandId, setActiveBrandId] = useState<string | null>(null);
+  const [activeBrandId, setActiveBrandId] = useState<string | null>(initialBrandId || null);
   const [brand, setBrand] = useState<BrandProfile | null | undefined>(undefined);
   const [showWizard, setShowWizard] = useState(false);
   const [showCampaignAgent, setShowCampaignAgent] = useState(false);

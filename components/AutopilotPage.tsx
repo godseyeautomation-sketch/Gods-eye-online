@@ -66,7 +66,7 @@ const PIPELINE_STAGES: { key: PipelineStage; label: string }[] = [
   { key: 'analyze', label: 'Analyze' },
 ];
 
-type SidebarView = 'pipeline' | 'queue' | 'competitors' | 'activity';
+type SidebarView = 'pipeline' | 'queue' | 'competitors' | 'activity' | 'profile' | 'calendar';
 
 // ── Config for pipeline ─────────────────────────────────────────────────────
 interface PipelineConfig {
@@ -824,9 +824,9 @@ export const AutopilotPage: React.FC<AutopilotPageProps> = ({ onNavigate }) => {
                   expose its key actions here so users can still reach them. */}
               <div className="flex items-center gap-2 mt-2 px-1">
                 <button
-                  onClick={() => onNavigate?.(AppMode.BRAND)}
+                  onClick={() => setView('profile')}
                   className="flex-1 text-[11px] font-medium text-text-secondary hover:text-brand transition flex items-center justify-center gap-1 py-1.5 rounded-lg bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.04]"
-                  title="Open the brand editor"
+                  title="Open the brand profile editor (inline)"
                 >
                   ✏️ Edit Brand
                 </button>
@@ -841,7 +841,13 @@ export const AutopilotPage: React.FC<AutopilotPageProps> = ({ onNavigate }) => {
         {/* Navigation */}
         <nav className="flex-1 px-3 space-y-0.5">
           {([
-            { key: 'pipeline' as SidebarView, label: 'Pipeline', count: runs.filter(r => r.status === 'running').length },
+            // Profile + Calendar ARE NOW INLINE — no more clicking out to a
+            // separate Brand page. Brand profile and calendar render inside
+            // the Agents tab when these sub-views are picked. (Item #2 + #5
+            // properly consolidated.)
+            { key: 'profile' as SidebarView, label: 'Brand Profile', count: 0 },
+            { key: 'calendar' as SidebarView, label: 'Calendar', count: 0 },
+            { key: 'pipeline' as SidebarView, label: 'Run Agents', count: runs.filter(r => r.status === 'running').length },
             { key: 'queue' as SidebarView, label: 'Approval Queue', count: queuePendingCount },
             { key: 'competitors' as SidebarView, label: 'Competitors', count: config.competitors.length },
             { key: 'activity' as SidebarView, label: 'Activity', count: 0 },
@@ -913,6 +919,22 @@ export const AutopilotPage: React.FC<AutopilotPageProps> = ({ onNavigate }) => {
 
       {/* ── Main Content ──────────────────────────────────────────────── */}
       <div className="flex-1 overflow-y-auto">
+        {/* ── BRAND PROFILE VIEW (embedded — was a separate tab before) ── */}
+        {view === 'profile' && selectedBrandId && (
+          <BrandProfilePane
+            brandId={selectedBrandId}
+            userId={user?.id || ''}
+            onSaved={() => {
+              if (user?.id) getAllBrandProfiles(user.id).then(all => setBrands(all));
+            }}
+          />
+        )}
+
+        {/* ── CALENDAR VIEW (embedded calendar, no more clicking out) ── */}
+        {view === 'calendar' && selectedBrandId && selectedBrand && (
+          <BrandCalendarPane brand={selectedBrand} userId={user?.id || ''} />
+        )}
+
         {/* ── PIPELINE VIEW ──────────────────────────────────────────── */}
         {view === 'pipeline' && (
           <div className="px-6 pt-28 pb-6 space-y-5">
@@ -1748,6 +1770,107 @@ export const AutopilotPage: React.FC<AutopilotPageProps> = ({ onNavigate }) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // SlackConnectionPanel — per-brand "Add to Slack" OAuth button
 // ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// BrandProfilePane — embeds the existing BrandPage profile editor as a sub-view
+// of the Agents tab, so users never have to navigate away to edit brand details.
+// ─────────────────────────────────────────────────────────────────────────────
+const BrandProfilePane: React.FC<{ brandId: string; userId: string; onSaved?: () => void }> = ({ brandId, userId, onSaved }) => {
+  // We render the existing BrandPage in 'embedded' mode by routing through it
+  // — the page is heavy (handles its own state) but reuses all existing logic
+  // for save, image upload, products, fonts, colors, etc.
+  // Lazy-load to avoid a circular import (BrandPage may import from Autopilot).
+  const [BrandPage, setBrandPage] = useState<React.ComponentType<any> | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    import('./brand/BrandPage').then(m => {
+      if (!cancelled) setBrandPage(() => m.BrandPage);
+    });
+    return () => { cancelled = true; };
+  }, []);
+  if (!BrandPage) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand" />
+      </div>
+    );
+  }
+  return (
+    <div className="pt-20 pb-6">
+      <BrandPage initialBrandId={brandId} embedded onSaved={onSaved} />
+    </div>
+  );
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BrandCalendarPane — embedded calendar view inside the Agents tab.
+// Renders the same BrandCalendar component the standalone Brand page uses,
+// loading slots for the current month and re-fetching when navigation changes.
+// ─────────────────────────────────────────────────────────────────────────────
+const BrandCalendarPane: React.FC<{ brand: BrandProfile; userId: string }> = ({ brand, userId }) => {
+  const [BrandCalendar, setBrandCalendar] = useState<React.ComponentType<any> | null>(null);
+  const [year, setYear] = useState(new Date().getFullYear());
+  const [month, setMonth] = useState(new Date().getMonth() + 1);
+  const [slots, setSlots] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [platform, setPlatform] = useState<SocialPlatform>('instagram');
+
+  useEffect(() => {
+    let cancelled = false;
+    import('./brand/BrandCalendar').then(m => {
+      if (!cancelled) setBrandCalendar(() => m.BrandCalendar);
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (!brand?.id || !userId) return;
+    let cancelled = false;
+    setLoading(true);
+    import('../services/brandService').then(({ getSlotsForMonth }) => {
+      getSlotsForMonth(userId, brand.id, year, month).then(s => {
+        if (!cancelled) {
+          setSlots(s || []);
+          setLoading(false);
+        }
+      }).catch(() => {
+        if (!cancelled) { setSlots([]); setLoading(false); }
+      });
+    });
+    return () => { cancelled = true; };
+  }, [brand?.id, userId, year, month]);
+
+  if (!BrandCalendar) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="pt-20 pb-6 px-6 h-full">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h1 className="text-lg font-bold text-text-primary">Calendar</h1>
+          <p className="text-xs text-text-secondary mt-0.5">{brand.name} · {slots.length} slot{slots.length !== 1 ? 's' : ''} this month</p>
+        </div>
+        {loading && <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-brand" />}
+      </div>
+      <div className="bg-panel/40 border border-border rounded-2xl p-4 h-[calc(100vh-13rem)]">
+        <BrandCalendar
+          year={year}
+          month={month}
+          slots={slots}
+          onMonthChange={(y: number, m: number) => { setYear(y); setMonth(m); }}
+          onSlotClick={() => {}}
+          selectedPlatform={platform}
+          onPlatformChange={setPlatform}
+        />
+      </div>
+    </div>
+  );
+};
+
 const SlackConnectionPanel: React.FC<{ brandId: string; userId: string }> = ({ brandId, userId }) => {
   const [state, setState] = useState<{ connected: boolean; team?: string; channel?: string } | null>(null);
   const [busy, setBusy] = useState(false);
