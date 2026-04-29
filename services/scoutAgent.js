@@ -692,7 +692,7 @@ function buildDocument(brand, scanData, weaknessData, strategyData) {
       });
       if (s.caption) { children.push(spacer(), p('Caption:', { bold: true }), p(s.caption)); }
       const hashtags = arr(s.hashtags);
-      if (hashtags.length) children.push(p(hashtags.map(h => `#${String(h).replace('#', '')}`).join(' '), { color: '0066CC' }));
+      if (hashtags.length) children.push(p(hashtags.map(h => `#${String(h).replace(/^#+/, '')}`).join(' '), { color: '0066CC' }));
       children.push(spacer());
     });
   }
@@ -873,8 +873,14 @@ async function executeScout(userId, brandId, config = {}) {
       const allBrands = Array.isArray(syncData?.data) ? syncData.data : (Array.isArray(syncData) ? syncData : []);
       const idx = allBrands.findIndex(b => b.id === brandId);
       if (idx >= 0) {
+        // Belt-and-suspenders: explicitly preserve user-editable fields that
+        // some upstream code paths might accidentally drop. Without this,
+        // competitors disappeared after the first Scout run and the UI
+        // showed an empty Competitors tab.
+        const _preserveCompetitors = Array.isArray(allBrands[idx].competitors) ? allBrands[idx].competitors : [];
         allBrands[idx] = {
           ...allBrands[idx],
+          competitors: _preserveCompetitors,
           scout_report: {
             filename,
             generated_at: result.generated_at,

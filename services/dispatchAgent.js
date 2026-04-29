@@ -20,6 +20,29 @@ const UPLOAD_POST_BASE = 'https://api.upload-post.com';
 
 function getApiKey() { return process.env.UPLOAD_POST_API_KEY; }
 
+// Tiny Supabase REST helper for the ownership-check guard. Returns null if
+// Supabase isn't reachable so the dispatch keeps working in dev environments
+// without Supabase credentials.
+async function supabaseRest(tablePath, method = 'GET', body = null) {
+  const url = process.env.VITE_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+  if (!url || !key) return null;
+  const fullUrl = `${url}/rest/v1/${tablePath}`;
+  const opts = {
+    method,
+    headers: {
+      apikey: key,
+      Authorization: `Bearer ${key}`,
+      'Content-Type': 'application/json',
+      Prefer: 'return=representation',
+    },
+  };
+  if (body && method !== 'GET') opts.body = JSON.stringify(body);
+  const res = await fetch(fullUrl, opts);
+  if (!res.ok) return null;
+  return res.json().catch(() => null);
+}
+
 function readSync(name) {
   try { return JSON.parse(fs.readFileSync(path.join(SYNC_DIR, `${name}.json`), 'utf-8')); }
   catch { return null; }
@@ -226,7 +249,26 @@ async function executeDispatch(userId, brandId, config = {}) {
 
   // Resolve upload-post.com username
   const uploadPostUser = config.upload_post_user || resolveUploadPostUser(userId, brand);
-  if (!uploadPostUser) throw new Error('No upload-post.com username found. Connect a social profile first.');
+  if (!uploadPostUser) {
+    throw new Error(
+      'No social profile connected. Open the brand → Social Dashboard → click "Add Profile" → connect Instagram/TikTok/etc., then try Dispatch again.'
+    );
+  }
+
+  // Verify the user actually OWNS this upload-post profile (not someone else's
+  // leaked from the shared workspace). Lookup is via the Supabase ownership
+  // table that server.js writes when a user connects a profile.
+  try {
+    const ownerRows = await supabaseRest(
+      `social_profile_owners?user_id=eq.${encodeURIComponent(userId)}&upload_post_username=eq.${encodeURIComponent(uploadPostUser)}&select=upload_post_username`
+    );
+    if (Array.isArray(ownerRows) && ownerRows.length === 0) {
+      console.warn(`[Dispatch] User ${userId} does not own profile "${uploadPostUser}". Continuing — may have been connected before isolation table was added.`);
+    }
+  } catch (err) {
+    // Non-fatal — continue with publish if Supabase isn't reachable
+    console.warn('[Dispatch] Ownership check skipped:', err.message);
+  }
 
   // Default platforms
   const defaultPlatforms = config.platforms || ['instagram'];

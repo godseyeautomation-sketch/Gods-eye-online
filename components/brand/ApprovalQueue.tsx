@@ -622,7 +622,7 @@ function ApprovalCard({ item, isAB, isSelected, isLoading, onApprove, onReject, 
             {item.brief?.hashtags?.length ? (
               <div className="flex flex-wrap gap-1.5">
                 {item.brief.hashtags.slice(0, 10).map((tag, i) => (
-                  <span key={i} className="text-[10px] text-blue-400/70 bg-blue-500/10 px-1.5 py-0.5 rounded">#{tag}</span>
+                  <span key={i} className="text-[10px] text-blue-400/70 bg-blue-500/10 px-1.5 py-0.5 rounded">#{String(tag).replace(/^#+/, '')}</span>
                 ))}
               </div>
             ) : null}

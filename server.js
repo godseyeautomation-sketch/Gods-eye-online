@@ -947,6 +947,21 @@ app.put('/api/approval-queue/:id/approve', (req, res) => {
       slots[slotIdx].approved = true;
       slots[slotIdx].generated_image = items[idx].generated_image || slots[slotIdx].generated_image;
       slots[slotIdx].updated_at = new Date().toISOString();
+      // Auto-schedule on approve: if the slot has no scheduled_at yet, set it
+      // to 9 AM on its calendar slot_date (or +24h if past). Dispatch reads
+      // scheduled_at when deciding what to publish, so without this the post
+      // would publish immediately on the next dispatch run.
+      if (!slots[slotIdx].scheduled_at) {
+        try {
+          const [y, m, d] = String(slots[slotIdx].slot_date || '').split('-').map(Number);
+          let when = (y && m && d) ? new Date(Date.UTC(y, m - 1, d, 9, 0, 0)) : null;
+          if (!when || isNaN(when.getTime()) || when.getTime() < Date.now()) {
+            when = new Date(Date.now() + 24 * 60 * 60 * 1000);
+            when.setUTCHours(9, 0, 0, 0);
+          }
+          slots[slotIdx].scheduled_at = when.toISOString();
+        } catch { /* fall back to no schedule — dispatch will publish on next run */ }
+      }
       writeSyncFile('content_slots', { _updatedAt: new Date().toISOString(), data: slots });
     }
 

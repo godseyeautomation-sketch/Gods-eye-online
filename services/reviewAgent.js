@@ -203,7 +203,9 @@ function buildSlotMessage(slot, reviewId, queueId) {
   const formatIcon = slot.format === 'reel' ? '🎬 Reel' : slot.format === 'story' ? '📱 Story' : '🖼️ Post';
   const platform = slot.platform || 'instagram';
   const platformBadge = PLATFORM_BADGES[platform] || `📱 ${platform}`;
-  const hashtags = (brief.hashtags || []).slice(0, 8).map(t => `#${String(t).replace('#', '')}`).join(' ');
+  // Use global regex to strip ALL leading # characters before adding exactly one.
+  // Without /g, "##tag" becomes "#tag" which still gets prefixed with # → "##tag" again.
+  const hashtags = (brief.hashtags || []).slice(0, 8).map(t => `#${String(t).replace(/^#+/, '')}`).join(' ');
 
   return {
     channel: getSlackChannel(),

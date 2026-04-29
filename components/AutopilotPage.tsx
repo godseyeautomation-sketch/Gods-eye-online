@@ -125,6 +125,8 @@ export const AutopilotPage: React.FC = () => {
   const [scoutRejecting, setScoutRejecting] = useState(false);
   const [scoutRejectOpen, setScoutRejectOpen] = useState(false);
   const [scoutRejectFeedback, setScoutRejectFeedback] = useState('');
+  // Scout report preview modal — render-in-app alternative to downloading the .docx
+  const [showScoutPreview, setShowScoutPreview] = useState(false);
   const [showPriyaModal, setShowPriyaModal] = useState(false); // Priya questionnaire visibility
   const [fullCycleMode, setFullCycleMode] = useState(false); // Run Full Cycle shortcut
   const [priyaPlatformProgress, setPriyaPlatformProgress] = useState<{ total: number; current: number; currentName: string; slotsByPlatform: Record<string, number>; status: string } | null>(null);
@@ -609,8 +611,18 @@ export const AutopilotPage: React.FC = () => {
     } catch (err: any) {
       console.error(`[Agent] ${agentId} error:`, err);
       setAgentError(`${agentId}: ${err.message || 'Network error'}`);
+    } finally {
+      // Always clear lock state so individual agents can be re-run later.
+      // Without this, a thrown error or a code path that skipped the bottom
+      // setRunningAgent(null) would leave the UI permanently locked.
+      setRunningAgent(null);
+      // If this was the last agent of a full cycle, end full-cycle mode so
+      // that subsequent manual Scout/Priya/Review clicks behave as standalone
+      // re-runs (not auto-chained, no auto-approve).
+      if (agentId === 'reviewer' || agentId === 'dispatch' || agentId === 'karma') {
+        setFullCycleMode(false);
+      }
     }
-    setRunningAgent(null);
   };
 
   // ── Download scout report ─────────────────────────────────────────────
@@ -964,7 +976,7 @@ export const AutopilotPage: React.FC = () => {
                         </span>
                         <button
                           onClick={(e) => { e.stopPropagation(); runAgent(agent.id); }}
-                          disabled={!!runningAgent || status === 'running'}
+                          disabled={!!runningAgent || (status === 'running' && runningAgent === agent.id)}
                           className={`px-2.5 py-1 rounded-lg text-[9px] font-bold uppercase tracking-wider transition-all ${
                             isAgentRunning
                               ? 'bg-brand/20 text-brand'
@@ -1049,6 +1061,10 @@ export const AutopilotPage: React.FC = () => {
                         {scoutResult.competitors_analyzed} competitors · {scoutResult.content_pillars} pillars · {scoutResult.hooks_generated} hooks
                       </p>
                     </div>
+                    <button onClick={() => setShowScoutPreview(true)} className="px-3 py-2 rounded-xl bg-white/[0.03] hover:bg-white/[0.06] text-text-primary text-xs font-medium border border-white/[0.08] transition flex items-center gap-1.5">
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                      View
+                    </button>
                     <button onClick={downloadScoutReport} className="px-3 py-2 rounded-xl bg-white/[0.03] hover:bg-white/[0.06] text-text-primary text-xs font-medium border border-white/[0.08] transition flex items-center gap-1.5">
                       <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
                       Download
@@ -1538,6 +1554,123 @@ export const AutopilotPage: React.FC = () => {
           onCancel={() => setShowPriyaModal(false)}
         />
       )}
+
+      {/* Scout Report Preview Modal — shows the structured report data
+          (pillars, hooks, weaknesses, opportunities, coverage) in-app
+          without needing to download the .docx. */}
+      {showScoutPreview && (() => {
+        const activeBrand = brands.find(b => b.id === selectedBrandId);
+        const r = activeBrand?.scout_report;
+        if (!r) return null;
+        const pillars = r.strategy_data?.content_pillars || [];
+        const hooks = r.strategy_data?.hook_bank || {};
+        const weaknesses = r.weakness_data?.weaknesses_opportunities || [];
+        const positioning = r.weakness_data?.positioning_statement || '';
+        const differentiators = r.weakness_data?.key_differentiators || [];
+        const coverage = r.scan_data?.platform_scrape_status || {};
+        return (
+          <div
+            className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+            onClick={() => setShowScoutPreview(false)}
+          >
+            <div
+              className="bg-panel border border-border rounded-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="sticky top-0 bg-panel border-b border-border px-6 py-4 flex items-center justify-between z-10">
+                <div>
+                  <h2 className="text-lg font-bold text-text-primary">Scout Report — {activeBrand?.name}</h2>
+                  <p className="text-xs text-text-secondary">{r.competitors_analyzed || 0} competitors analyzed · {pillars.length} pillars · {Object.values(hooks).flat().length} hooks</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button onClick={downloadScoutReport} className="px-3 py-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-text-primary text-xs font-medium border border-white/[0.08] transition flex items-center gap-1.5">
+                    Download .docx
+                  </button>
+                  <button onClick={() => setShowScoutPreview(false)} className="w-8 h-8 rounded-full bg-white/[0.04] hover:bg-white/[0.08] text-text-secondary hover:text-text-primary flex items-center justify-center transition">
+                    ✕
+                  </button>
+                </div>
+              </div>
+              <div className="p-6 space-y-6">
+                {positioning && (
+                  <section>
+                    <h3 className="text-[11px] uppercase tracking-wider text-brand font-bold mb-2">Positioning</h3>
+                    <p className="text-sm text-text-primary leading-relaxed">{positioning}</p>
+                  </section>
+                )}
+                {differentiators.length > 0 && (
+                  <section>
+                    <h3 className="text-[11px] uppercase tracking-wider text-brand font-bold mb-2">Key Differentiators</h3>
+                    <ul className="space-y-1.5">
+                      {differentiators.map((d: string, i: number) => (
+                        <li key={i} className="text-sm text-text-secondary flex gap-2"><span className="text-brand">•</span>{d}</li>
+                      ))}
+                    </ul>
+                  </section>
+                )}
+                {Object.keys(coverage).length > 0 && (
+                  <section>
+                    <h3 className="text-[11px] uppercase tracking-wider text-brand font-bold mb-2">Scrape Coverage</h3>
+                    <div className="flex flex-wrap gap-1.5">
+                      {Object.entries(coverage).map(([p, info]: [string, any]) => (
+                        <span key={p} className={`px-2 py-1 rounded-lg text-[10px] font-medium border ${info.status === 'ok' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : info.status === 'failed' ? 'bg-red-500/10 text-red-400 border-red-500/20' : 'bg-white/[0.03] text-text-secondary/60 border-white/[0.06]'}`}>
+                          {p}: {info.status === 'ok' ? `✓ ${info.profiles}` : info.status}
+                        </span>
+                      ))}
+                    </div>
+                  </section>
+                )}
+                {pillars.length > 0 && (
+                  <section>
+                    <h3 className="text-[11px] uppercase tracking-wider text-brand font-bold mb-2">Content Pillars</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {pillars.map((p: any, i: number) => (
+                        <div key={i} className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.05]">
+                          <div className="flex items-center justify-between mb-1">
+                            <p className="text-sm font-bold text-text-primary">{p.name}</p>
+                            {p.percentage != null && <span className="text-[10px] text-brand font-bold">{p.percentage}%</span>}
+                          </div>
+                          {p.purpose && <p className="text-xs text-text-secondary leading-relaxed">{p.purpose}</p>}
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                )}
+                {weaknesses.length > 0 && (
+                  <section>
+                    <h3 className="text-[11px] uppercase tracking-wider text-brand font-bold mb-2">Opportunities ({weaknesses.length})</h3>
+                    <div className="space-y-2">
+                      {weaknesses.slice(0, 6).map((w: any, i: number) => (
+                        <div key={i} className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.05]">
+                          <p className="text-xs text-text-secondary mb-1">Their weakness:</p>
+                          <p className="text-sm text-text-primary mb-1">{w.their_weakness}</p>
+                          <p className="text-xs text-text-secondary mb-1 mt-2">Our opportunity:</p>
+                          <p className="text-sm text-brand">{w.our_opportunity}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                )}
+                {Object.keys(hooks).length > 0 && (
+                  <section>
+                    <h3 className="text-[11px] uppercase tracking-wider text-brand font-bold mb-2">Hook Bank</h3>
+                    {Object.entries(hooks).map(([category, hookList]: [string, any]) => Array.isArray(hookList) && hookList.length > 0 && (
+                      <div key={category} className="mb-3">
+                        <p className="text-[10px] uppercase tracking-wider text-text-secondary font-bold mb-1">{category.replace(/_/g, ' ')}</p>
+                        <ul className="space-y-1">
+                          {hookList.slice(0, 3).map((h: string, i: number) => (
+                            <li key={i} className="text-xs text-text-primary leading-relaxed pl-3 border-l border-brand/30">"{h}"</li>
+                          ))}
+                        </ul>
+                      </div>
+                    ))}
+                  </section>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 };
