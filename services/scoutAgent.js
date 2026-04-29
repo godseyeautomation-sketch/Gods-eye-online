@@ -416,8 +416,8 @@ Return detailed JSON:
 // STEP 2: Weakness Analysis & Opportunities
 // ══════════════════════════════════════════════════════════════════════════════
 
-async function analyzeWeaknesses(brand, scanData, userFeedback = '') {
-  console.log(`[Scout] Step 2: Analyzing weaknesses & opportunities${userFeedback ? ' (with user feedback)' : ''}...`);
+async function analyzeWeaknesses(brand, scanData, userFeedback = '', karmaReport = null) {
+  console.log(`[Scout] Step 2: Analyzing weaknesses & opportunities${userFeedback ? ' (with user feedback)' : ''}${karmaReport ? ' (with Karma report)' : ''}...`);
 
   const feedbackBlock = userFeedback ? `
 
@@ -428,8 +428,26 @@ The user rejected a previous version of this analysis with the following feedbac
 Make the new output meaningfully different — different opportunities, sharper positioning, rework the angles that were flagged. Do not repeat what the user rejected.
 ` : '';
 
+  // Karma report block — what we learned from past posts. Use it to bias
+  // weakness identification toward themes the audience has actually responded
+  // to, not just theoretical opportunities.
+  const karmaBlock = karmaReport ? `
+
+═══ PERFORMANCE LEARNINGS FROM PAST POSTS (KARMA REPORT) ═══
+Period: ${karmaReport.period_start} → ${karmaReport.period_end} (${karmaReport.posts_analyzed} posts analyzed)
+${karmaReport.summary ? `Executive summary: ${karmaReport.summary}` : ''}
+
+What worked: ${(karmaReport.what_worked || []).slice(0, 5).join(' | ') || '(none)'}
+Do more of: ${(karmaReport.do_more || []).slice(0, 5).join(' | ') || '(none)'}
+Stop doing: ${(karmaReport.stop_doing || []).slice(0, 5).join(' | ') || '(none)'}
+Best formats: ${(karmaReport.best_formats || []).join(', ') || '(none)'}
+Best themes: ${(karmaReport.best_themes || []).join(', ') || '(none)'}
+
+Use this to anchor opportunity identification — favor angles that align with what's already proven, and explicitly call out competitor weaknesses our proven winners can exploit.
+` : '';
+
   const prompt = `You are a brand strategist. Based on this intelligence, identify weaknesses and opportunities.
-${feedbackBlock}
+${feedbackBlock}${karmaBlock}
 OUR BRAND: ${brand.name}
 INDUSTRY: ${brand.industry || 'General'}
 AUDIENCE: ${brand.audience || 'General'}
@@ -467,8 +485,8 @@ Return JSON:
 // STEP 3: Content Strategy + Calendar + Hooks + Scripts
 // ══════════════════════════════════════════════════════════════════════════════
 
-async function generateStrategy(brand, scanData, weaknessData, platforms = ['instagram'], userFeedback = '') {
-  console.log(`[Scout] Step 3: Generating content strategy for platforms: ${platforms.join(', ')}${userFeedback ? ' (with user feedback)' : ''}...`);
+async function generateStrategy(brand, scanData, weaknessData, platforms = ['instagram'], userFeedback = '', karmaReport = null) {
+  console.log(`[Scout] Step 3: Generating content strategy for platforms: ${platforms.join(', ')}${userFeedback ? ' (with user feedback)' : ''}${karmaReport ? ' (with Karma report)' : ''}...`);
 
   const isMultiPlatform = platforms.length > 1;
 
@@ -505,8 +523,32 @@ The user rejected a previous version of this strategy with the following feedbac
 Make the new content meaningfully different — different pillars, fresh hooks, new calendar angles. Do not repeat what the user rejected.
 ` : '';
 
+  // Karma report block — what already worked. Item #15: Scout reads from
+  // the Karma agent's distilled performance signals so each subsequent
+  // strategy round biases toward proven winners.
+  const karmaBlock = karmaReport ? `
+
+═══ PROVEN PATTERNS FROM PAST POSTS (KARMA REPORT) ═══
+Period: ${karmaReport.period_start} → ${karmaReport.period_end} (${karmaReport.posts_analyzed} posts analyzed)
+${karmaReport.summary ? `Executive summary: ${karmaReport.summary}` : ''}
+
+PROVEN WINNERS — DO MORE OF THIS:
+${(karmaReport.do_more || []).slice(0, 5).map(s => `  • ${s}`).join('\n') || '  (none yet)'}
+
+WHAT WORKED:
+${(karmaReport.what_worked || []).slice(0, 5).map(s => `  • ${s}`).join('\n') || '  (none yet)'}
+
+STOP DOING:
+${(karmaReport.stop_doing || []).slice(0, 5).map(s => `  • ${s}`).join('\n') || '  (none flagged)'}
+
+BEST FORMATS (data-backed): ${(karmaReport.best_formats || []).join(', ') || 'no clear winner yet'}
+BEST THEMES (data-backed): ${(karmaReport.best_themes || []).join(', ') || 'no clear theme yet'}
+
+When you generate the calendar, REEL SCRIPTS, and HOOKS — at least 60% of slots should be variations on proven winners. The remaining 40% can be strategic experiments. Do NOT repeat the "stop doing" patterns.
+` : '';
+
   const prompt = `You are a world-class social media content strategist. Create a comprehensive content strategy.
-${feedbackBlock}
+${feedbackBlock}${karmaBlock}
 BRAND: ${brand.name}
 WEBSITE: ${brand.website_url || 'N/A'}
 INSTAGRAM: ${brand.instagram_handle ? '@' + brand.instagram_handle : 'N/A'}
@@ -824,15 +866,47 @@ async function executeScout(userId, brandId, config = {}) {
   console.log(`[Scout] Website: ${brand.website_url || 'none'}, IG: ${brand.instagram_handle || 'none'}, Competitors: ${competitors.length}`);
   console.log(`[Scout] Platforms: ${platforms.join(', ')}`);
 
+  // Karma feedback loop: pull the most recent performance_signals for this
+  // brand and inject as a "what worked / what didn't" memo into Scout's
+  // strategy + weakness prompts. This is item #15 — Scout learns from
+  // what Karma observed in past published posts.
+  let karmaReport = null;
+  try {
+    const signalsFile = path.join(syncDir, 'performance_signals.json');
+    if (fs.existsSync(signalsFile)) {
+      const signalsData = JSON.parse(fs.readFileSync(signalsFile, 'utf-8'));
+      const signals = Array.isArray(signalsData?.data) ? signalsData.data : [];
+      // Most-recent signal record for this brand
+      const latest = [...signals].reverse().find(s => s.brand_id === brandId);
+      if (latest && latest.insights) {
+        karmaReport = {
+          period_start: latest.period_start,
+          period_end: latest.period_end,
+          posts_analyzed: latest.posts_analyzed,
+          summary: latest.summary,
+          what_worked: latest.insights.what_worked || [],
+          do_more: latest.insights.do_more || [],
+          stop_doing: latest.insights.stop_doing || [],
+          best_formats: latest.insights.best_formats || [],
+          best_themes: latest.insights.best_themes || [],
+          top_posts: latest.top_posts || [],
+        };
+        console.log(`[Scout] Found Karma report (${latest.posts_analyzed} posts analyzed) — injecting into strategy prompts`);
+      }
+    }
+  } catch (err) {
+    console.warn('[Scout] Could not load Karma report:', err.message);
+  }
+
   // Step 1: Scan brand + competitors
   const step1 = await scanBrandAndCompetitors(brand, competitors, platforms);
   const scanData = step1.data || { brand_analysis: {}, competitors: [] };
 
-  // Step 2: Weakness analysis
-  const weaknessData = await analyzeWeaknesses(brand, scanData);
+  // Step 2: Weakness analysis (now Karma-aware)
+  const weaknessData = await analyzeWeaknesses(brand, scanData, '', karmaReport);
 
-  // Step 3: Content strategy
-  const strategyData = await generateStrategy(brand, scanData, weaknessData, platforms);
+  // Step 3: Content strategy (now Karma-aware)
+  const strategyData = await generateStrategy(brand, scanData, weaknessData, platforms, '', karmaReport);
 
   // Step 4: Build .docx
   const doc = buildDocument(brand, scanData, weaknessData, strategyData);
