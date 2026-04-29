@@ -781,8 +781,19 @@ export const AutopilotPage: React.FC<AutopilotPageProps> = ({ onNavigate }) => {
       <div className="h-full flex items-center justify-center">
         <div className="text-center max-w-md">
           <div className="text-5xl mb-4">🤖</div>
-          <h2 className="text-xl font-bold text-text-primary mb-2">No Brands Found</h2>
-          <p className="text-text-secondary text-sm">Create a brand profile first in the Brand page, then come back to set up autonomous agents.</p>
+          <h2 className="text-xl font-bold text-text-primary mb-2">No Brands Yet</h2>
+          <p className="text-text-secondary text-sm mb-6">
+            Create your first brand profile to start running autonomous agents (Scout, Priya, Review, Dispatch, Karma).
+          </p>
+          <button
+            onClick={() => onNavigate?.(AppMode.BRAND)}
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-brand text-bg text-sm font-bold hover:bg-brand-hover transition shadow-md"
+          >
+            <span className="text-lg">+</span> Create Brand Profile
+          </button>
+          <p className="text-text-secondary/40 text-xs mt-4">
+            Takes ~2 min. You'll come straight back here once it's saved.
+          </p>
         </div>
       </div>
     );
