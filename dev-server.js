@@ -3744,6 +3744,48 @@ app.get('/api/pipeline/review-platform-status/:reviewId', (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// PUT /api/approval-queue/:id/update — edit a pending card's caption/hashtags/image
+app.put('/api/approval-queue/:id/update', (req, res) => {
+  try {
+    const { caption, hashtags, image, hook, call_to_action } = req.body || {};
+    const queueFile = readSyncFile('approval_queue');
+    const items = queueFile?.data || [];
+    const idx = items.findIndex(i => i.id === req.params.id);
+    if (idx < 0) return res.status(404).json({ error: 'Item not found' });
+    const item = items[idx];
+    const oldBrief = item.brief || {};
+    const newBrief = { ...oldBrief };
+    if (typeof caption === 'string') newBrief.caption = caption;
+    if (Array.isArray(hashtags)) newBrief.hashtags = hashtags.map(t => String(t).replace(/^#+/, ''));
+    if (typeof hook === 'string') newBrief.hook = hook;
+    if (typeof call_to_action === 'string') newBrief.call_to_action = call_to_action;
+    items[idx] = {
+      ...item,
+      brief: newBrief,
+      caption_preview: (newBrief.caption || '').slice(0, 200),
+      ...(typeof image === 'string' && image ? { generated_image: image } : {}),
+    };
+    writeSyncFile('approval_queue', { _updatedAt: new Date().toISOString(), data: items });
+
+    // Mirror into content_slots so the calendar reflects the edit
+    if (item.slot_id) {
+      const slotsFile = readSyncFile('content_slots');
+      const slots = slotsFile?.data || [];
+      const sIdx = slots.findIndex(s => s.id === item.slot_id);
+      if (sIdx >= 0) {
+        slots[sIdx] = {
+          ...slots[sIdx],
+          brief: newBrief,
+          ...(typeof image === 'string' && image ? { generated_image: image } : {}),
+          updated_at: new Date().toISOString(),
+        };
+        writeSyncFile('content_slots', { _updatedAt: new Date().toISOString(), data: slots });
+      }
+    }
+    res.json({ ok: true, item: items[idx] });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 app.post('/api/approval-queue/bulk-approve', (req, res) => {
   try {
     const { ids } = req.body;

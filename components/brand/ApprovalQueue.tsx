@@ -492,6 +492,43 @@ function ApprovalCard({ item, isAB, isSelected, isLoading, onApprove, onReject, 
   const [showRejectInput, setShowRejectInput] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
   const [imageZoomed, setImageZoomed] = useState(false);
+  // Inline edit mode — lets the user tweak caption/hashtags/CTA/hook before approving
+  const [editMode, setEditMode] = useState(false);
+  const [editCaption, setEditCaption] = useState(item.brief?.caption || '');
+  const [editHook, setEditHook] = useState(item.brief?.hook || '');
+  const [editCTA, setEditCTA] = useState(item.brief?.call_to_action || '');
+  const [editHashtags, setEditHashtags] = useState((item.brief?.hashtags || []).join(' '));
+  const [editSaving, setEditSaving] = useState(false);
+
+  const handleSaveEdit = async () => {
+    setEditSaving(true);
+    try {
+      const hashtags = editHashtags.split(/[\s,]+/).map(t => t.replace(/^#+/, '')).filter(Boolean);
+      const res = await fetch(`/api/approval-queue/${item.id}/update`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ caption: editCaption, hook: editHook, call_to_action: editCTA, hashtags }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        // Best-effort: mutate the visible item so the UI updates without a full refetch
+        if (item.brief) {
+          item.brief.caption = editCaption;
+          item.brief.hook = editHook;
+          item.brief.call_to_action = editCTA;
+          item.brief.hashtags = hashtags;
+        }
+        item.caption_preview = editCaption.slice(0, 200);
+        setEditMode(false);
+      } else {
+        alert(data.error || 'Failed to save edits');
+      }
+    } catch (err: any) {
+      alert(err.message || 'Failed to save edits');
+    } finally {
+      setEditSaving(false);
+    }
+  };
 
   const pillarHash = (item.brief as any)?.content_pillar ? Math.abs((item.brief as any).content_pillar.split('').reduce((a: number, c: string) => a + c.charCodeAt(0), 0)) % PILLAR_COLORS.length : 0;
   const platform = ((item as any).platform || 'instagram') as string;
@@ -683,8 +720,76 @@ function ApprovalCard({ item, isAB, isSelected, isLoading, onApprove, onReject, 
           </div>
         )}
 
+        {/* Inline editor — tweak caption / hook / CTA / hashtags before approve */}
+        {isPending && editMode && (
+          <div className="space-y-2 pt-2 border-t border-white/[0.04]">
+            <label className="text-[11px] text-text-secondary font-semibold uppercase tracking-wider block">Hook</label>
+            <input
+              value={editHook}
+              onChange={e => setEditHook(e.target.value)}
+              className="w-full px-3 py-2 rounded-xl bg-white/[0.03] border border-white/[0.08] text-text-primary text-xs placeholder-text-secondary/30 focus:outline-none focus:border-brand/50 transition"
+              placeholder="Opening hook..."
+              disabled={editSaving}
+            />
+            <label className="text-[11px] text-text-secondary font-semibold uppercase tracking-wider block mt-2">Caption</label>
+            <textarea
+              value={editCaption}
+              onChange={e => setEditCaption(e.target.value)}
+              rows={4}
+              className="w-full px-3 py-2 rounded-xl bg-white/[0.03] border border-white/[0.08] text-text-primary text-xs placeholder-text-secondary/30 focus:outline-none focus:border-brand/50 resize-none transition"
+              disabled={editSaving}
+            />
+            <label className="text-[11px] text-text-secondary font-semibold uppercase tracking-wider block mt-2">Hashtags <span className="text-text-secondary/40 normal-case font-normal">(space- or comma-separated, # is optional)</span></label>
+            <input
+              value={editHashtags}
+              onChange={e => setEditHashtags(e.target.value)}
+              className="w-full px-3 py-2 rounded-xl bg-white/[0.03] border border-white/[0.08] text-text-primary text-xs placeholder-text-secondary/30 focus:outline-none focus:border-brand/50 transition"
+              placeholder="brand marketing fitness"
+              disabled={editSaving}
+            />
+            <label className="text-[11px] text-text-secondary font-semibold uppercase tracking-wider block mt-2">Call to Action</label>
+            <input
+              value={editCTA}
+              onChange={e => setEditCTA(e.target.value)}
+              className="w-full px-3 py-2 rounded-xl bg-white/[0.03] border border-white/[0.08] text-text-primary text-xs placeholder-text-secondary/30 focus:outline-none focus:border-brand/50 transition"
+              placeholder="Shop now / Learn more / Tap link..."
+              disabled={editSaving}
+            />
+            <div className="flex items-center gap-2 pt-1">
+              <button
+                onClick={handleSaveEdit}
+                disabled={editSaving}
+                className="flex-1 py-2 rounded-xl text-xs font-bold bg-brand text-bg hover:bg-brand-hover transition disabled:opacity-40 flex items-center justify-center gap-1.5"
+              >
+                {editSaving ? (
+                  <><div className="w-3 h-3 rounded-full border-2 border-bg border-t-transparent animate-spin" /> Saving...</>
+                ) : (
+                  <>Save changes</>
+                )}
+              </button>
+              <button
+                onClick={() => {
+                  // reset back to original brief on cancel
+                  setEditCaption(item.brief?.caption || '');
+                  setEditHook(item.brief?.hook || '');
+                  setEditCTA(item.brief?.call_to_action || '');
+                  setEditHashtags((item.brief?.hashtags || []).join(' '));
+                  setEditMode(false);
+                }}
+                disabled={editSaving}
+                className="px-3 py-2 rounded-xl text-xs font-medium text-text-secondary/50 hover:text-text-secondary hover:bg-white/[0.04] transition disabled:opacity-40"
+              >
+                Cancel
+              </button>
+            </div>
+            <p className="text-[10px] text-text-secondary/60">
+              Edits also update the linked calendar slot so everything stays in sync.
+            </p>
+          </div>
+        )}
+
         {/* Actions — big buttons */}
-        {isPending && !showRejectInput && (
+        {isPending && !showRejectInput && !editMode && (
           <div className="flex items-center gap-3 pt-2">
             <label className="flex items-center gap-1.5 cursor-pointer shrink-0">
               <input
@@ -698,6 +803,15 @@ function ApprovalCard({ item, isAB, isSelected, isLoading, onApprove, onReject, 
 
             <div className="flex-1" />
 
+            <button
+              onClick={() => setEditMode(true)}
+              disabled={isLoading}
+              className="px-3 py-2.5 rounded-xl text-xs font-bold bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/20 transition disabled:opacity-50 flex items-center gap-1.5"
+              title="Edit caption, hashtags, hook, CTA"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+              Edit
+            </button>
             <button
               onClick={() => setShowRejectInput(true)}
               disabled={isLoading}
