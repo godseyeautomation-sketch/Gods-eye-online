@@ -216,6 +216,30 @@ export default function ApprovalQueue({ brandId, onRefresh }: ApprovalQueueProps
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Auto-schedule: fills scheduled_at on every pending slot using a
+              9 AM / 12 PM / 6 PM rotation. One click instead of clicking
+              "Set" on every card. */}
+          {items.some(i => i.status === 'pending') && (
+            <button
+              onClick={async () => {
+                if (!brandId) return;
+                if (!confirm('Auto-fill posting times for all pending posts (9 AM / 12 PM / 6 PM rotation)?')) return;
+                const res = await fetch('/api/approval-queue/auto-schedule', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ brand_id: brandId }),
+                });
+                const data = await res.json();
+                if (data.ok) { alert(`Scheduled ${data.scheduled} posts.`); fetchQueue(); }
+                else alert(data.error || 'Auto-schedule failed');
+              }}
+              className="px-3 py-2 rounded-xl text-xs font-bold bg-violet-500/10 hover:bg-violet-500/20 text-violet-400 border border-violet-500/20 transition flex items-center gap-1.5"
+              title="Fill optimal posting times for all pending posts"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+              Auto-fill times
+            </button>
+          )}
           {selectedIds.size > 0 && filter === 'pending' && (
             <button
               onClick={handleBulkApprove}
@@ -499,6 +523,33 @@ function ApprovalCard({ item, isAB, isSelected, isLoading, onApprove, onReject, 
   const [editCTA, setEditCTA] = useState(item.brief?.call_to_action || '');
   const [editHashtags, setEditHashtags] = useState((item.brief?.hashtags || []).join(' '));
   const [editSaving, setEditSaving] = useState(false);
+  // Schedule-at — controls when Dispatch publishes this slot. Two-way bound
+  // with the linked content_slots row's slot_date + scheduled_at.
+  const itemScheduled = (item as any).scheduled_at as string | undefined;
+  const initialDateTime = itemScheduled
+    ? itemScheduled.slice(0, 16) // YYYY-MM-DDTHH:mm
+    : `${item.slot_date}T09:00`;
+  const [scheduledAt, setScheduledAt] = useState(initialDateTime);
+  const [scheduleSaving, setScheduleSaving] = useState(false);
+
+  const handleSaveSchedule = async () => {
+    setScheduleSaving(true);
+    try {
+      const iso = new Date(scheduledAt).toISOString();
+      const res = await fetch(`/api/approval-queue/${item.id}/schedule`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scheduled_at: iso }),
+      });
+      const data = await res.json();
+      if (!data.ok) alert(data.error || 'Failed to save schedule');
+      else (item as any).scheduled_at = iso;
+    } catch (err: any) {
+      alert(err?.message || 'Failed to save schedule');
+    } finally {
+      setScheduleSaving(false);
+    }
+  };
 
   const handleSaveEdit = async () => {
     setEditSaving(true);
@@ -785,6 +836,30 @@ function ApprovalCard({ item, isAB, isSelected, isLoading, onApprove, onReject, 
             <p className="text-[10px] text-text-secondary/60">
               Edits also update the linked calendar slot so everything stays in sync.
             </p>
+          </div>
+        )}
+
+        {/* Per-slot scheduling — two-way bound with content_slots.scheduled_at.
+            Editing the time here updates the calendar slot's scheduled_at;
+            changing the calendar slot's date will reflect here on next refresh. */}
+        {isPending && !editMode && !showRejectInput && (
+          <div className="flex items-center gap-2 pt-2 border-t border-white/[0.04]">
+            <span className="text-[10px] uppercase tracking-wider text-text-secondary/60 font-semibold whitespace-nowrap">Schedule</span>
+            <input
+              type="datetime-local"
+              value={scheduledAt}
+              onChange={e => setScheduledAt(e.target.value)}
+              className="flex-1 px-2 py-1 rounded-lg bg-white/[0.03] border border-white/[0.08] text-text-primary text-xs focus:outline-none focus:border-brand/50 transition"
+              disabled={scheduleSaving}
+            />
+            <button
+              onClick={handleSaveSchedule}
+              disabled={scheduleSaving}
+              className="px-2 py-1 rounded-lg text-[10px] font-bold bg-brand/10 hover:bg-brand/20 text-brand border border-brand/20 transition disabled:opacity-40"
+              title="Save scheduled time"
+            >
+              {scheduleSaving ? '…' : 'Set'}
+            </button>
           </div>
         )}
 

@@ -1029,6 +1029,71 @@ app.get('/api/pipeline/review-platform-status/:reviewId', (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// PUT /api/approval-queue/:id/schedule — set scheduled_at on the linked slot
+app.put('/api/approval-queue/:id/schedule', (req, res) => {
+  try {
+    const { scheduled_at } = req.body || {};
+    if (!scheduled_at) return res.status(400).json({ error: 'scheduled_at required' });
+    const iso = new Date(scheduled_at).toISOString();
+    const queueFile = readSyncFile('approval_queue');
+    const items = queueFile?.data || [];
+    const idx = items.findIndex(i => i.id === req.params.id);
+    if (idx < 0) return res.status(404).json({ error: 'Item not found' });
+    items[idx].scheduled_at = iso;
+    items[idx].slot_date = iso.slice(0, 10);
+    writeSyncFile('approval_queue', { _updatedAt: new Date().toISOString(), data: items });
+
+    // Mirror to the linked content_slot (two-way binding: change here →
+    // calendar reflects, change in calendar → reflected back via separate path)
+    if (items[idx].slot_id) {
+      const slotsFile = readSyncFile('content_slots');
+      const slots = slotsFile?.data || [];
+      const sIdx = slots.findIndex(s => s.id === items[idx].slot_id);
+      if (sIdx >= 0) {
+        slots[sIdx].scheduled_at = iso;
+        slots[sIdx].slot_date = iso.slice(0, 10);
+        slots[sIdx].updated_at = new Date().toISOString();
+        writeSyncFile('content_slots', { _updatedAt: new Date().toISOString(), data: slots });
+      }
+    }
+    res.json({ ok: true, scheduled_at: iso });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/approval-queue/auto-schedule — fill scheduled_at for every pending
+// slot in a batch using sensible posting times (9am, 12pm, 6pm rotation)
+app.post('/api/approval-queue/auto-schedule', (req, res) => {
+  try {
+    const { brand_id } = req.body || {};
+    if (!brand_id) return res.status(400).json({ error: 'brand_id required' });
+    const queueFile = readSyncFile('approval_queue');
+    const items = queueFile?.data || [];
+    const slotsFile = readSyncFile('content_slots');
+    const slots = slotsFile?.data || [];
+    const TIME_SLOTS = [9, 12, 18]; // 9 AM, 12 PM, 6 PM UTC rotation
+    let updated = 0;
+    items.forEach((item, i) => {
+      if (item.brand_id !== brand_id) return;
+      if (item.status !== 'pending') return;
+      // Compose scheduled_at from slot_date + rotating time
+      const [y, m, d] = String(item.slot_date || '').split('-').map(Number);
+      if (!y || !m || !d) return;
+      const hour = TIME_SLOTS[i % TIME_SLOTS.length];
+      const iso = new Date(Date.UTC(y, m - 1, d, hour, 0, 0)).toISOString();
+      item.scheduled_at = iso;
+      const sIdx = slots.findIndex(s => s.id === item.slot_id);
+      if (sIdx >= 0) {
+        slots[sIdx].scheduled_at = iso;
+        slots[sIdx].updated_at = new Date().toISOString();
+      }
+      updated++;
+    });
+    writeSyncFile('approval_queue', { _updatedAt: new Date().toISOString(), data: items });
+    writeSyncFile('content_slots', { _updatedAt: new Date().toISOString(), data: slots });
+    res.json({ ok: true, scheduled: updated });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // PUT /api/approval-queue/:id/update — edit caption / hashtags / image of a
 // pending approval card without re-triggering Review. Mirrors the changes
 // into the linked content_slot so the calendar reflects the edit too.
