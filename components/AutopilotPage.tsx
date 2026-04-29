@@ -1593,8 +1593,45 @@ export const AutopilotPage: React.FC<AutopilotPageProps> = ({ onNavigate }) => {
           without needing to download the .docx. */}
       {showScoutPreview && (() => {
         const activeBrand = brands.find(b => b.id === selectedBrandId);
-        const r = activeBrand?.scout_report;
-        if (!r) return null;
+        // Prefer the live brand.scout_report (most complete), fall back to
+        // localStorage (which we stash after each Scout run for resilience).
+        let r: any = activeBrand?.scout_report || null;
+        if (!r && selectedBrandId) {
+          try {
+            const stored = localStorage.getItem(`scout_result_${selectedBrandId}`);
+            if (stored) r = JSON.parse(stored);
+          } catch {}
+        }
+
+        // No report yet → show a clear empty-state instead of silently
+        // returning null (which made the View button feel broken).
+        if (!r) {
+          return (
+            <div
+              className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+              onClick={() => setShowScoutPreview(false)}
+            >
+              <div
+                className="bg-panel border border-border rounded-2xl max-w-md w-full p-8 text-center"
+                onClick={e => e.stopPropagation()}
+              >
+                <div className="text-4xl mb-3">🔍</div>
+                <h2 className="text-lg font-bold text-text-primary mb-2">No Scout report yet</h2>
+                <p className="text-sm text-text-secondary mb-6">
+                  Run the Scout agent first. The report covers competitor analysis,
+                  weakness opportunities, content pillars, hooks and more.
+                </p>
+                <button
+                  onClick={() => setShowScoutPreview(false)}
+                  className="px-5 py-2 rounded-xl bg-brand text-bg text-sm font-bold hover:bg-brand-hover transition"
+                >
+                  Got it
+                </button>
+              </div>
+            </div>
+          );
+        }
+
         const pillars = r.strategy_data?.content_pillars || [];
         const hooks = r.strategy_data?.hook_bank || {};
         const weaknesses = r.weakness_data?.weaknesses_opportunities || [];
