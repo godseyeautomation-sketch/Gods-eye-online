@@ -593,53 +593,89 @@ function ApprovalCard({ item, isAB, isSelected, isLoading, onApprove, onReject, 
       item.status === 'rejected' ? 'border-red-500/20 bg-red-500/[0.02]' :
       'border-white/[0.06] bg-panel/60 hover:border-white/[0.10]'
     } overflow-hidden`}>
-      {/* Large prominent image */}
-      {item.generated_image ? (
-        <div
-          className={`relative overflow-hidden bg-zinc-900 cursor-pointer transition-all ${imageZoomed ? 'max-h-[600px]' : 'aspect-[4/3] max-h-72'}`}
-          onClick={() => setImageZoomed(!imageZoomed)}
-        >
-          <img
-            src={item.generated_image}
-            alt="Generated content"
-            className={`w-full h-full transition-all duration-300 ${imageZoomed ? 'object-contain' : 'object-cover'}`}
-            loading="lazy"
-          />
-          {/* Overlay badges */}
-          <div className="absolute top-3 left-3 flex items-center gap-2">
-            {item.variant_label && (
-              <span className="px-2 py-1 rounded-lg text-[10px] font-bold bg-black/70 text-white backdrop-blur-sm">
-                Variant {item.variant_label}
-              </span>
-            )}
-            <span className={`px-2 py-1 rounded-lg text-[10px] font-bold backdrop-blur-sm ${FORMAT_COLORS[item.format]}`}>
-              {FORMAT_LABELS[item.format]}
-            </span>
-            {(item.brief as any)?.content_pillar && (
-              <span className={`px-2 py-1 rounded-lg text-[10px] font-bold backdrop-blur-sm ${PILLAR_COLORS[pillarHash]}`}>
-                {(item.brief as any).content_pillar}
-              </span>
-            )}
-          </div>
-          {/* Status overlay for resolved items */}
-          {item.status !== 'pending' && (
-            <div className={`absolute top-3 right-3 px-2.5 py-1 rounded-lg text-[10px] font-bold backdrop-blur-sm ${STATUS_COLORS[item.status]}`}>
-              {STATUS_ICONS[item.status]} {item.status.replace('_', ' ')}
+      {/* Media: <video> for Reels with a Kling-generated video URL, else <img> */}
+      {(() => {
+        const generatedVideo = (item as any).generated_video as string | undefined;
+        const isReelWithVideo = item.format === 'reel' && generatedVideo;
+        if (isReelWithVideo) {
+          return (
+            <div className="relative overflow-hidden bg-zinc-900 aspect-[9/16] max-h-[420px] mx-auto">
+              <video
+                src={generatedVideo}
+                controls
+                playsInline
+                muted
+                loop
+                className="w-full h-full object-contain"
+              />
+              <div className="absolute top-3 left-3 flex items-center gap-2">
+                <span className="px-2 py-1 rounded-lg text-[10px] font-bold bg-black/70 text-pink-300 backdrop-blur-sm">
+                  🎬 REEL · Kling 3.0
+                </span>
+              </div>
+              {item.status !== 'pending' && (
+                <div className={`absolute top-3 right-3 px-2.5 py-1 rounded-lg text-[10px] font-bold backdrop-blur-sm ${STATUS_COLORS[item.status]}`}>
+                  {STATUS_ICONS[item.status]} {item.status.replace('_', ' ')}
+                </div>
+              )}
             </div>
-          )}
-          {/* Zoom hint */}
-          <div className="absolute bottom-2 right-2 px-2 py-0.5 rounded text-[9px] text-white/50 bg-black/40 backdrop-blur-sm">
-            {imageZoomed ? 'Click to shrink' : 'Click to expand'}
+          );
+        }
+        if (item.generated_image) {
+          return (
+            <div
+              className={`relative overflow-hidden bg-zinc-900 cursor-pointer transition-all ${imageZoomed ? 'max-h-[600px]' : 'aspect-[4/3] max-h-72'}`}
+              onClick={() => setImageZoomed(!imageZoomed)}
+            >
+              <img
+                src={item.generated_image}
+                alt="Generated content"
+                className={`w-full h-full transition-all duration-300 ${imageZoomed ? 'object-contain' : 'object-cover'}`}
+                loading="lazy"
+              />
+              {/* Overlay badges */}
+              <div className="absolute top-3 left-3 flex items-center gap-2">
+                {item.variant_label && (
+                  <span className="px-2 py-1 rounded-lg text-[10px] font-bold bg-black/70 text-white backdrop-blur-sm">
+                    Variant {item.variant_label}
+                  </span>
+                )}
+                <span className={`px-2 py-1 rounded-lg text-[10px] font-bold backdrop-blur-sm ${FORMAT_COLORS[item.format]}`}>
+                  {FORMAT_LABELS[item.format]}
+                </span>
+                {(item.brief as any)?.content_pillar && (
+                  <span className={`px-2 py-1 rounded-lg text-[10px] font-bold backdrop-blur-sm ${PILLAR_COLORS[pillarHash]}`}>
+                    {(item.brief as any).content_pillar}
+                  </span>
+                )}
+                {item.format === 'reel' && (
+                  <span className="px-2 py-1 rounded-lg text-[10px] font-bold bg-violet-500/30 text-violet-200 backdrop-blur-sm border border-violet-300/20">
+                    🎬 Video generating…
+                  </span>
+                )}
+              </div>
+              {/* Status overlay for resolved items */}
+              {item.status !== 'pending' && (
+                <div className={`absolute top-3 right-3 px-2.5 py-1 rounded-lg text-[10px] font-bold backdrop-blur-sm ${STATUS_COLORS[item.status]}`}>
+                  {STATUS_ICONS[item.status]} {item.status.replace('_', ' ')}
+                </div>
+              )}
+              {/* Zoom hint */}
+              <div className="absolute bottom-2 right-2 px-2 py-0.5 rounded text-[9px] text-white/50 bg-black/40 backdrop-blur-sm">
+                {imageZoomed ? 'Click to shrink' : 'Click to expand'}
+              </div>
+            </div>
+          );
+        }
+        return (
+          <div className="aspect-[4/3] max-h-72 bg-zinc-900/50 flex items-center justify-center border-b border-white/[0.04]">
+            <div className="text-center text-text-secondary/30">
+              <svg className="w-12 h-12 mx-auto mb-2 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+              <p className="text-xs">No image generated</p>
+            </div>
           </div>
-        </div>
-      ) : (
-        <div className="aspect-[4/3] max-h-72 bg-zinc-900/50 flex items-center justify-center border-b border-white/[0.04]">
-          <div className="text-center text-text-secondary/30">
-            <svg className="w-12 h-12 mx-auto mb-2 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-            <p className="text-xs">No image generated</p>
-          </div>
-        </div>
-      )}
+        );
+      })()}
 
       <div className="p-4 space-y-3">
         {/* Date + Platform + Format + Status row */}

@@ -125,12 +125,14 @@ export async function generateKlingReelVideo(imageUrl, prompt, aspectRatio = '9:
  *
  * @param {object} ctx - { slotId, imagePath, promptPath, aspectRatio, readSyncFile, writeSyncFile }
  */
-export function kickOffReelVideoInBackground({ slotId, imageUrl, prompt, aspectRatio, readSyncFile, writeSyncFile }) {
+export function kickOffReelVideoInBackground({ slotId, imageUrl, prompt, aspectRatio, readSyncFile, writeSyncFile, queueItemId }) {
   if (!slotId || !imageUrl || !prompt) return;
   // Don't await — let the caller's HTTP response complete first.
   (async () => {
     try {
       const videoUrl = await generateKlingReelVideo(imageUrl, prompt, aspectRatio);
+
+      // Update content_slots
       const slotsFile = readSyncFile('content_slots');
       const slots = slotsFile?.data || [];
       const idx = slots.findIndex(s => s.id === slotId);
@@ -141,6 +143,23 @@ export function kickOffReelVideoInBackground({ slotId, imageUrl, prompt, aspectR
         console.log(`[KlingReel] Saved video to slot ${slotId}`);
       } else {
         console.warn(`[KlingReel] Could not find slot ${slotId} to attach video URL`);
+      }
+
+      // Also update the linked approval_queue item if provided — so the
+      // dashboard's <video> player can pick up the URL on next refresh.
+      if (queueItemId) {
+        try {
+          const queueFile = readSyncFile('approval_queue');
+          const items = queueFile?.data || [];
+          const qIdx = items.findIndex(i => i.id === queueItemId);
+          if (qIdx >= 0) {
+            items[qIdx].generated_video = videoUrl;
+            writeSyncFile('approval_queue', { _updatedAt: new Date().toISOString(), data: items });
+            console.log(`[KlingReel] Saved video to queue item ${queueItemId}`);
+          }
+        } catch (err) {
+          console.warn('[KlingReel] Failed to update queue item with video:', err.message);
+        }
       }
     } catch (err) {
       console.error(`[KlingReel] Background generation for slot ${slotId} failed:`, err?.message || err);

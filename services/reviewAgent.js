@@ -705,14 +705,31 @@ async function executeReview(userId, brandId, config = {}) {
     }
   }
 
-  // ── Generate images for all sample items in parallel per platform ─────
-  console.log(`[Review] Generating ${sampleItems.length} sample images in parallel...`);
-  await Promise.all(sampleItems.map(async (entry) => {
+  // ── Generate images for ALL slots (samples + remaining) in parallel ──
+  // Per user spec: every approval card needs a real image. Previously we
+  // only generated for the 3 samples per platform; the remaining showed
+  // "No image generated" placeholders.
+  const allEntries = [...sampleItems, ...remainingItems];
+  console.log(`[Review] Generating ${allEntries.length} images in parallel (samples + auto-pending)...`);
+
+  // Helper used by image gen below + Kling video kick-off later
+  const buildPrompt = (slot) => slot.brief?.image_prompt || slot.idea || 'brand content';
+  const buildDirection = (slot) => slot.brief?.visual_direction || '';
+  const buildAspect = (slot) => (slot.format === 'story' || slot.format === 'reel') ? '9:16' : '1:1';
+
+  // Throttle: too many parallel Gemini calls cause 429s. Run in batches of 5.
+  async function runInBatches(items, batchSize, fn) {
+    for (let i = 0; i < items.length; i += batchSize) {
+      const batch = items.slice(i, i + batchSize);
+      await Promise.all(batch.map(fn));
+    }
+  }
+
+  await runInBatches(allEntries, 5, async (entry) => {
     const { slot } = entry;
-    const prompt = slot.brief?.image_prompt || slot.idea || 'brand content';
-    const direction = slot.brief?.visual_direction || '';
-    const aspectRatio = (slot.format === 'story' || slot.format === 'reel') ? '9:16' : '1:1';
-    // Pick the product matched to this slot's content (Priya sets selected_product)
+    const prompt = buildPrompt(slot);
+    const direction = buildDirection(slot);
+    const aspectRatio = buildAspect(slot);
     const slotProduct = pickProductForSlot(slot);
     const productLabel = slotProduct
       ? (isUsableImageUrl(slotProduct.imageDataUrl)
@@ -726,7 +743,7 @@ async function executeReview(userId, brandId, config = {}) {
     } catch (err) {
       console.error(`[Review] ✗ ${slot.platform || 'instagram'}/${slot.slot_date}/${slot.format} [${productLabel}] image failed:`, err.message);
     }
-  }));
+  });
 
   // ── Post each sample to Slack ─────────────────────────────────────────
   if (slackEnabled) {
@@ -796,7 +813,8 @@ async function executeReview(userId, brandId, config = {}) {
       format: entry.slot.format,
       platform: entry.slot.platform || 'instagram',
       brief: entry.slot.brief,
-      generated_image: null,
+      // Include the generated image now — every slot has one.
+      generated_image: entry.imageBuffer ? `data:image/png;base64,${entry.imageBuffer.toString('base64')}` : null,
       caption_preview: (entry.slot.brief?.caption || '').slice(0, 200),
       quality_scores: null,
       guardrail_flags: null,
@@ -814,6 +832,62 @@ async function executeReview(userId, brandId, config = {}) {
       data: [...existingQueue, ...sampleQueueItems, ...remainingQueueItems],
     });
     console.log(`[Review] Wrote ${sampleQueueItems.length} samples + ${remainingQueueItems.length} remaining to approval_queue.json`);
+
+    // Persist generated images onto the linked content_slots so the calendar
+    // shows them too. (Without this, only approval_queue has the image.)
+    try {
+      const slotsFile = readSync('content_slots');
+      const slots = Array.isArray(slotsFile?.data) ? slotsFile.data : [];
+      let touched = 0;
+      for (const entry of allEntries) {
+        if (!entry.imageBuffer) continue;
+        const idx = slots.findIndex(s => s.id === entry.slot.id);
+        if (idx >= 0) {
+          slots[idx].generated_image = `data:image/png;base64,${entry.imageBuffer.toString('base64')}`;
+          slots[idx].status = 'generated';
+          slots[idx].updated_at = new Date().toISOString();
+          touched++;
+        }
+      }
+      if (touched > 0) {
+        writeSync('content_slots', { _updatedAt: new Date().toISOString(), data: slots });
+        console.log(`[Review] Synced ${touched} images back to content_slots`);
+      }
+    } catch (err) {
+      console.warn('[Review] Failed to sync images into content_slots:', err.message);
+    }
+
+    // ── Kick off Kling 3.0 video gen for every Reel-format slot in parallel.
+    // The video URL gets attached to both content_slots AND approval_queue
+    // when it finishes (~60-180s per video). UI re-polls and renders the
+    // <video> player when generated_video appears.
+    const reelEntries = allEntries.filter(e => e.slot.format === 'reel' && e.imageBuffer);
+    if (reelEntries.length > 0) {
+      console.log(`[Review] Kicking off Kling 3.0 video gen for ${reelEntries.length} reel(s) in background`);
+      try {
+        const { kickOffReelVideoInBackground } = await import('./klingReelService.js');
+        for (const entry of reelEntries) {
+          const motionPrompt = [
+            entry.slot.brief?.image_prompt,
+            entry.slot.brief?.visual_direction,
+          ].filter(Boolean).join('. ') || entry.slot.idea || 'cinematic motion';
+          // Use the freshly-generated image as the start frame
+          const imageDataUrl = `data:image/png;base64,${entry.imageBuffer.toString('base64')}`;
+          kickOffReelVideoInBackground({
+            slotId: entry.slot.id,
+            imageUrl: imageDataUrl,
+            prompt: motionPrompt,
+            aspectRatio: '9:16',
+            readSyncFile: readSync,
+            writeSyncFile: writeSync,
+            // Also patch approval_queue with the video URL when ready
+            queueItemId: entry.queueId,
+          });
+        }
+      } catch (err) {
+        console.warn('[Review] Failed to start Kling video gen:', err.message);
+      }
+    }
   } catch (err) {
     console.error('[Review] Failed to write approval_queue.json:', err.message);
   }
