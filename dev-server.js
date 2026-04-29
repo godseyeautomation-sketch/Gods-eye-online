@@ -3460,6 +3460,7 @@ app.get('/api/campaigns/creatives', async (req, res) => {
 import { executeScout } from './services/scoutAgent.js';
 import { executePriya } from './services/priyaAgent.js';
 import { executeReview, handleSlackAction, getReviewStatus, updateReviewDecision } from './services/reviewAgent.js';
+import { kickOffReelVideoInBackground } from './services/klingReelService.js';
 import { executeDispatch } from './services/dispatchAgent.js';
 import { executeKarma } from './services/karmaAgent.js';
 
@@ -3699,6 +3700,23 @@ app.put('/api/approval-queue/:id/approve', (req, res) => {
         } catch { /* dispatch will fall back to immediate publish */ }
       }
       writeSyncFile('content_slots', { _updatedAt: new Date().toISOString(), data: slots });
+
+      // Reels need motion. Kick off Kling 3.0 image-to-video in background.
+      const approvedSlot = slots[slotIdx];
+      if (approvedSlot.format === 'reel' && approvedSlot.generated_image && !approvedSlot.generated_video) {
+        const motionPrompt = [
+          approvedSlot.brief?.image_prompt,
+          approvedSlot.brief?.visual_direction,
+        ].filter(Boolean).join('. ') || approvedSlot.idea || 'cinematic motion';
+        kickOffReelVideoInBackground({
+          slotId: approvedSlot.id,
+          imageUrl: approvedSlot.generated_image,
+          prompt: motionPrompt,
+          aspectRatio: '9:16',
+          readSyncFile,
+          writeSyncFile,
+        });
+      }
     }
 
     // If this queue item is part of an active review batch, feed the decision

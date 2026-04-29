@@ -148,6 +148,39 @@ async function publishSlot(slot, platforms, uploadPostUser) {
 
   const caption = buildCaption(slot.brief);
   const hasImage = slot.generated_image && slot.generated_image.startsWith('data:');
+  // Reels: if Kling has produced a video URL for this slot, publish the
+  // VIDEO via upload-post's video endpoint instead of the still image.
+  // This is what the user actually wants on TikTok / Instagram Reels.
+  const hasReelVideo = slot.format === 'reel' && typeof slot.generated_video === 'string' && /^https?:/.test(slot.generated_video);
+
+  if (hasReelVideo) {
+    console.log(`[Dispatch] Publishing reel as VIDEO via Kling-generated URL for slot ${slot.id}`);
+    const body = {
+      user: uploadPostUser,
+      platforms,
+      video_url: slot.generated_video,
+      ...(caption ? { description: caption } : {}),
+    };
+    const res = await fetch(`${UPLOAD_POST_BASE}/api/upload_videos`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Apikey ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const errText = await res.text().catch(() => 'Unknown error');
+      throw new Error(`Reel video upload failed (${res.status}): ${errText.slice(0, 200)}`);
+    }
+    return await res.json();
+  }
+
+  // Reels with no video yet — skip publishing for now, Kling is still
+  // generating in the background. Dispatch will pick them up on next run.
+  if (slot.format === 'reel' && !hasReelVideo) {
+    throw new Error(`Reel video still generating via Kling — try again in 1-2 min`);
+  }
 
   if (hasImage) {
     // Photo upload via multipart/form-data
