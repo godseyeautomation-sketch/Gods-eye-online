@@ -566,8 +566,35 @@ function getReviewStatus(reviewId) {
 // ══════════════════════════════════════════════════════════════════════════════
 
 async function executeReview(userId, brandId, config = {}) {
-  const slackEnabled = !!(getSlackToken() && getSlackChannel());
-  const channelId = slackEnabled ? getSlackChannel() : null;
+  // Resolve Slack token per-brand (OAuth integration) → falls back to env
+  // vars if no per-brand row exists. So users with their own connected
+  // workspace get THEIR channel; users without get the legacy single
+  // workspace; users with neither get dashboard-only mode.
+  let slackToken = '';
+  let channelId = null;
+  let slackTeamName = null;
+  try {
+    const { resolveSlackForBrand } = await import('./slackIntegrationService.js');
+    const resolved = await resolveSlackForBrand(brandId);
+    slackToken = resolved.token;
+    channelId = resolved.channel;
+    slackTeamName = resolved.teamName;
+    if (resolved.perBrand) {
+      console.log(`[Review] Using per-brand Slack workspace: ${slackTeamName || channelId}`);
+    }
+  } catch (err) {
+    console.warn('[Review] Slack resolver failed, falling back to env vars:', err.message);
+    slackToken = getSlackToken();
+    channelId = getSlackChannel();
+  }
+  // Override the token getter for this run via a closure on the slackPost calls.
+  // Existing slackPost() reads env directly — quickest fix is to set
+  // process.env temporarily for the duration. Cleaner refactor would thread
+  // the token through every call, but that's a bigger change.
+  const _origToken = process.env.SLACK_BOT_TOKEN;
+  if (slackToken && slackToken !== _origToken) process.env.SLACK_BOT_TOKEN = slackToken;
+
+  const slackEnabled = !!(slackToken && channelId);
   if (!slackEnabled) {
     console.log('[Review] Slack not configured — running in dashboard-only mode');
   }

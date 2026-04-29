@@ -11,6 +11,15 @@ import { executeScout } from './services/scoutAgent.js';
 import { executePriya } from './services/priyaAgent.js';
 import { executeReview, handleSlackAction, getReviewStatus, updateReviewDecision } from './services/reviewAgent.js';
 import { kickOffReelVideoInBackground } from './services/klingReelService.js';
+import {
+  isSlackOAuthConfigured,
+  buildInstallUrl as buildSlackInstallUrl,
+  decodeState as decodeSlackState,
+  exchangeCodeForToken as exchangeSlackCode,
+  saveBrandSlackIntegration,
+  getBrandSlackIntegration,
+  deleteBrandSlackIntegration,
+} from './services/slackIntegrationService.js';
 import { executeDispatch } from './services/dispatchAgent.js';
 import { executeKarma } from './services/karmaAgent.js';
 import {
@@ -1336,6 +1345,73 @@ app.get('/api/pipeline/priya-progress/:brandId', (req, res) => {
   const data = readSyncFile(`priya_progress_${req.params.brandId}`);
   if (!data) return res.json({ ok: true, progress: null });
   res.json({ ok: true, progress: data?.data || data });
+});
+
+// ── Slack OAuth ("Add to Slack") ───────────────────────────────────────────
+// Per-brand workspace connection. User clicks "Add to Slack" → Slack OAuth
+// → callback exchanges code → token persists in brand_slack_integrations.
+// See services/slackIntegrationService.js for the full flow.
+
+// GET /api/slack/install?brand_id=X&user_id=Y → redirect to Slack OAuth
+app.get('/api/slack/install', (req, res) => {
+  if (!isSlackOAuthConfigured()) {
+    return res.status(503).send('Slack OAuth not configured. Set SLACK_CLIENT_ID and SLACK_CLIENT_SECRET in Cloud Run env.');
+  }
+  const brandId = String(req.query.brand_id || '');
+  const userId = String(req.query.user_id || req.headers['x-user-id'] || '');
+  if (!brandId || !userId) {
+    return res.status(400).send('brand_id and user_id required');
+  }
+  const url = buildSlackInstallUrl(brandId, userId);
+  res.redirect(url);
+});
+
+// GET /api/slack/oauth/callback — Slack redirects here with ?code=&state=
+app.get('/api/slack/oauth/callback', async (req, res) => {
+  try {
+    const code = String(req.query.code || '');
+    const stateB64 = String(req.query.state || '');
+    if (!code) return res.status(400).send('Missing code');
+    const state = decodeSlackState(stateB64);
+    if (!state?.brandId || !state?.userId) {
+      return res.status(400).send('Invalid state — could not identify brand/user');
+    }
+    const oauth = await exchangeSlackCode(code);
+    await saveBrandSlackIntegration(state.userId, state.brandId, oauth);
+    // Friendly redirect back to the app's brand page
+    const base = process.env.APP_BASE_URL || 'https://gods-eye-online-732048625045.us-central1.run.app';
+    res.redirect(`${base}/?slack_connected=1&brand=${encodeURIComponent(state.brandId)}`);
+  } catch (err) {
+    console.error('[Slack OAuth] callback error:', err.message);
+    res.status(500).send(`Slack OAuth failed: ${err.message}`);
+  }
+});
+
+// GET /api/slack/integration?brand_id=X — returns current connection status
+app.get('/api/slack/integration', async (req, res) => {
+  try {
+    const brandId = String(req.query.brand_id || '');
+    if (!brandId) return res.status(400).json({ error: 'brand_id required' });
+    const row = await getBrandSlackIntegration(brandId);
+    if (!row) return res.json({ ok: true, connected: false });
+    res.json({
+      ok: true,
+      connected: true,
+      team_name: row.slack_team_name,
+      channel_name: row.slack_channel_name,
+      installed_at: row.installed_at,
+    });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// DELETE /api/slack/integration?brand_id=X — disconnect
+app.delete('/api/slack/integration', async (req, res) => {
+  try {
+    const brandId = String(req.query.brand_id || '');
+    if (!brandId) return res.status(400).json({ error: 'brand_id required' });
+    await deleteBrandSlackIntegration(brandId);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // Slack interactions webhook

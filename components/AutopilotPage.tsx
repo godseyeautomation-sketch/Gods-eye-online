@@ -820,6 +820,9 @@ export const AutopilotPage: React.FC<AutopilotPageProps> = ({ onNavigate }) => {
                   ✏️ Edit Brand
                 </button>
               </div>
+              {/* Slack OAuth — per-brand workspace connection. One-click
+                  install, no API keys for the user. (Item #12) */}
+              <SlackConnectionPanel brandId={selectedBrand.id} userId={user?.id || ''} />
             </>
           )}
         </div>
@@ -1690,6 +1693,83 @@ export const AutopilotPage: React.FC<AutopilotPageProps> = ({ onNavigate }) => {
           </div>
         );
       })()}
+    </div>
+  );
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SlackConnectionPanel — per-brand "Add to Slack" OAuth button
+// ─────────────────────────────────────────────────────────────────────────────
+const SlackConnectionPanel: React.FC<{ brandId: string; userId: string }> = ({ brandId, userId }) => {
+  const [state, setState] = useState<{ connected: boolean; team?: string; channel?: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!brandId) return;
+    let cancelled = false;
+    fetch(`/api/slack/integration?brand_id=${encodeURIComponent(brandId)}`)
+      .then(r => r.json())
+      .then(d => {
+        if (cancelled) return;
+        if (d?.ok && d.connected) setState({ connected: true, team: d.team_name, channel: d.channel_name });
+        else setState({ connected: false });
+      })
+      .catch(() => { if (!cancelled) setState({ connected: false }); });
+    return () => { cancelled = true; };
+  }, [brandId]);
+
+  const handleConnect = () => {
+    if (!brandId || !userId) return;
+    window.location.href = `/api/slack/install?brand_id=${encodeURIComponent(brandId)}&user_id=${encodeURIComponent(userId)}`;
+  };
+
+  const handleDisconnect = async () => {
+    if (!confirm('Disconnect this brand from Slack? Review will fall back to dashboard-only mode.')) return;
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/slack/integration?brand_id=${encodeURIComponent(brandId)}`, { method: 'DELETE' });
+      const d = await res.json();
+      if (d?.ok) setState({ connected: false });
+    } finally { setBusy(false); }
+  };
+
+  if (!state) return null;
+
+  return (
+    <div className="mt-2 px-1">
+      {state.connected ? (
+        <div className="flex flex-col gap-1.5 p-2 rounded-lg bg-emerald-500/5 border border-emerald-500/15">
+          <div className="flex items-center gap-1.5">
+            <span className="text-emerald-400 text-[11px]">●</span>
+            <span className="text-[11px] font-bold text-emerald-400">Slack connected</span>
+          </div>
+          <p className="text-[10px] text-text-secondary/70 leading-snug">
+            Posts to <span className="font-mono">#{state.channel || 'channel'}</span>
+            {state.team ? ` in ${state.team}` : ''}
+          </p>
+          <button
+            onClick={handleDisconnect}
+            disabled={busy}
+            className="self-start text-[10px] font-medium text-red-400/80 hover:text-red-400 disabled:opacity-40"
+          >
+            Disconnect
+          </button>
+        </div>
+      ) : (
+        <button
+          onClick={handleConnect}
+          className="w-full flex items-center justify-center gap-2 py-2 rounded-lg bg-[#4A154B] hover:bg-[#5C2C5D] text-white text-[11px] font-bold transition"
+          title="Connect this brand to a Slack workspace via OAuth — one click, no API keys"
+        >
+          <svg viewBox="0 0 122.8 122.8" className="w-3.5 h-3.5" xmlns="http://www.w3.org/2000/svg">
+            <path d="M25.8 77.6c0 7.1-5.8 12.9-12.9 12.9S0 84.7 0 77.6s5.8-12.9 12.9-12.9h12.9zm6.5 0c0-7.1 5.8-12.9 12.9-12.9s12.9 5.8 12.9 12.9v32.3c0 7.1-5.8 12.9-12.9 12.9s-12.9-5.8-12.9-12.9z" fill="#E01E5A"/>
+            <path d="M45.2 25.8c-7.1 0-12.9-5.8-12.9-12.9S38.1 0 45.2 0s12.9 5.8 12.9 12.9v12.9zm0 6.5c7.1 0 12.9 5.8 12.9 12.9s-5.8 12.9-12.9 12.9H12.9C5.8 58.1 0 52.3 0 45.2s5.8-12.9 12.9-12.9z" fill="#36C5F0"/>
+            <path d="M97 45.2c0-7.1 5.8-12.9 12.9-12.9s12.9 5.8 12.9 12.9-5.8 12.9-12.9 12.9H97zm-6.5 0c0 7.1-5.8 12.9-12.9 12.9s-12.9-5.8-12.9-12.9V12.9C64.7 5.8 70.5 0 77.6 0s12.9 5.8 12.9 12.9z" fill="#2EB67D"/>
+            <path d="M77.6 97c7.1 0 12.9 5.8 12.9 12.9s-5.8 12.9-12.9 12.9-12.9-5.8-12.9-12.9V97zm0-6.5c-7.1 0-12.9-5.8-12.9-12.9s5.8-12.9 12.9-12.9h32.3c7.1 0 12.9 5.8 12.9 12.9s-5.8 12.9-12.9 12.9z" fill="#ECB22E"/>
+          </svg>
+          Add to Slack
+        </button>
+      )}
     </div>
   );
 };
