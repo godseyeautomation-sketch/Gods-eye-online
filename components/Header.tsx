@@ -24,6 +24,10 @@ export const Header: React.FC<HeaderProps> = ({ currentMode, setMode, theme, tog
         badge?: string;
     }
 
+    // Brand tab consolidated INTO the Agents tab (item #2). Brand remains
+    // a routable mode for deep-links / legacy chats, but the top nav surfaces
+    // a single entry: "Agents" — which is now the home for brand profile,
+    // calendar, agent runners, approvals, and activity (one-stop UX).
     const navItems: NavItem[] = [
         { id: AppMode.EXPLORE, label: 'Home' },
         { id: AppMode.IMAGE, label: 'Image' },
@@ -31,10 +35,9 @@ export const Header: React.FC<HeaderProps> = ({ currentMode, setMode, theme, tog
         { id: AppMode.EDIT, label: 'Edit' },
         { id: AppMode.CHARACTER, label: 'Character' },
         { id: AppMode.SPACES, label: 'Spaces', badge: 'NEW' },
-        { id: AppMode.BRAND, label: 'Brand', badge: 'NEW' },
+        { id: AppMode.AUTOPILOT, label: 'Agents', badge: 'NEW' },
         { id: AppMode.ADMIN, label: 'Admin' }, // Only visible to admins
         { id: AppMode.APPS, label: 'Apps', badge: 'NEW' },
-        { id: AppMode.AUTOPILOT, label: 'Agents', badge: 'NEW' },
         { id: AppMode.CONNECTORS, label: 'Connectors' },
     ];
 

@@ -785,7 +785,7 @@ const App: React.FC = () => {
         ) : mode === AppMode.AGENTIC || mode === 'agentic' ? (
           <AgenticPage />
         ) : mode === AppMode.AUTOPILOT || mode === 'autopilot' ? (
-          <AutopilotPage />
+          <AutopilotPage onNavigate={setMode} />
         ) : mode === AppMode.CONNECTORS || mode === 'connectors' ? (
           <ConnectorsPage />
         ) : mode === AppMode.EXPLORE ? (

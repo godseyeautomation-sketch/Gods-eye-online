@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { AppMode } from '../types';
 import { getAllBrandProfiles } from '../services/brandService';
 import ApprovalQueue from './brand/ApprovalQueue';
 import QualityScoreBadge from './brand/QualityScoreBadge';
@@ -84,7 +85,11 @@ const DEFAULT_CONFIG: PipelineConfig = {
   competitors: [],
 };
 
-export const AutopilotPage: React.FC = () => {
+interface AutopilotPageProps {
+  onNavigate?: (mode: AppMode) => void;
+}
+
+export const AutopilotPage: React.FC<AutopilotPageProps> = ({ onNavigate }) => {
   const { user } = useAuth();
 
   // Brand state
@@ -801,7 +806,21 @@ export const AutopilotPage: React.FC = () => {
             ))}
           </select>
           {selectedBrand && (
-            <p className="text-xs text-text-secondary/40 mt-2 px-1 truncate">{selectedBrand.industry || 'General'}</p>
+            <>
+              <p className="text-xs text-text-secondary/40 mt-2 px-1 truncate">{selectedBrand.industry || 'General'}</p>
+              {/* Edit profile / view calendar links — Brand tab is no longer
+                  in the top nav (consolidated into Agents per item #2), so we
+                  expose its key actions here so users can still reach them. */}
+              <div className="flex items-center gap-2 mt-2 px-1">
+                <button
+                  onClick={() => onNavigate?.(AppMode.BRAND)}
+                  className="flex-1 text-[11px] font-medium text-text-secondary hover:text-brand transition flex items-center justify-center gap-1 py-1.5 rounded-lg bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.04]"
+                  title="Open the brand editor"
+                >
+                  ✏️ Edit Brand
+                </button>
+              </div>
+            </>
           )}
         </div>
 
