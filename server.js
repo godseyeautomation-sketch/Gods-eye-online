@@ -9,7 +9,7 @@ import { registerCronRoutes, loadAndScheduleAll } from './services/cronEngine.js
 import { mountMcpEndpoints } from './services/mcpServer.js';
 import { executeScout } from './services/scoutAgent.js';
 import { executePriya } from './services/priyaAgent.js';
-import { executeReview, handleSlackAction, getReviewStatus, updateReviewDecision } from './services/reviewAgent.js';
+import { executeReview, handleSlackAction, handleSlackViewSubmission, getReviewStatus, updateReviewDecision, finalizeApproval, syncDashboardDecisionToSlack } from './services/reviewAgent.js';
 import { kickOffReelVideoInBackground } from './services/klingReelService.js';
 import {
   isSlackOAuthConfigured,
@@ -1003,6 +1003,15 @@ app.put('/api/approval-queue/:id/approve', (req, res) => {
       catch (e) { console.warn('[ApprovalQueue] updateReviewDecision (approve) failed:', e.message); }
     }
 
+    // Two-way sync: if this card was posted to Slack, update its message to
+    // show "✅ Approved from dashboard" so reviewers in Slack don't try to
+    // act on a post that's already been decided.
+    if (items[idx].slack_message_ts) {
+      syncDashboardDecisionToSlack(items[idx], 'approve', {
+        scheduledAt: items[idx].scheduled_at,
+      }).catch(() => {});
+    }
+
     res.json({ ok: true, approved: items[idx].slot_id });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -1024,6 +1033,10 @@ app.put('/api/approval-queue/:id/reject', (req, res) => {
     if (batchId) {
       try { updateReviewDecision(batchId, items[idx].id, 'reject', reason); }
       catch (e) { console.warn('[ApprovalQueue] updateReviewDecision (reject) failed:', e.message); }
+    }
+
+    if (items[idx].slack_message_ts) {
+      syncDashboardDecisionToSlack(items[idx], 'reject', { feedback: reason }).catch(() => {});
     }
 
     res.json({ ok: true, rejected: items[idx].slot_id });
@@ -1414,12 +1427,24 @@ app.delete('/api/slack/integration', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Slack interactions webhook
-app.post('/api/slack/interactions', express.urlencoded({ extended: false }), (req, res) => {
+// Slack interactions webhook — handles both `block_actions` (button clicks)
+// and `view_submission` (modal submissions). Slack expects 200 within 3s.
+app.post('/api/slack/interactions', express.urlencoded({ extended: false }), async (req, res) => {
   try {
     const payload = JSON.parse(req.body.payload || '{}');
-    console.log(`[Slack] Button click from @${payload.user?.username || '?'}`);
-    handleSlackAction(payload);
+    console.log(`[Slack] ${payload.type} from @${payload.user?.username || '?'}`);
+
+    if (payload.type === 'view_submission') {
+      // Must respond synchronously with response_action JSON to close/error
+      // the modal — otherwise Slack leaves it hanging.
+      const result = await handleSlackViewSubmission(payload);
+      return res.status(200).json(result || { response_action: 'clear' });
+    }
+
+    // Fire-and-forget for block_actions (buttons): do the work async, ack now
+    handleSlackAction(payload).catch(err =>
+      console.error('[Slack] handleSlackAction failed:', err.message)
+    );
     res.status(200).send('');
   } catch (err) {
     console.error('[Slack] Interaction error:', err.message);

@@ -39,8 +39,8 @@ const pendingReviews = new Map(); // reviewId → { slots, decisions, feedback, 
 // Slack helpers
 // ══════════════════════════════════════════════════════════════════════════════
 
-async function slackPost(method, body) {
-  const token = getSlackToken();
+async function slackPost(method, body, tokenOverride) {
+  const token = tokenOverride || getSlackToken();
   if (!token) throw new Error('SLACK_BOT_TOKEN not configured');
 
   const res = await fetch(`https://slack.com/api/${method}`, {
@@ -51,6 +51,85 @@ async function slackPost(method, body) {
   const data = await res.json();
   if (!data.ok) throw new Error(`Slack ${method}: ${data.error}`);
   return data;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Slack Modal builders — Block Kit views opened via views.open
+// ══════════════════════════════════════════════════════════════════════════════
+
+/** Build a date+time picker modal for scheduling a single post. */
+function buildSchedulePickerView({ queueId, currentScheduled, slotDate }) {
+  const def = currentScheduled ? new Date(currentScheduled) : new Date(`${slotDate}T09:00:00Z`);
+  const isoDate = def.toISOString().slice(0, 10);
+  const isoTime = def.toISOString().slice(11, 16);
+
+  return {
+    type: 'modal',
+    callback_id: 'schedule_picker',
+    private_metadata: queueId,
+    title: { type: 'plain_text', text: 'Schedule Post', emoji: true },
+    submit: { type: 'plain_text', text: 'Save Schedule', emoji: true },
+    close: { type: 'plain_text', text: 'Cancel' },
+    blocks: [
+      {
+        type: 'section',
+        text: { type: 'mrkdwn', text: '*When should this post go live?*\nDispatch will publish at this exact time.' },
+      },
+      {
+        type: 'input',
+        block_id: 'date_block',
+        element: {
+          type: 'datepicker',
+          action_id: 'date_input',
+          initial_date: isoDate,
+          placeholder: { type: 'plain_text', text: 'Pick a date' },
+        },
+        label: { type: 'plain_text', text: 'Date' },
+      },
+      {
+        type: 'input',
+        block_id: 'time_block',
+        element: {
+          type: 'timepicker',
+          action_id: 'time_input',
+          initial_time: isoTime,
+          placeholder: { type: 'plain_text', text: 'Pick a time' },
+        },
+        label: { type: 'plain_text', text: 'Time (UTC)' },
+      },
+      {
+        type: 'context',
+        elements: [{ type: 'mrkdwn', text: '_Tip: 9 AM, 12 PM, 6 PM are the highest-engagement slots in most timezones._' }],
+      },
+    ],
+  };
+}
+
+/** Build a feedback-text modal for rejecting a post. */
+function buildRejectFeedbackView({ queueId }) {
+  return {
+    type: 'modal',
+    callback_id: 'reject_feedback',
+    private_metadata: queueId,
+    title: { type: 'plain_text', text: 'Reject Post' },
+    submit: { type: 'plain_text', text: 'Submit Rejection' },
+    close: { type: 'plain_text', text: 'Cancel' },
+    blocks: [
+      {
+        type: 'input',
+        block_id: 'feedback_block',
+        optional: true,
+        element: {
+          type: 'plain_text_input',
+          action_id: 'feedback_input',
+          multiline: true,
+          placeholder: { type: 'plain_text', text: "What's wrong with this post? (optional but helpful for the AI to improve)" },
+          max_length: 1500,
+        },
+        label: { type: 'plain_text', text: 'Why are you rejecting?' },
+      },
+    ],
+  };
 }
 
 async function slackUploadImage(imageBuffer, filename, channelId) {
@@ -198,65 +277,133 @@ const PLATFORM_BADGES = {
   threads: '🧵 Threads',
 };
 
-function buildSlotMessage(slot, reviewId, queueId) {
+/**
+ * Build a Slack Block Kit message for one approval card.
+ *
+ * For Reel-format slots with a Kling-generated video URL, the message
+ * includes a "▶️ Watch Reel" link button alongside the still image preview.
+ * Reels without video yet show a "🎬 Video generating…" badge — the message
+ * gets updated via chat.update once Kling finishes (see kickOffReelVideoInBackground).
+ *
+ * Three action buttons:
+ *   ✅ Approve  → calls approve_<queueId> action_id
+ *   ❌ Reject   → calls reject_<queueId> → opens feedback modal
+ *   📅 Schedule → calls schedule_<queueId> → opens date/time picker modal
+ */
+function buildSlotMessage(slot, reviewId, queueId, channelId, options = {}) {
   const brief = slot.brief || {};
   const formatIcon = slot.format === 'reel' ? '🎬 Reel' : slot.format === 'story' ? '📱 Story' : '🖼️ Post';
   const platform = slot.platform || 'instagram';
   const platformBadge = PLATFORM_BADGES[platform] || `📱 ${platform}`;
-  // Use global regex to strip ALL leading # characters before adding exactly one.
-  // Without /g, "##tag" becomes "#tag" which still gets prefixed with # → "##tag" again.
   const hashtags = (brief.hashtags || []).slice(0, 8).map(t => `#${String(t).replace(/^#+/, '')}`).join(' ');
+  const imageUrl = options.imageUrl || null;     // public URL of the generated still
+  const videoUrl = options.videoUrl || null;     // Kling-generated video URL (reels only)
+  const scheduledAt = options.scheduledAt || null;
+
+  const blocks = [
+    {
+      type: 'header',
+      text: { type: 'plain_text', text: `${platformBadge}  ·  📅 ${slot.slot_date}  ·  ${formatIcon}`, emoji: true },
+    },
+  ];
+
+  // Image preview block (Slack supports image_url ≤ 1500px)
+  if (imageUrl) {
+    blocks.push({
+      type: 'image',
+      image_url: imageUrl,
+      alt_text: `${platform} ${slot.format} preview`,
+    });
+  }
+
+  blocks.push({
+    type: 'section',
+    text: {
+      type: 'mrkdwn',
+      text: `*Hook:*\n${brief.hook || '_No hook_'}\n\n*Caption:*\n${(brief.caption || '_No caption_').slice(0, 500)}\n\n*CTA:* _${brief.call_to_action || 'N/A'}_`,
+    },
+  });
+
+  blocks.push({
+    type: 'context',
+    elements: [
+      { type: 'mrkdwn', text: hashtags || '_No hashtags_' },
+    ],
+  });
+
+  // Reel-specific: show video status / link
+  if (slot.format === 'reel') {
+    if (videoUrl) {
+      blocks.push({
+        type: 'context',
+        elements: [{ type: 'mrkdwn', text: `🎬 *Reel video ready* — preview below before approving:` }],
+      });
+    } else {
+      blocks.push({
+        type: 'context',
+        elements: [{ type: 'mrkdwn', text: `🎬 *Video generating via Kling 3.0…* This message will update when ready (~1–3 min).` }],
+      });
+    }
+  }
+
+  if (scheduledAt) {
+    const dt = new Date(scheduledAt);
+    blocks.push({
+      type: 'context',
+      elements: [{
+        type: 'mrkdwn',
+        text: `📅 *Scheduled:* ${dt.toUTCString().replace(' GMT', ' UTC')}`,
+      }],
+    });
+  }
+
+  blocks.push({ type: 'divider' });
+
+  // Action buttons row
+  const actionElements = [];
+
+  // Reel: optional watch button if we have a video URL
+  if (slot.format === 'reel' && videoUrl) {
+    actionElements.push({
+      type: 'button',
+      text: { type: 'plain_text', text: '▶️ Watch Reel', emoji: true },
+      url: videoUrl,
+      action_id: `watch_${queueId}`,
+    });
+  }
+
+  actionElements.push(
+    {
+      type: 'button',
+      text: { type: 'plain_text', text: '📅 Schedule', emoji: true },
+      action_id: `schedule_${queueId}`,
+      value: JSON.stringify({ reviewId, queueId, action: 'schedule' }),
+    },
+    {
+      type: 'button',
+      text: { type: 'plain_text', text: '❌ Reject', emoji: true },
+      style: 'danger',
+      action_id: `reject_${queueId}`,
+      value: JSON.stringify({ reviewId, queueId, action: 'reject' }),
+    },
+    {
+      type: 'button',
+      text: { type: 'plain_text', text: '✅ Approve', emoji: true },
+      style: 'primary',
+      action_id: `approve_${queueId}`,
+      value: JSON.stringify({ reviewId, queueId, action: 'approve' }),
+    }
+  );
+
+  blocks.push({
+    type: 'actions',
+    elements: actionElements,
+  });
 
   return {
-    channel: getSlackChannel(),
-    text: `Review: ${platformBadge} · ${slot.slot_date} ${slot.format}`, // Fallback text
-    blocks: [
-      {
-        type: 'header',
-        text: { type: 'plain_text', text: `${platformBadge}  ·  📅 ${slot.slot_date}  ·  ${formatIcon}`, emoji: true },
-      },
-      { type: 'divider' },
-      {
-        type: 'section',
-        text: {
-          type: 'mrkdwn',
-          text: `*Hook:*\n${brief.hook || 'No hook'}\n\n*Caption:*\n${(brief.caption || '').slice(0, 500)}\n\n*CTA:* _${brief.call_to_action || 'N/A'}_`,
-        },
-      },
-      {
-        type: 'context',
-        elements: [
-          { type: 'mrkdwn', text: `*Visual:* ${brief.visual_direction || 'N/A'}` },
-          { type: 'mrkdwn', text: `*Emotion:* ${brief.target_emotion || 'N/A'}` },
-        ],
-      },
-      {
-        type: 'context',
-        elements: [
-          { type: 'mrkdwn', text: hashtags || '_No hashtags_' },
-        ],
-      },
-      { type: 'divider' },
-      {
-        type: 'actions',
-        elements: [
-          {
-            type: 'button',
-            text: { type: 'plain_text', text: '✅ Approve', emoji: true },
-            style: 'primary',
-            action_id: `approve_${reviewId}_${queueId}`,
-            value: JSON.stringify({ reviewId, queueId, action: 'approve' }),
-          },
-          {
-            type: 'button',
-            text: { type: 'plain_text', text: '❌ Reject', emoji: true },
-            style: 'danger',
-            action_id: `reject_${reviewId}_${queueId}`,
-            value: JSON.stringify({ reviewId, queueId, action: 'reject' }),
-          },
-        ],
-      },
-    ],
+    channel: channelId,
+    text: `Review: ${platformBadge} · ${slot.slot_date} ${slot.format}`,
+    blocks,
   };
 }
 
@@ -298,15 +445,18 @@ function updateReviewDecision(reviewId, queueItemId, decision, feedback) {
     return false;
   }
 
-  // Find the sample slot that matches this queue item
-  const sampleEntry = review.sampleItems.find(s => s.queueId === queueItemId);
-  if (!sampleEntry) {
-    // Not a sample slot — just a remaining auto-approval slot being manually touched. Ignore.
-    console.log(`[Review] Queue item ${queueItemId} is not a sample slot; no threshold effect`);
+  // With cascade removed, every queue item (sample or remaining) is reviewed
+  // individually. Look up across both lists.
+  const entry =
+    review.sampleItems.find(s => s.queueId === queueItemId) ||
+    review.remainingItems.find(s => s.queueId === queueItemId);
+  if (!entry) {
+    console.warn(`[Review] Queue item ${queueItemId} not in pending review`);
     return false;
   }
 
-  const platform = sampleEntry.slot.platform || 'instagram';
+  const sampleEntry = entry; // legacy variable name kept for log line below
+  const platform = entry.slot.platform || 'instagram';
   review.decisions[queueItemId] = decision;
   if (feedback) {
     if (!review.feedback_by_item) review.feedback_by_item = {};
@@ -315,7 +465,10 @@ function updateReviewDecision(reviewId, queueItemId, decision, feedback) {
 
   console.log(`[Review] Decision: ${platform}/${sampleEntry.slot.slot_date}/${sampleEntry.slot.format} → ${decision}${feedback ? ` (feedback: ${feedback.slice(0, 50)})` : ''}`);
 
-  checkPlatformThresholds(review, platform);
+  // NOTE: Auto-threshold cascade removed (per user spec) — every post requires
+  // an explicit approve/reject. checkPlatformThresholds is left in place but
+  // no longer called from here; kept around in case we ever resurrect the
+  // 2-of-3 sample heuristic for high-volume calendars.
   return true;
 }
 
@@ -472,47 +625,274 @@ function triggerPriyaRegenerate(review, platform, feedback) {
 // Slack webhook entry point (wraps updateReviewDecision)
 // ══════════════════════════════════════════════════════════════════════════════
 
-function handleSlackAction(payload) {
+/**
+ * Handle a Slack `block_actions` interaction payload — i.e. one of the three
+ * buttons on an approval message was clicked.
+ *
+ * Three action_id prefixes:
+ *   approve_<queueId>   → finalize approval (uses existing scheduled_at, default if none)
+ *   reject_<queueId>    → opens reject-feedback modal via views.open
+ *   schedule_<queueId>  → opens schedule date/time picker modal via views.open
+ *
+ * The trigger_id from the payload is required by views.open and is short-lived
+ * (~3s), so we open modals synchronously without awaiting other DB work first.
+ */
+async function handleSlackAction(payload) {
   const action = payload.actions?.[0];
   if (!action) return;
 
-  let parsed;
-  try { parsed = JSON.parse(action.value); } catch { return; }
-  const { reviewId, queueId, action: decision } = parsed;
-  if (!reviewId || !queueId) return;
+  // Parse {reviewId, queueId, action} from button value (or fall back to action_id)
+  let parsed = {};
+  try { parsed = JSON.parse(action.value); } catch {}
+  const decision = parsed.action || (action.action_id || '').split('_')[0];
+  const queueId = parsed.queueId || (action.action_id || '').split('_').slice(1).join('_');
+  const reviewId = parsed.reviewId;
+  if (!queueId || !decision) return;
 
-  // Slack doesn't give us a textarea natively — feedback collection is through in-app dashboard
-  updateReviewDecision(reviewId, queueId, decision, null);
-
-  // Also update the approval_queue.json sync file for the dashboard
-  try {
-    const queueFile = readSync('approval_queue');
-    if (queueFile?.data) {
-      const updatedData = queueFile.data.map(item => {
-        if (item.id === queueId) {
-          return { ...item, status: decision === 'approve' ? 'approved' : 'rejected', resolved_at: new Date().toISOString() };
-        }
-        return item;
-      });
-      writeSync('approval_queue', { _updatedAt: new Date().toISOString(), data: updatedData });
-    }
-  } catch (err) {
-    console.warn('[Review] Failed to update approval_queue.json:', err.message);
+  // Look up the queue item to find its brand_id (needed for resolving the
+  // brand-scoped Slack token and reading its current scheduled_at)
+  const queueFile = readSync('approval_queue');
+  const items = queueFile?.data || [];
+  const item = items.find(i => i.id === queueId);
+  if (!item) {
+    console.warn(`[Review] handleSlackAction: queue item ${queueId} not found`);
+    return;
   }
 
-  // Update the Slack message to show decision (replace buttons with status)
-  const statusEmoji = decision === 'approve' ? '✅ APPROVED' : '❌ REJECTED';
-  slackPost('chat.update', {
-    channel: payload.channel.id,
-    ts: payload.message.ts,
-    blocks: [
-      ...payload.message.blocks.slice(0, -1), // Keep everything except the buttons
-      {
-        type: 'section',
-        text: { type: 'mrkdwn', text: `*${statusEmoji}* by <@${payload.user.id}>` },
-      },
-    ],
-  }).catch(err => console.warn('[Review] Message update failed:', err.message));
+  // Resolve which Slack workspace's token to use (per-brand integration)
+  let token = getSlackToken();
+  try {
+    const { resolveSlackForBrand } = await import('./slackIntegrationService.js');
+    const resolved = await resolveSlackForBrand(item.brand_id);
+    if (resolved.token) token = resolved.token;
+  } catch {}
+
+  // ── SCHEDULE action — open the date/time picker modal ─────────────
+  if (decision === 'schedule') {
+    try {
+      await slackPost('views.open', {
+        trigger_id: payload.trigger_id,
+        view: buildSchedulePickerView({
+          queueId,
+          currentScheduled: item.scheduled_at,
+          slotDate: item.slot_date,
+        }),
+      }, token);
+    } catch (err) {
+      console.warn('[Review] views.open (schedule) failed:', err.message);
+    }
+    return;
+  }
+
+  // ── REJECT action — open feedback modal ───────────────────────────
+  if (decision === 'reject') {
+    try {
+      await slackPost('views.open', {
+        trigger_id: payload.trigger_id,
+        view: buildRejectFeedbackView({ queueId }),
+      }, token);
+    } catch (err) {
+      console.warn('[Review] views.open (reject) failed:', err.message);
+    }
+    return;
+  }
+
+  // ── APPROVE action — finalize approval immediately ────────────────
+  if (decision === 'approve') {
+    // Make sure scheduled_at is set; default to 9 AM UTC of slot_date if missing
+    let finalScheduledAt = item.scheduled_at;
+    if (!finalScheduledAt) {
+      const [y, m, d] = String(item.slot_date || '').split('-').map(Number);
+      let when = (y && m && d) ? new Date(Date.UTC(y, m - 1, d, 9, 0, 0)) : null;
+      if (!when || isNaN(when.getTime()) || when.getTime() < Date.now()) {
+        when = new Date(Date.now() + 24 * 60 * 60 * 1000);
+        when.setUTCHours(9, 0, 0, 0);
+      }
+      finalScheduledAt = when.toISOString();
+    }
+    finalizeApproval(queueId, finalScheduledAt, payload.user?.id);
+    if (reviewId) updateReviewDecision(reviewId, queueId, 'approve', null);
+
+    // Update the Slack message: replace buttons with final status line
+    try {
+      await slackPost('chat.update', {
+        channel: payload.channel.id,
+        ts: payload.message.ts,
+        blocks: [
+          ...payload.message.blocks.filter(b => b.type !== 'actions'),
+          {
+            type: 'context',
+            elements: [{
+              type: 'mrkdwn',
+              text: `✅ *Approved* by <@${payload.user?.id || 'someone'}> · scheduled ${new Date(finalScheduledAt).toUTCString().replace(' GMT', ' UTC')}`,
+            }],
+          },
+        ],
+      }, token);
+    } catch (err) {
+      console.warn('[Review] chat.update (approve) failed:', err.message);
+    }
+  }
+}
+
+/**
+ * Handle Slack `view_submission` — fires when the user submits one of the
+ * Block Kit modals we opened (date picker or reject feedback).
+ *
+ * Returns a response object that Express should send back to Slack — Slack
+ * uses this to close the modal or show validation errors.
+ */
+async function handleSlackViewSubmission(payload) {
+  const view = payload.view;
+  if (!view) return { response_action: 'clear' };
+
+  const callbackId = view.callback_id;
+  const queueId = view.private_metadata;
+  if (!queueId) return { response_action: 'clear' };
+
+  const queueFile = readSync('approval_queue');
+  const items = queueFile?.data || [];
+  const item = items.find(i => i.id === queueId);
+  if (!item) return { response_action: 'clear' };
+
+  // Resolve per-brand Slack token for chat.update
+  let token = getSlackToken();
+  try {
+    const { resolveSlackForBrand } = await import('./slackIntegrationService.js');
+    const resolved = await resolveSlackForBrand(item.brand_id);
+    if (resolved.token) token = resolved.token;
+  } catch {}
+
+  // ── SCHEDULE picker submission ─────────────────────────────────────
+  if (callbackId === 'schedule_picker') {
+    const date = view.state.values?.date_block?.date_input?.selected_date;
+    const time = view.state.values?.time_block?.time_input?.selected_time;
+    if (!date || !time) {
+      return {
+        response_action: 'errors',
+        errors: { date_block: 'Pick both a date and time' },
+      };
+    }
+    const iso = new Date(`${date}T${time}:00Z`).toISOString();
+
+    // Persist scheduled_at on both queue item and content_slot
+    const updatedItems = items.map(i => i.id === queueId ? { ...i, scheduled_at: iso, slot_date: iso.slice(0, 10) } : i);
+    writeSync('approval_queue', { _updatedAt: new Date().toISOString(), data: updatedItems });
+
+    try {
+      const slotsFile = readSync('content_slots');
+      const slots = slotsFile?.data || [];
+      const sIdx = slots.findIndex(s => s.id === item.slot_id);
+      if (sIdx >= 0) {
+        slots[sIdx].scheduled_at = iso;
+        slots[sIdx].slot_date = iso.slice(0, 10);
+        slots[sIdx].updated_at = new Date().toISOString();
+        writeSync('content_slots', { _updatedAt: new Date().toISOString(), data: slots });
+      }
+    } catch {}
+
+    // Reflect new scheduled time on the Slack message — find the message ts
+    // we stored on the queue item when posting and update it.
+    if (item.slack_message_ts && item.slack_channel_id) {
+      try {
+        // Re-fetch the slot for accurate brief data
+        const slotsFile = readSync('content_slots');
+        const slot = (slotsFile?.data || []).find(s => s.id === item.slot_id) || { ...item, brief: item.brief, slot_date: iso.slice(0, 10) };
+        const msg = buildSlotMessage(
+          slot,
+          item.review_id,
+          queueId,
+          item.slack_channel_id,
+          { imageUrl: item.slack_image_url || null, videoUrl: item.generated_video || null, scheduledAt: iso }
+        );
+        await slackPost('chat.update', { channel: item.slack_channel_id, ts: item.slack_message_ts, blocks: msg.blocks }, token);
+      } catch (err) {
+        console.warn('[Review] chat.update (schedule) failed:', err.message);
+      }
+    }
+    return { response_action: 'clear' };
+  }
+
+  // ── REJECT feedback submission ─────────────────────────────────────
+  if (callbackId === 'reject_feedback') {
+    const feedback = view.state.values?.feedback_block?.feedback_input?.value || '';
+    if (item.review_id) updateReviewDecision(item.review_id, queueId, 'reject', feedback);
+
+    // Mark queue item rejected
+    const updatedItems = items.map(i => i.id === queueId ? { ...i, status: 'rejected', reviewer_notes: feedback, resolved_at: new Date().toISOString() } : i);
+    writeSync('approval_queue', { _updatedAt: new Date().toISOString(), data: updatedItems });
+
+    // Update the original Slack message
+    if (item.slack_message_ts && item.slack_channel_id) {
+      try {
+        const slotsFile = readSync('content_slots');
+        const slot = (slotsFile?.data || []).find(s => s.id === item.slot_id) || item;
+        const baseMsg = buildSlotMessage(
+          slot,
+          item.review_id,
+          queueId,
+          item.slack_channel_id,
+          { imageUrl: item.slack_image_url || null, videoUrl: item.generated_video || null }
+        );
+        await slackPost('chat.update', {
+          channel: item.slack_channel_id,
+          ts: item.slack_message_ts,
+          blocks: [
+            ...baseMsg.blocks.filter(b => b.type !== 'actions'),
+            {
+              type: 'context',
+              elements: [{
+                type: 'mrkdwn',
+                text: `❌ *Rejected* by <@${payload.user?.id || 'someone'}>${feedback ? `\n_Feedback:_ ${feedback.slice(0, 200)}` : ''}`,
+              }],
+            },
+          ],
+        }, token);
+      } catch (err) {
+        console.warn('[Review] chat.update (reject) failed:', err.message);
+      }
+    }
+    return { response_action: 'clear' };
+  }
+
+  return { response_action: 'clear' };
+}
+
+/**
+ * Set status='approved' + scheduled_at on an approval_queue item AND its
+ * linked content_slot. Used by both Slack approve and dashboard approve.
+ */
+function finalizeApproval(queueId, scheduledAt, approverUserId) {
+  try {
+    const queueFile = readSync('approval_queue');
+    const items = queueFile?.data || [];
+    const idx = items.findIndex(i => i.id === queueId);
+    if (idx < 0) return;
+    items[idx] = {
+      ...items[idx],
+      status: 'approved',
+      scheduled_at: scheduledAt || items[idx].scheduled_at,
+      resolved_at: new Date().toISOString(),
+      approved_by: approverUserId,
+    };
+    writeSync('approval_queue', { _updatedAt: new Date().toISOString(), data: items });
+
+    const slotsFile = readSync('content_slots');
+    const slots = slotsFile?.data || [];
+    const sIdx = slots.findIndex(s => s.id === items[idx].slot_id);
+    if (sIdx >= 0) {
+      slots[sIdx] = {
+        ...slots[sIdx],
+        status: 'approved',
+        approved: true,
+        scheduled_at: scheduledAt || slots[sIdx].scheduled_at,
+        updated_at: new Date().toISOString(),
+      };
+      writeSync('content_slots', { _updatedAt: new Date().toISOString(), data: slots });
+    }
+  } catch (err) {
+    console.warn('[Review] finalizeApproval failed:', err.message);
+  }
 }
 
 // ── Get review status (called by frontend polling) ────────────────────────
@@ -566,6 +946,13 @@ function getReviewStatus(reviewId) {
 // ══════════════════════════════════════════════════════════════════════════════
 
 async function executeReview(userId, brandId, config = {}) {
+  // ── Destination mode ─────────────────────────────────────────────────
+  // The pre-Review modal in AutopilotPage.tsx sends `reviewMode`:
+  //   'slack'     → post each post individually to Slack with action buttons
+  //   'dashboard' → write to approval_queue only; do not touch Slack
+  // Default 'slack' if Slack creds resolve, else 'dashboard'.
+  const requestedMode = (config.reviewMode || '').toLowerCase();
+
   // Resolve Slack token per-brand (OAuth integration) → falls back to env
   // vars if no per-brand row exists. So users with their own connected
   // workspace get THEIR channel; users without get the legacy single
@@ -594,9 +981,19 @@ async function executeReview(userId, brandId, config = {}) {
   const _origToken = process.env.SLACK_BOT_TOKEN;
   if (slackToken && slackToken !== _origToken) process.env.SLACK_BOT_TOKEN = slackToken;
 
-  const slackEnabled = !!(slackToken && channelId);
-  if (!slackEnabled) {
-    console.log('[Review] Slack not configured — running in dashboard-only mode');
+  // Slack is "enabled" only when the user explicitly chose Slack mode AND
+  // the workspace is connected. Dashboard mode never posts to Slack even
+  // if creds are present.
+  const slackEnabled = requestedMode === 'dashboard'
+    ? false
+    : !!(slackToken && channelId);
+
+  if (requestedMode === 'dashboard') {
+    console.log('[Review] reviewMode=dashboard → skipping Slack entirely');
+  } else if (!slackEnabled) {
+    console.log('[Review] Slack not configured — falling back to dashboard-only mode');
+  } else {
+    console.log(`[Review] reviewMode=slack → posting all approval cards to Slack channel ${channelId}`);
   }
 
   // Load brand + slots
@@ -667,16 +1064,16 @@ async function executeReview(userId, brandId, config = {}) {
     console.log(`[Review]   ${p}: ${slotsByPlatform[p].length} eligible (${Math.min(3, slotsByPlatform[p].length)} sample + ${Math.max(0, slotsByPlatform[p].length - 3)} remaining)`);
   }
 
-  // Build queue-item skeletons per platform
+  // Build queue-item skeletons per platform.
+  // With cascade removed, every slot is treated as a "sample" (= must be
+  // explicitly approved). We keep the sample/remaining split for backward-
+  // compatibility with checkPlatformThresholds + UI badges, but every slot
+  // now lives in `sampleItems` so each one gets its own Slack message and
+  // independent approve/reject decision.
   let queueCounter = 0;
   for (const [platform, slots] of Object.entries(slotsByPlatform)) {
-    const sample = slots.slice(0, 3);
-    const remaining = slots.slice(3);
-    for (const slot of sample) {
-      sampleItems.push({ queueId: `${reviewId}_sample_${queueCounter++}`, slot, imageBuffer: null });
-    }
-    for (const slot of remaining) {
-      remainingItems.push({ queueId: `${reviewId}_remaining_${queueCounter++}`, slot });
+    for (const slot of slots) {
+      sampleItems.push({ queueId: `${reviewId}_item_${queueCounter++}`, slot, imageBuffer: null });
     }
   }
 
@@ -745,17 +1142,45 @@ async function executeReview(userId, brandId, config = {}) {
     }
   });
 
-  // ── Post each sample to Slack ─────────────────────────────────────────
+  // ── Post each item to Slack as its own approve-card ───────────────────
+  // Per user spec: every post (image + reel) gets its own Slack message
+  // with Approve / Reject / Schedule buttons. We capture the returned `ts`
+  // so view_submission handlers + the dashboard can chat.update it later
+  // (e.g. when Kling video finishes, or the user approves from the dashboard).
   if (slackEnabled) {
     for (const entry of sampleItems) {
       try {
+        let imagePermalink = null;
         if (entry.imageBuffer) {
-          await slackUploadImage(entry.imageBuffer, `${entry.slot.platform || 'ig'}_${entry.slot.slot_date}_${entry.slot.format}.png`, channelId);
-          await new Promise(r => setTimeout(r, 2000));
+          // Upload the still as a normal file (renders inline in the channel)
+          imagePermalink = await slackUploadImage(
+            entry.imageBuffer,
+            `${entry.slot.platform || 'ig'}_${entry.slot.slot_date}_${entry.slot.format}.png`,
+            channelId
+          );
+          // Tiny delay so the file message lands before the action card
+          await new Promise(r => setTimeout(r, 1500));
         }
-        await slackPost('chat.postMessage', buildSlotMessage(entry.slot, reviewId, entry.queueId));
+        const isReel = entry.slot.format === 'reel';
+        const msg = buildSlotMessage(entry.slot, reviewId, entry.queueId, channelId, {
+          // Block-kit image_url requires a publicly fetchable URL. Slack file
+          // permalinks don't satisfy that without files.sharedPublicURL, so
+          // we rely on the inline file message above for the preview and
+          // skip the image block here.
+          imageUrl: null,
+          videoUrl: entry.slot.generated_video || null,
+          scheduledAt: null,
+        });
+        const posted = await slackPost('chat.postMessage', msg);
+
+        // Stash channel + ts on the entry; we'll persist them on the queue
+        // item below so chat.update can target this exact message.
+        entry.slack_message_ts = posted?.ts || null;
+        entry.slack_channel_id = posted?.channel || channelId;
+        entry.slack_image_url = imagePermalink;
+        entry.slack_is_reel = isReel;
       } catch (err) {
-        console.error(`[Review] Failed to post sample ${entry.queueId}:`, err.message);
+        console.error(`[Review] Failed to post item ${entry.queueId}:`, err.message);
       }
     }
   }
@@ -782,7 +1207,7 @@ async function executeReview(userId, brandId, config = {}) {
     const existingQueueFile = readSync('approval_queue');
     const existingQueue = Array.isArray(existingQueueFile?.data) ? existingQueueFile.data : [];
 
-    const sampleQueueItems = sampleItems.map((entry) => ({
+    const queueItemsForWrite = sampleItems.map((entry) => ({
       id: entry.queueId,
       brand_id: brandId,
       user_id: userId,
@@ -801,37 +1226,20 @@ async function executeReview(userId, brandId, config = {}) {
       review_batch_id: reviewId,
       review_sample: true,
       auto_approve_on_sample_pass: false,
-      created_at: new Date().toISOString(),
-    }));
-
-    const remainingQueueItems = remainingItems.map((entry) => ({
-      id: entry.queueId,
-      brand_id: brandId,
-      user_id: userId,
-      slot_id: entry.slot.id,
-      slot_date: entry.slot.slot_date,
-      format: entry.slot.format,
-      platform: entry.slot.platform || 'instagram',
-      brief: entry.slot.brief,
-      // Include the generated image now — every slot has one.
-      generated_image: entry.imageBuffer ? `data:image/png;base64,${entry.imageBuffer.toString('base64')}` : null,
-      caption_preview: (entry.slot.brief?.caption || '').slice(0, 200),
-      quality_scores: null,
-      guardrail_flags: null,
-      dedup_score: 0,
-      status: 'pending',
-      review_id: reviewId,
-      review_batch_id: reviewId,
-      review_sample: false,
-      auto_approve_on_sample_pass: true,
+      // ── Slack metadata (only set when reviewMode === 'slack') ──────
+      // chat.update needs both ts and channel to target the right message.
+      slack_message_ts: entry.slack_message_ts || null,
+      slack_channel_id: entry.slack_channel_id || null,
+      slack_image_url: entry.slack_image_url || null,
+      review_destination: slackEnabled ? 'slack' : 'dashboard',
       created_at: new Date().toISOString(),
     }));
 
     writeSync('approval_queue', {
       _updatedAt: new Date().toISOString(),
-      data: [...existingQueue, ...sampleQueueItems, ...remainingQueueItems],
+      data: [...existingQueue, ...queueItemsForWrite],
     });
-    console.log(`[Review] Wrote ${sampleQueueItems.length} samples + ${remainingQueueItems.length} remaining to approval_queue.json`);
+    console.log(`[Review] Wrote ${queueItemsForWrite.length} review items to approval_queue.json (mode=${slackEnabled ? 'slack' : 'dashboard'})`);
 
     // Persist generated images onto the linked content_slots so the calendar
     // shows them too. (Without this, only approval_queue has the image.)
@@ -928,4 +1336,88 @@ async function executeReview(userId, brandId, config = {}) {
   };
 }
 
-export { executeReview, handleSlackAction, getReviewStatus, updateReviewDecision, pendingReviews };
+// Internal helper exposed for klingReelService.updateSlackMessageWithVideo
+// — returns the Block Kit `blocks` array (not the full chat.postMessage body)
+// so callers can pass it to chat.update directly.
+function _buildSlotMessageForExternalUpdate(slot, reviewId, queueId, channelId, options) {
+  return buildSlotMessage(slot, reviewId, queueId, channelId, options).blocks;
+}
+
+/**
+ * Two-way sync helper: when the user approves/rejects from the in-app
+ * dashboard, mirror the status onto the Slack approval card by replacing
+ * its action-buttons block with a "✅ Approved" / "❌ Rejected" footer.
+ *
+ * Called fire-and-forget from the /api/approval-queue/:id/approve|reject
+ * routes. Errors are swallowed — approval flow stays working even if Slack
+ * is down or the message was deleted.
+ */
+async function syncDashboardDecisionToSlack(queueItem, decision, opts = {}) {
+  try {
+    const { ts, channel } = { ts: queueItem.slack_message_ts, channel: queueItem.slack_channel_id };
+    if (!ts || !channel) return;
+
+    let token = process.env.SLACK_BOT_TOKEN || '';
+    try {
+      const { resolveSlackForBrand } = await import('./slackIntegrationService.js');
+      const resolved = await resolveSlackForBrand(queueItem.brand_id);
+      if (resolved?.token) token = resolved.token;
+    } catch {}
+    if (!token) return;
+
+    // Re-render the original message blocks, but strip the action buttons
+    // and append a status context block.
+    const slot = {
+      id: queueItem.slot_id,
+      slot_date: queueItem.slot_date,
+      format: queueItem.format,
+      platform: queueItem.platform,
+      brief: queueItem.brief,
+      generated_video: queueItem.generated_video,
+    };
+    const baseBlocks = buildSlotMessage(slot, queueItem.review_id, queueItem.id, channel, {
+      imageUrl: queueItem.slack_image_url || null,
+      videoUrl: queueItem.generated_video || null,
+      scheduledAt: opts.scheduledAt || queueItem.scheduled_at || null,
+    }).blocks;
+
+    let footer;
+    if (decision === 'approve') {
+      const when = opts.scheduledAt || queueItem.scheduled_at;
+      const whenStr = when ? new Date(when).toUTCString().replace(' GMT', ' UTC') : 'next dispatch run';
+      footer = {
+        type: 'context',
+        elements: [{ type: 'mrkdwn', text: `✅ *Approved from dashboard*${opts.approverName ? ` by ${opts.approverName}` : ''} · scheduled ${whenStr}` }],
+      };
+    } else {
+      footer = {
+        type: 'context',
+        elements: [{ type: 'mrkdwn', text: `❌ *Rejected from dashboard*${opts.approverName ? ` by ${opts.approverName}` : ''}${opts.feedback ? `\n_Feedback:_ ${String(opts.feedback).slice(0, 200)}` : ''}` }],
+      };
+    }
+
+    const blocks = [...baseBlocks.filter(b => b.type !== 'actions'), footer];
+
+    const res = await fetch('https://slack.com/api/chat.update', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json; charset=utf-8' },
+      body: JSON.stringify({ channel, ts, blocks }),
+    });
+    const data = await res.json();
+    if (!data.ok) console.warn(`[Review] Dashboard→Slack chat.update failed: ${data.error}`);
+  } catch (err) {
+    console.warn('[Review] syncDashboardDecisionToSlack error:', err.message);
+  }
+}
+
+export {
+  executeReview,
+  handleSlackAction,
+  handleSlackViewSubmission,
+  getReviewStatus,
+  updateReviewDecision,
+  finalizeApproval,
+  pendingReviews,
+  _buildSlotMessageForExternalUpdate,
+  syncDashboardDecisionToSlack,
+};

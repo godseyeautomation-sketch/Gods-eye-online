@@ -24,6 +24,54 @@
 const FAL_BASE = 'https://queue.fal.run';
 const KLING_MODEL = 'fal-ai/kling-video/v3/pro/image-to-video';
 
+/**
+ * Given an approval_queue item that was posted to Slack, chat.update the
+ * original message to include a "▶️ Watch Reel" button pointing at the
+ * just-generated Kling video URL. Resolves the per-brand Slack token via
+ * slackIntegrationService — falls back to env SLACK_BOT_TOKEN.
+ *
+ * Note: imports are dynamic to avoid a circular dep (reviewAgent imports
+ * klingReelService; reviewAgent's buildSlotMessage is what we re-render here).
+ */
+async function updateSlackMessageWithVideo(queueItem, videoUrl) {
+  const { slack_message_ts: ts, slack_channel_id: channel, slack_image_url: imgUrl } = queueItem;
+  if (!ts || !channel) return;
+
+  // Resolve per-brand token (or fall back to env)
+  let token = process.env.SLACK_BOT_TOKEN || '';
+  try {
+    const { resolveSlackForBrand } = await import('./slackIntegrationService.js');
+    const resolved = await resolveSlackForBrand(queueItem.brand_id);
+    if (resolved?.token) token = resolved.token;
+  } catch {}
+  if (!token) return;
+
+  // Re-render the slot message with the new video URL
+  const { _buildSlotMessageForExternalUpdate } = await import('./reviewAgent.js');
+  const slot = {
+    id: queueItem.slot_id,
+    slot_date: queueItem.slot_date,
+    format: queueItem.format,
+    platform: queueItem.platform,
+    brief: queueItem.brief,
+    generated_video: videoUrl,
+  };
+  const blocks = _buildSlotMessageForExternalUpdate(slot, queueItem.review_id, queueItem.id, channel, {
+    imageUrl: imgUrl || null,
+    videoUrl,
+    scheduledAt: queueItem.scheduled_at || null,
+  });
+
+  const res = await fetch('https://slack.com/api/chat.update', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json; charset=utf-8' },
+    body: JSON.stringify({ channel, ts, blocks }),
+  });
+  const data = await res.json();
+  if (!data.ok) throw new Error(`chat.update: ${data.error}`);
+  console.log(`[KlingReel] ✓ Slack message ${ts} updated with video`);
+}
+
 function getFalKey() {
   return process.env.FAL_KEY || process.env.VITE_FAL_KEY || '';
 }
@@ -147,6 +195,9 @@ export function kickOffReelVideoInBackground({ slotId, imageUrl, prompt, aspectR
 
       // Also update the linked approval_queue item if provided — so the
       // dashboard's <video> player can pick up the URL on next refresh.
+      // Then, if the queue item has Slack metadata (we posted an approval
+      // card to Slack earlier with a "🎬 Video generating…" placeholder),
+      // chat.update the message to surface the video link.
       if (queueItemId) {
         try {
           const queueFile = readSyncFile('approval_queue');
@@ -156,6 +207,13 @@ export function kickOffReelVideoInBackground({ slotId, imageUrl, prompt, aspectR
             items[qIdx].generated_video = videoUrl;
             writeSyncFile('approval_queue', { _updatedAt: new Date().toISOString(), data: items });
             console.log(`[KlingReel] Saved video to queue item ${queueItemId}`);
+
+            const queueItem = items[qIdx];
+            if (queueItem.slack_message_ts && queueItem.slack_channel_id) {
+              await updateSlackMessageWithVideo(queueItem, videoUrl).catch(err => {
+                console.warn(`[KlingReel] Slack chat.update failed for ${queueItemId}:`, err.message);
+              });
+            }
           }
         } catch (err) {
           console.warn('[KlingReel] Failed to update queue item with video:', err.message);
