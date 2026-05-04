@@ -947,10 +947,9 @@ function getReviewStatus(reviewId) {
 
 async function executeReview(userId, brandId, config = {}) {
   // ── Destination mode ─────────────────────────────────────────────────
-  // The pre-Review modal in AutopilotPage.tsx sends `reviewMode`:
-  //   'slack'     → post each post individually to Slack with action buttons
-  //   'dashboard' → write to approval_queue only; do not touch Slack
-  // Default 'slack' if Slack creds resolve, else 'dashboard'.
+  // Auto-detect: if this brand has a Slack workspace connected, post to
+  // Slack AND the dashboard. Otherwise, dashboard-only. No modal needed.
+  // Legacy callers can still pass `reviewMode` to force a mode.
   const requestedMode = (config.reviewMode || '').toLowerCase();
 
   // Resolve Slack token per-brand (OAuth integration) → falls back to env
