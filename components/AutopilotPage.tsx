@@ -145,6 +145,12 @@ export const AutopilotPage: React.FC<AutopilotPageProps> = ({ onNavigate }) => {
       .then(d => setSlackConnected(!!d?.connected))
       .catch(() => setSlackConnected(false));
   }, [showReviewModeModal, selectedBrandId]);
+
+  // Slack OAuth success toast — shown after the workspace is connected
+  const [slackSuccessToast, setSlackSuccessToast] = useState<{ team?: string; channel?: string } | null>(null);
+  // Pending Review auto-run after Slack OAuth completes — picked up once
+  // brands are loaded and the right brand is selected.
+  const [pendingReviewBrandId, setPendingReviewBrandId] = useState<string | null>(null);
   const [showPriyaModal, setShowPriyaModal] = useState(false); // Priya questionnaire visibility
   const [fullCycleMode, setFullCycleMode] = useState(false); // Run Full Cycle shortcut
   const [priyaPlatformProgress, setPriyaPlatformProgress] = useState<{ total: number; current: number; currentName: string; slotsByPlatform: Record<string, number>; status: string } | null>(null);
@@ -201,6 +207,40 @@ export const AutopilotPage: React.FC<AutopilotPageProps> = ({ onNavigate }) => {
       setLoadingBrands(false);
     })();
   }, [user?.id]);
+
+  // ── Post-Slack-OAuth handler ─────────────────────────────────────────
+  // After OAuth, server redirects to /?slack_connected=1&brand=BRAND_ID.
+  // We:
+  //   1. Read the brand id, select it
+  //   2. Fetch the connection details to show in the success toast
+  //   3. Queue the Review agent to auto-run once brands have loaded
+  //   4. Clean the URL so a refresh doesn't re-trigger
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('slack_connected') !== '1') return;
+    const brandId = params.get('brand');
+    if (!brandId) return;
+
+    // Fetch workspace + channel for the toast message
+    fetch(`/api/slack/integration?brand_id=${encodeURIComponent(brandId)}`)
+      .then(r => r.json())
+      .then(d => {
+        if (d?.connected) {
+          setSlackSuccessToast({ team: d.team_name, channel: d.channel_name });
+          // Auto-dismiss after 6 seconds
+          setTimeout(() => setSlackSuccessToast(null), 6000);
+        }
+      })
+      .catch(() => {});
+
+    setSelectedBrandId(brandId);
+    setPendingReviewBrandId(brandId);
+
+    // Strip the params from the URL without reloading
+    const cleanUrl = window.location.pathname + window.location.hash;
+    window.history.replaceState({}, '', cleanUrl);
+  }, []);
 
   // ── Restore scoutResult from brand profile when switching brands ──────
   useEffect(() => {
@@ -288,6 +328,23 @@ export const AutopilotPage: React.FC<AutopilotPageProps> = ({ onNavigate }) => {
       localStorage.removeItem('autopilot_auto_run');
     }
   }, [user?.id, selectedBrandId, brands, autoRunTriggered]);
+
+  // ── Auto-run Review after Slack OAuth completes ─────────────────────
+  // pendingReviewBrandId is set by the URL-param effect right after OAuth.
+  // Once brands are loaded and the matching brand is selected, fire Review
+  // in Slack mode automatically — completes the sync flow.
+  useEffect(() => {
+    if (!pendingReviewBrandId || !user?.id) return;
+    if (selectedBrandId !== pendingReviewBrandId) return;
+    if (!brands.find(b => b.id === pendingReviewBrandId)) return;
+    if (runningAgent) return;
+    const targetBrandId = pendingReviewBrandId;
+    setPendingReviewBrandId(null);
+    setTimeout(() => {
+      console.log(`[Autopilot] Auto-running Review (Slack mode) post-OAuth for ${targetBrandId}`);
+      runAgent('reviewer', { reviewMode: 'slack' });
+    }, 800);
+  }, [pendingReviewBrandId, selectedBrandId, brands, user?.id, runningAgent]);
 
   // ── Load pipeline runs for selected brand ─────────────────────────────
   const fetchRuns = useCallback(async () => {
@@ -825,6 +882,34 @@ export const AutopilotPage: React.FC<AutopilotPageProps> = ({ onNavigate }) => {
 
   return (
     <div className="h-full flex overflow-hidden">
+      {/* ── Slack-connected success toast (top-right, auto-dismiss 6s) ── */}
+      {slackSuccessToast && (
+        <div className="fixed top-6 right-6 z-[200] animate-in slide-in-from-top-2 fade-in duration-300">
+          <div className="bg-emerald-950/95 border border-emerald-500/40 rounded-xl shadow-2xl shadow-emerald-500/10 p-4 pr-5 backdrop-blur-md flex items-start gap-3 max-w-sm">
+            <div className="w-9 h-9 rounded-lg bg-emerald-500/20 flex items-center justify-center flex-shrink-0">
+              <svg className="w-5 h-5 text-emerald-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-bold text-emerald-100">Slack connected!</p>
+              <p className="text-xs text-emerald-200/80 mt-0.5">
+                {slackSuccessToast.team
+                  ? <>Workspace <span className="font-semibold text-emerald-100">{slackSuccessToast.team}</span>{slackSuccessToast.channel ? <> · channel <span className="font-semibold text-emerald-100">#{slackSuccessToast.channel}</span></> : null}</>
+                  : 'Workspace linked to this brand.'}
+              </p>
+              <p className="text-[11px] text-emerald-300/70 mt-1.5">Starting Review now — approval cards will land in Slack.</p>
+            </div>
+            <button
+              onClick={() => setSlackSuccessToast(null)}
+              className="text-emerald-300/60 hover:text-emerald-200 transition flex-shrink-0"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ── Left Sidebar ──────────────────────────────────────────────── */}
       <div className="w-52 flex-shrink-0 border-r border-white/[0.04] flex flex-col">
 
