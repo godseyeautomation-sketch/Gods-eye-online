@@ -169,17 +169,28 @@ export const ConnectorsPage: React.FC = () => {
   };
 
   return (
-    <div className="h-full overflow-y-auto bg-bg pt-16">
-      <div className="max-w-3xl mx-auto px-6 py-10">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-2xl font-bold text-text-primary flex items-center gap-2">
-            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m9.86-3.07a4.5 4.5 0 00-1.242-7.244l-4.5-4.5a4.5 4.5 0 00-6.364 6.364L4.35 8.97" />
-            </svg>
-            Connectors
+    <div className="relative h-full overflow-y-auto bg-bg pt-16">
+      <div aria-hidden className="pointer-events-none absolute top-16 left-0 right-0 h-[480px] -z-0 overflow-hidden">
+        <div className="absolute inset-0 aw-aurora" style={{ background: 'radial-gradient(40% 45% at 25% 25%, rgba(204,255,0,0.10), transparent 65%)' }} />
+        <div className="absolute inset-0 aw-aurora" style={{ background: 'radial-gradient(35% 40% at 75% 30%, rgba(204,255,0,0.05), transparent 65%)', animationDelay: '-7s', animationDuration: '18s' }} />
+      </div>
+
+      <div className="relative z-10 max-w-3xl mx-auto px-6 py-12">
+        {/* Hero */}
+        <div className="mb-10">
+          <p className="aw-fade-up text-[10px] tracking-[0.22em] text-text-secondary/60 uppercase font-semibold flex items-center gap-2" style={{ animationDelay: '0ms' }}>
+            <span className="relative flex w-2 h-2">
+              <span className="absolute inset-0 rounded-full bg-brand animate-ping opacity-75" />
+              <span className="relative w-2 h-2 rounded-full bg-brand" />
+            </span>
+            Integrations
+          </p>
+          <h1 className="aw-fade-up text-4xl md:text-5xl font-serif italic text-text-primary mt-3 leading-[1.05] tracking-tight" style={{ animationDelay: '120ms' }}>
+            Connectors<span className="aw-blink text-brand ml-1">.</span>
           </h1>
-          <p className="text-sm text-text-secondary mt-1">Connect your apps so the AI can use them in chat</p>
+          <p className="aw-fade-up text-sm text-text-secondary/80 mt-3 max-w-lg leading-relaxed" style={{ animationDelay: '240ms' }}>
+            Plug in the apps you live in. Once connected, every agent and chat can read, write, and trigger actions on your behalf.
+          </p>
         </div>
 
         {/* Tabs */}

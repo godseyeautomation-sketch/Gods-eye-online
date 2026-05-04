@@ -33,8 +33,9 @@
             'text-secondary': 'var(--text-secondary)',
           },
           fontFamily: {
-            sans: ['Inter', 'sans-serif'],
-            mono: ['JetBrains Mono', 'monospace'],
+            sans: ['Geist', 'Inter', 'system-ui', 'sans-serif'],
+            mono: ['"Geist Mono"', '"JetBrains Mono"', 'ui-monospace', 'monospace'],
+            serif: ['"Instrument Serif"', 'ui-serif', 'Georgia', 'serif'],
           },
           letterSpacing: {
             tightest: '-0.04em',
@@ -69,8 +70,10 @@
       },
     };
   </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link
-    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap"
+    href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700;800;900&family=Geist+Mono:wght@400;500;600&family=Instrument+Serif:ital@0;1&display=swap"
     rel="stylesheet">
   <style>
     :root {
@@ -110,12 +113,13 @@
     body {
       background-color: var(--bg);
       color: var(--text-primary);
-      font-family: 'Inter', sans-serif;
+      font-family: 'Geist', 'Inter', system-ui, sans-serif;
       background-image: radial-gradient(var(--dot-color) 1px, transparent 1px);
       background-size: 32px 32px;
       transition: background-color 0.8s cubic-bezier(0.16, 1, 0.3, 1), color 0.8s ease;
       -webkit-font-smoothing: antialiased;
       letter-spacing: -0.01em;
+      font-feature-settings: "ss01", "cv11";
     }
 
     body::before {

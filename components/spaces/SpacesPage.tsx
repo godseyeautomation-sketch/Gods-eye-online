@@ -170,6 +170,12 @@ const SpacesCanvas: React.FC = () => {
 
   return (
     <div className="w-full h-full relative">
+      {/* Brand-green aurora — sits behind the React Flow canvas dots */}
+      <div aria-hidden className="pointer-events-none absolute inset-0 z-[1] overflow-hidden">
+        <div className="absolute top-[-15%] left-[-5%] right-[40%] h-[640px] aw-aurora" style={{ background: 'radial-gradient(45% 50% at 25% 30%, rgba(204,255,0,0.10), transparent 65%)' }} />
+        <div className="absolute bottom-[-15%] left-[40%] right-[-5%] h-[640px] aw-aurora" style={{ background: 'radial-gradient(40% 50% at 70% 70%, rgba(204,255,0,0.06), transparent 65%)', animationDelay: '-9s', animationDuration: '20s' }} />
+      </div>
+
       {/* Node Palette */}
       <SpacesNodePanel />
 

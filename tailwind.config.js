@@ -21,8 +21,9 @@ export default {
                 'text-secondary': 'var(--text-secondary)',
             },
             fontFamily: {
-                sans: ['Inter', 'sans-serif'],
-                mono: ['JetBrains Mono', 'monospace'],
+                sans: ['Geist', 'Inter', 'system-ui', 'sans-serif'],
+                mono: ['"Geist Mono"', '"JetBrains Mono"', 'ui-monospace', 'monospace'],
+                serif: ['"Instrument Serif"', 'ui-serif', 'Georgia', 'serif'],
             },
             animation: {
                 'fade-in': 'fadeIn 0.6s cubic-bezier(0.16, 1, 0.3, 1)',

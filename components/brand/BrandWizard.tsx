@@ -346,22 +346,30 @@ export const BrandWizard: React.FC<Props> = ({ userId, onComplete, initialDNA })
     const namedCount = productEntries.filter(p => p.name.trim()).length;
 
     return (
-      <div className="h-full bg-black flex flex-col overflow-hidden">
-        <div className="flex-1 overflow-y-auto pt-32 pb-6 px-4">
+      <div className="relative h-full bg-bg flex flex-col overflow-hidden">
+        {/* Aurora backdrop */}
+        <div aria-hidden className="pointer-events-none absolute top-0 left-0 right-0 h-[520px] -z-0 overflow-hidden">
+          <div className="absolute inset-0 aw-aurora" style={{ background: 'radial-gradient(40% 45% at 25% 25%, rgba(204,255,0,0.10), transparent 65%)' }} />
+          <div className="absolute inset-0 aw-aurora" style={{ background: 'radial-gradient(35% 40% at 75% 30%, rgba(204,255,0,0.05), transparent 65%)', animationDelay: '-7s', animationDuration: '18s' }} />
+        </div>
+
+        <div className="relative z-10 flex-1 overflow-y-auto pt-32 pb-12 px-6">
           <div className="max-w-5xl mx-auto">
-            {/* Header */}
-            <div className="text-center mb-8">
-              <div className="text-2xl mb-2">🧬</div>
-              <h1 className="text-3xl font-bold text-text-primary" style={{ fontFamily: 'serif', fontStyle: 'italic' }}>
-                Your Business DNA
+            {/* Hero */}
+            <div className="mb-10">
+              <p className="aw-fade-up text-[10px] tracking-[0.22em] text-text-secondary/60 uppercase font-semibold flex items-center gap-2" style={{ animationDelay: '0ms' }}>
+                <span className="aw-float text-base">🧬</span> Brand DNA
+              </p>
+              <h1 className="aw-fade-up text-4xl md:text-5xl font-serif italic text-text-primary mt-3 leading-[1.05] tracking-tight" style={{ animationDelay: '120ms' }}>
+                Your Business DNA<span className="aw-blink text-brand ml-1">.</span>
               </h1>
-              <p className="text-text-secondary text-sm mt-2">
-                Colors and fonts extracted directly from your CSS. Review and edit anything below.
+              <p className="aw-fade-up text-sm text-text-secondary/80 mt-3 max-w-xl leading-relaxed" style={{ animationDelay: '240ms' }}>
+                Colors and fonts pulled directly from your live CSS. Review, refine, and lock the brand identity Scout and Priya will use.
               </p>
             </div>
 
-            <div className="bg-panel border border-border rounded-2xl overflow-hidden">
-              <div className="grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-border">
+            <div className="aw-fade-up bg-panel/80 backdrop-blur border border-border-base rounded-3xl overflow-hidden hover:border-white/10 transition-colors duration-500" style={{ animationDelay: '360ms' }}>
+              <div className="grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-border-base/60">
 
                 {/* ── Left: Brand details ─────────────────────────────────── */}
                 <div className="p-6 space-y-5">

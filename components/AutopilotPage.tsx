@@ -986,51 +986,6 @@ export const AutopilotPage: React.FC<AutopilotPageProps> = ({ onNavigate }) => {
           ))}
         </nav>
 
-        {/* Quick Settings */}
-        <div className="px-4 py-4 space-y-3 border-t border-white/[0.04]">
-          <div className="flex items-center justify-between">
-            <span className="text-[9px] uppercase tracking-[0.15em] text-text-secondary/30 font-semibold">Posts</span>
-            <div className="flex gap-px rounded-lg overflow-hidden border border-white/[0.06]">
-              {[15, 30, 45].map(n => (
-                <button
-                  key={n}
-                  onClick={() => setConfig(c => ({ ...c, post_count: n }))}
-                  className={`px-2.5 py-1 text-[10px] font-bold transition ${config.post_count === n ? 'bg-brand text-bg' : 'bg-white/[0.02] text-text-secondary/40 hover:text-text-secondary'}`}
-                >{n}</button>
-              ))}
-            </div>
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-[9px] uppercase tracking-[0.15em] text-text-secondary/30 font-semibold">Review</span>
-            <div className="flex gap-px rounded-lg overflow-hidden border border-white/[0.06]">
-              {[{ v: 0, l: 'Auto' }, { v: 4, l: '4h' }, { v: 24, l: '24h' }].map(opt => (
-                <button
-                  key={opt.v}
-                  onClick={() => setConfig(c => ({ ...c, auto_approve_hours: opt.v }))}
-                  className={`px-2.5 py-1 text-[10px] font-bold transition ${config.auto_approve_hours === opt.v ? 'bg-brand text-bg' : 'bg-white/[0.02] text-text-secondary/40 hover:text-text-secondary'}`}
-                >{opt.l}</button>
-              ))}
-            </div>
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-[9px] uppercase tracking-[0.15em] text-text-secondary/30 font-semibold">A/B Test</span>
-            <button
-              onClick={() => setConfig(c => ({ ...c, enable_ab_test: !c.enable_ab_test }))}
-              className={`relative w-9 h-5 rounded-full transition-colors duration-200 ${config.enable_ab_test ? 'bg-brand' : 'bg-white/[0.08]'}`}
-            >
-              <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-transform duration-200 ${config.enable_ab_test ? 'translate-x-4' : ''}`} />
-            </button>
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-[9px] uppercase tracking-[0.15em] text-text-secondary/30 font-semibold" title="When ON, agents auto-chain: Scout → Priya → ...">Chain Mode</span>
-            <button
-              onClick={() => setChainMode(m => !m)}
-              className={`relative w-9 h-5 rounded-full transition-colors duration-200 ${chainMode ? 'bg-brand' : 'bg-white/[0.08]'}`}
-            >
-              <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-transform duration-200 ${chainMode ? 'translate-x-4' : ''}`} />
-            </button>
-          </div>
-        </div>
       </div>
 
       {/* ── Main Content ──────────────────────────────────────────────── */}
@@ -1063,30 +1018,65 @@ export const AutopilotPage: React.FC<AutopilotPageProps> = ({ onNavigate }) => {
 
         {/* ── PIPELINE VIEW ──────────────────────────────────────────── */}
         {view === 'pipeline' && (
-          <div className="px-6 pt-28 pb-6 space-y-5">
-            {/* Header — compact row */}
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <h1 className="text-lg font-bold text-text-primary">Agents</h1>
-                <span className="text-xs text-text-secondary">{selectedBrand?.name}</span>
-                {runs.length > 0 && <span className="text-[10px] text-text-secondary/50">{runs.length} runs</span>}
+          <div className="relative px-8 pt-28 pb-12 space-y-8">
+            {/* Animated aurora hero backdrop */}
+            <div
+              aria-hidden
+              className="pointer-events-none absolute top-16 left-0 right-0 h-[480px] -z-0 overflow-hidden"
+            >
+              <div
+                className="absolute inset-0 aw-aurora"
+                style={{ background: 'radial-gradient(45% 45% at 22% 22%, rgba(204,255,0,0.10), transparent 65%)' }}
+              />
+              <div
+                className="absolute inset-0 aw-aurora"
+                style={{
+                  background: 'radial-gradient(35% 40% at 70% 30%, rgba(204,255,0,0.05), transparent 65%)',
+                  animationDelay: '-7s',
+                  animationDuration: '18s',
+                }}
+              />
+            </div>
+
+            {/* Hero — title + primary CTA */}
+            <div className="relative z-10 flex items-end justify-between gap-6 flex-wrap">
+              <div className="min-w-0">
+                <p className="aw-fade-up text-[10px] tracking-[0.22em] text-text-secondary/60 uppercase font-semibold" style={{ animationDelay: '0ms' }}>
+                  Autopilot{selectedBrand?.name ? <> · <span className="text-text-secondary">{selectedBrand.name}</span></> : ''}
+                </p>
+                <h1 className="aw-fade-up text-4xl md:text-5xl font-serif italic text-text-primary mt-3 leading-[1.05] tracking-tight" style={{ animationDelay: '120ms' }}>
+                  The Crew<span className="aw-blink text-brand ml-1">.</span>
+                </h1>
+                <p className="aw-fade-up text-sm text-text-secondary/80 mt-3 max-w-lg leading-relaxed" style={{ animationDelay: '240ms' }}>
+                  Five agents, one pipeline. Scout researches, Priya creates, Review scores, Dispatch publishes, Karma learns.
+                </p>
               </div>
-              <button
-                onClick={triggerCycle}
-                disabled={isRunning || runs.some(r => r.status === 'running') || !selectedBrandId}
-                className="px-4 py-2 rounded-full text-xs font-bold bg-brand text-bg hover:bg-brand-hover transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"
-              >
-                {isRunning || runs.some(r => r.status === 'running') ? (
-                  <><div className="animate-spin rounded-full h-3 w-3 border-b-2 border-bg" /> Running...</>
-                ) : (
-                  'Run Full Cycle'
+              <div className="aw-fade-up flex flex-col items-end gap-2" style={{ animationDelay: '360ms' }}>
+                <button
+                  onClick={triggerCycle}
+                  disabled={isRunning || runs.some(r => r.status === 'running') || !selectedBrandId}
+                  className={`aw-magnetic px-7 py-3.5 rounded-full text-sm font-bold bg-brand text-bg hover:bg-brand-hover disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2.5 ${
+                    !(isRunning || runs.some(r => r.status === 'running') || !selectedBrandId) ? 'aw-glow-pulse' : 'shadow-[0_8px_32px_rgba(204,255,0,0.18)]'
+                  }`}
+                >
+                  {isRunning || runs.some(r => r.status === 'running') ? (
+                    <><div className="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-bg" /> Running…</>
+                  ) : (
+                    <>
+                      <svg className="w-3.5 h-3.5 fill-bg" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
+                      Run Full Cycle
+                    </>
+                  )}
+                </button>
+                {runs.length > 0 && (
+                  <span className="text-[10px] tracking-[0.18em] text-text-secondary/50 uppercase">{runs.length} total runs</span>
                 )}
-              </button>
+              </div>
             </div>
 
             {/* Agent Cards Grid */}
-            <div className="grid grid-cols-5 gap-3">
-              {AGENTS.map(agent => {
+            <div className="relative z-10 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+              {AGENTS.map((agent, idx) => {
                 const status = getAgentStatus(agent.stage);
                 const lastRun = getAgentLastRun(agent.stage);
                 const isAgentRunning = runningAgent === agent.id || status === 'running';
@@ -1094,33 +1084,52 @@ export const AutopilotPage: React.FC<AutopilotPageProps> = ({ onNavigate }) => {
                 return (
                   <div
                     key={agent.id}
-                    className={`group relative rounded-2xl border transition-all duration-300 overflow-hidden ${
+                    onMouseMove={(e) => {
+                      const r = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
+                      (e.currentTarget as HTMLDivElement).style.setProperty('--mx', `${e.clientX - r.left}px`);
+                      (e.currentTarget as HTMLDivElement).style.setProperty('--my', `${e.clientY - r.top}px`);
+                    }}
+                    className={`aw-spotlight aw-scale-up group relative rounded-3xl border bg-panel transition-[transform,box-shadow,border-color] duration-500 overflow-hidden flex flex-col ${
                       isAgentRunning
-                        ? 'border-brand/30 bg-brand/[0.03]'
-                        : 'border-border-base bg-panel/60 hover:border-white/10 hover:bg-panel'
+                        ? 'border-brand/40 shadow-[0_0_0_1px_rgba(204,255,0,0.15),0_24px_48px_-12px_rgba(204,255,0,0.18)]'
+                        : 'border-border-base hover:border-white/15 hover:-translate-y-1 hover:shadow-[0_32px_64px_-16px_rgba(0,0,0,0.5)]'
                     }`}
+                    style={{ animationDelay: `${480 + idx * 90}ms` }}
                   >
-                    {/* Top bar with status */}
-                    <div className="flex items-center justify-between px-4 pt-3 pb-0">
-                      <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-base ${
-                        isAgentRunning ? 'bg-brand/10' : 'bg-white/[0.04]'
-                      }`}>
-                        {agent.icon}
-                      </div>
+                    {/* Subtle gradient overlay on running */}
+                    {isAgentRunning && (
+                      <div aria-hidden className="absolute inset-0 pointer-events-none opacity-50"
+                        style={{ background: 'radial-gradient(120% 60% at 50% 0%, rgba(204,255,0,0.08), transparent 65%)' }} />
+                    )}
+
+                    {/* Top bar — step number + status pill */}
+                    <div className="relative flex items-center justify-between px-5 pt-5 pb-0">
+                      <span className="text-[9px] tracking-[0.22em] text-text-secondary/40 font-semibold uppercase">
+                        Step {String(idx + 1).padStart(2, '0')}
+                      </span>
                       <div className="flex items-center gap-1.5">
                         {cooldownAgent === agent.id ? (
                           <>
-                            <div className="w-1.5 h-1.5 rounded-full bg-brand animate-pulse" />
-                            <span className="text-[9px] font-bold uppercase tracking-widest text-brand animate-pulse">Next</span>
+                            <span className="relative flex w-1.5 h-1.5">
+                              <span className="absolute inset-0 rounded-full bg-brand animate-ping opacity-75" />
+                              <span className="relative w-1.5 h-1.5 rounded-full bg-brand" />
+                            </span>
+                            <span className="text-[9px] font-bold uppercase tracking-widest text-brand">Next</span>
                           </>
                         ) : (
                           <>
-                            <div className={`w-1.5 h-1.5 rounded-full ${
-                              isAgentRunning ? 'bg-brand animate-pulse' :
-                              status === 'completed' ? 'bg-emerald-500' :
-                              status === 'error' ? 'bg-red-500' : 'bg-white/15'
-                            }`} />
-                            <span className={`text-[9px] font-bold uppercase tracking-widest ${
+                            {isAgentRunning ? (
+                              <span className="relative flex w-1.5 h-1.5">
+                                <span className="absolute inset-0 rounded-full bg-brand animate-ping opacity-75" />
+                                <span className="relative w-1.5 h-1.5 rounded-full bg-brand" />
+                              </span>
+                            ) : (
+                              <div className={`w-1.5 h-1.5 rounded-full transition-colors ${
+                                status === 'completed' ? 'bg-emerald-500' :
+                                status === 'error' ? 'bg-red-500' : 'bg-white/20'
+                              }`} />
+                            )}
+                            <span className={`text-[9px] font-bold uppercase tracking-widest transition-colors ${
                               isAgentRunning ? 'text-brand' :
                               status === 'completed' ? 'text-emerald-400' :
                               status === 'error' ? 'text-red-400' : 'text-text-secondary/50'
@@ -1132,34 +1141,45 @@ export const AutopilotPage: React.FC<AutopilotPageProps> = ({ onNavigate }) => {
                       </div>
                     </div>
 
+                    {/* Icon — large, premium feel */}
+                    <div className="relative px-5 pt-5">
+                      <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-2xl transition-all duration-500 group-hover:scale-110 ${
+                        isAgentRunning
+                          ? 'bg-brand/15 ring-1 ring-brand/25 aw-float'
+                          : 'bg-surface ring-1 ring-white/[0.04] group-hover:ring-white/10 group-hover:rotate-[-4deg]'
+                      }`}>
+                        {agent.icon}
+                      </div>
+                    </div>
+
                     {/* Content */}
-                    <div className="px-4 pt-2.5 pb-3">
-                      <h3 className="text-sm font-bold text-text-primary leading-tight">{agent.name}</h3>
-                      <p className="text-[9px] text-text-secondary/50 uppercase tracking-widest mt-0.5">{agent.role}</p>
-                      <p className="text-[11px] text-text-secondary leading-relaxed mt-2 line-clamp-2">{agent.description}</p>
+                    <div className="relative px-5 pt-5 pb-2 flex-1">
+                      <h3 className="text-2xl font-serif italic text-text-primary leading-none">{agent.name}</h3>
+                      <p className="text-[10px] text-text-secondary/50 uppercase tracking-[0.18em] font-semibold mt-1.5">{agent.role}</p>
+                      <p className="text-[12px] text-text-secondary/80 leading-relaxed mt-3 line-clamp-3">{agent.description}</p>
                     </div>
 
                     {/* Footer */}
-                    <div className="px-4 pb-3 space-y-2">
-                      {/* Scout download button */}
+                    <div className="relative px-5 pb-5 pt-3 mt-auto border-t border-white/[0.04]">
                       {agent.id === 'scout' && scoutResult?.filename && !isAgentRunning && (
                         <button
                           onClick={(e) => { e.stopPropagation(); downloadScoutReport(); }}
-                          className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-[10px] font-bold bg-brand/10 text-brand hover:bg-brand/20 border border-brand/20 transition-all"
+                          className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl text-[11px] font-bold bg-brand/10 text-brand hover:bg-brand/15 border border-brand/20 transition mb-3"
                         >
                           <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
                           Download Report
                         </button>
                       )}
                       <div className="flex items-center justify-between">
-                        <span className="text-[9px] text-text-secondary/40">
-                          {lastRun ? new Date(lastRun).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : 'Never'}
-                        </span>
+                        <div>
+                          <p className="text-[9px] tracking-[0.18em] text-text-secondary/40 uppercase font-semibold">Last run</p>
+                          <p className="text-[11px] text-text-secondary/80 font-medium mt-0.5">
+                            {lastRun ? new Date(lastRun).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : 'Never'}
+                          </p>
+                        </div>
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            // Sync flow: for Review, ask Slack vs Dashboard first.
-                            // Other agents run directly.
                             if (agent.id === 'reviewer') {
                               setShowReviewModeModal(true);
                             } else {
@@ -1167,18 +1187,23 @@ export const AutopilotPage: React.FC<AutopilotPageProps> = ({ onNavigate }) => {
                             }
                           }}
                           disabled={!!runningAgent || (status === 'running' && runningAgent === agent.id)}
-                          className={`px-2.5 py-1 rounded-lg text-[9px] font-bold uppercase tracking-wider transition-all ${
+                          className={`aw-magnetic px-3.5 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
                             isAgentRunning
                               ? 'bg-brand/20 text-brand'
-                              : 'text-text-secondary/50 hover:bg-brand/10 hover:text-brand'
-                          } disabled:opacity-30 disabled:cursor-not-allowed`}
+                              : 'bg-brand text-bg hover:bg-brand-hover'
+                          } disabled:opacity-30 disabled:cursor-not-allowed flex items-center gap-1.5`}
                         >
                           {isAgentRunning ? (
-                            <span className="flex items-center gap-1">
-                              <div className="w-2 h-2 rounded-full border border-brand border-t-transparent animate-spin" />
+                            <>
+                              <div className="w-2.5 h-2.5 rounded-full border border-brand border-t-transparent animate-spin" />
                               Working
-                            </span>
-                          ) : 'Run'}
+                            </>
+                          ) : (
+                            <>
+                              <svg className="w-2.5 h-2.5 fill-bg" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
+                              Run
+                            </>
+                          )}
                         </button>
                       </div>
                     </div>
@@ -1439,7 +1464,7 @@ export const AutopilotPage: React.FC<AutopilotPageProps> = ({ onNavigate }) => {
             )}
 
             {/* Pipeline Flow */}
-            <div className="flex items-center gap-1 px-2">
+            <div className="aw-fade-up flex items-center gap-2 px-2 pt-2" style={{ animationDelay: `${480 + AGENTS.length * 90 + 120}ms` }}>
               {PIPELINE_STAGES.map((stage, i) => {
                 const log = stageLogs.find(l => l.stage === stage.key);
                 const latestRun = runs[0];
@@ -1449,18 +1474,31 @@ export const AutopilotPage: React.FC<AutopilotPageProps> = ({ onNavigate }) => {
 
                 return (
                   <React.Fragment key={stage.key}>
-                    {i > 0 && <div className={`flex-1 h-px ${isDone ? 'bg-brand/30' : 'bg-border-base'}`} />}
-                    <div className="flex flex-col items-center gap-1">
-                      <div className={`w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold transition-all ${
-                        isActive ? 'bg-brand text-bg ring-2 ring-brand/20' :
-                        isDone ? 'bg-brand/15 text-brand' :
-                        isFailed ? 'bg-red-500/15 text-red-400' :
-                        'bg-white/[0.04] text-text-secondary/40'
-                      }`}>
-                        {isDone ? '✓' : i + 1}
+                    {i > 0 && (
+                      <div className="flex-1 h-px relative overflow-hidden">
+                        <div className="absolute inset-0 bg-border-base" />
+                        <div
+                          className="absolute inset-y-0 left-0 aw-stage-line bg-gradient-to-r from-brand/40 to-brand/60"
+                          style={{ width: isDone ? '100%' : isActive ? '50%' : '0%' }}
+                        />
                       </div>
-                      <span className={`text-[8px] font-bold uppercase tracking-widest ${
-                        isActive ? 'text-brand' : isDone ? 'text-brand/60' : 'text-text-secondary/30'
+                    )}
+                    <div className="flex flex-col items-center gap-1.5 group">
+                      <div className="relative">
+                        {isActive && (
+                          <span aria-hidden className="absolute inset-0 rounded-full bg-brand/40" style={{ animation: 'ring-expand 1.6s cubic-bezier(0,0,0.2,1) infinite' }} />
+                        )}
+                        <div className={`relative w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold transition-all duration-500 group-hover:scale-110 ${
+                          isActive ? 'bg-brand text-bg ring-2 ring-brand/30' :
+                          isDone ? 'bg-brand/15 text-brand ring-1 ring-brand/30' :
+                          isFailed ? 'bg-red-500/15 text-red-400' :
+                          'bg-white/[0.04] text-text-secondary/40 group-hover:bg-white/[0.08]'
+                        }`}>
+                          {isDone ? '✓' : i + 1}
+                        </div>
+                      </div>
+                      <span className={`text-[8px] font-bold uppercase tracking-widest transition-colors ${
+                        isActive ? 'text-brand' : isDone ? 'text-brand/60' : 'text-text-secondary/30 group-hover:text-text-secondary/60'
                       }`}>{stage.label}</span>
                     </div>
                   </React.Fragment>
@@ -1469,12 +1507,14 @@ export const AutopilotPage: React.FC<AutopilotPageProps> = ({ onNavigate }) => {
             </div>
 
             {/* Recent Runs */}
-            <div>
-              <h3 className="text-[9px] font-bold text-text-secondary/40 uppercase tracking-widest mb-2">Recent Runs</h3>
+            <div className="aw-fade-up" style={{ animationDelay: `${480 + AGENTS.length * 90 + 240}ms` }}>
+              <h3 className="text-[9px] font-bold text-text-secondary/40 uppercase tracking-widest mb-3">Recent Runs</h3>
               {runs.length === 0 ? (
-                <div className="text-center py-10 border border-dashed border-border-base rounded-xl">
-                  <p className="text-text-secondary text-sm">No runs yet</p>
-                  <p className="text-[10px] text-text-secondary/50 mt-1">Click "Run Full Cycle" to start</p>
+                <div className="relative text-center py-12 border border-dashed border-border-base/60 rounded-2xl overflow-hidden group hover:border-border-base transition-colors">
+                  <div aria-hidden className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-700 pointer-events-none"
+                    style={{ background: 'radial-gradient(50% 60% at 50% 50%, rgba(204,255,0,0.04), transparent 70%)' }} />
+                  <p className="text-text-secondary text-sm aw-float">No runs yet</p>
+                  <p className="text-[10px] text-text-secondary/50 mt-1.5 tracking-wide">Click <span className="aw-shimmer-text font-semibold">Run Full Cycle</span> to start</p>
                 </div>
               ) : (
                 <div className="space-y-2">
@@ -1521,25 +1561,31 @@ export const AutopilotPage: React.FC<AutopilotPageProps> = ({ onNavigate }) => {
 
         {/* ── APPROVAL QUEUE VIEW ────────────────────────────────────── */}
         {view === 'queue' && selectedBrandId && (
-          <div className="px-6 pt-28 pb-6 space-y-5">
-            {/* Header with context */}
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <h1 className="text-lg font-bold text-text-primary">Approval Queue</h1>
-                <span className="text-xs text-text-secondary">{selectedBrand?.name}</span>
-              </div>
-              <p className="text-xs text-text-secondary/50">
-                Review AI-generated content before it goes live
+          <div className="relative px-8 pt-28 pb-12 space-y-8">
+            <div aria-hidden className="pointer-events-none absolute top-16 left-0 right-0 h-[420px] -z-0 overflow-hidden">
+              <div className="absolute inset-0 aw-aurora" style={{ background: 'radial-gradient(45% 45% at 22% 22%, rgba(204,255,0,0.08), transparent 65%)' }} />
+            </div>
+
+            {/* Hero */}
+            <div className="relative z-10">
+              <p className="aw-fade-up text-[10px] tracking-[0.22em] text-text-secondary/60 uppercase font-semibold" style={{ animationDelay: '0ms' }}>
+                Autopilot{selectedBrand?.name ? <> · <span className="text-text-secondary">{selectedBrand.name}</span></> : ''}
+              </p>
+              <h1 className="aw-fade-up text-4xl md:text-5xl font-serif italic text-text-primary mt-3 leading-[1.05] tracking-tight" style={{ animationDelay: '120ms' }}>
+                Approval Queue
+              </h1>
+              <p className="aw-fade-up text-sm text-text-secondary/80 mt-3 max-w-lg leading-relaxed" style={{ animationDelay: '240ms' }}>
+                Review AI-generated content before it goes live. Approve, reject, or schedule each post.
               </p>
             </div>
 
             {/* Info banner when review agent is actively waiting */}
             {reviewResult?.decision === 'waiting' && runningAgent === 'reviewer' && (
-              <div className="flex items-center gap-3 p-3 rounded-xl bg-cyan-500/5 border border-cyan-500/20">
+              <div className="aw-fade-up relative z-10 flex items-center gap-3 p-4 rounded-2xl bg-cyan-500/5 border border-cyan-500/20" style={{ animationDelay: '300ms' }}>
                 <div className="w-5 h-5 rounded-full border-2 border-cyan-400 border-t-transparent animate-spin" />
                 <div className="flex-1">
                   <p className="text-sm font-medium text-text-primary">
-                    Review in progress -- approve or reject items below
+                    Review in progress — approve or reject items below
                   </p>
                   <p className="text-xs text-text-secondary">
                     {reviewResult.approved_count} approved, {reviewResult.rejected_count} rejected so far. You can also respond via Slack.
@@ -1549,21 +1595,34 @@ export const AutopilotPage: React.FC<AutopilotPageProps> = ({ onNavigate }) => {
             )}
 
             {/* The actual approval queue component */}
-            <ApprovalQueue brandId={selectedBrandId} onRefresh={fetchRuns} />
+            <div className="aw-fade-up relative z-10" style={{ animationDelay: '360ms' }}>
+              <ApprovalQueue brandId={selectedBrandId} onRefresh={fetchRuns} />
+            </div>
           </div>
         )}
 
         {/* ── COMPETITORS VIEW ───────────────────────────────────────── */}
         {view === 'competitors' && (
-          <div className="px-6 pt-28 pb-6 space-y-5">
-            <div className="flex items-center gap-3">
-              <h1 className="text-lg font-bold text-text-primary">Competitors</h1>
-              <span className="text-xs text-text-secondary">Scout researches these each cycle</span>
+          <div className="relative px-8 pt-28 pb-12 space-y-8">
+            <div aria-hidden className="pointer-events-none absolute top-16 left-0 right-0 h-[420px] -z-0 overflow-hidden">
+              <div className="absolute inset-0 aw-aurora" style={{ background: 'radial-gradient(45% 45% at 22% 22%, rgba(204,255,0,0.08), transparent 65%)' }} />
+            </div>
+
+            <div className="relative z-10">
+              <p className="aw-fade-up text-[10px] tracking-[0.22em] text-text-secondary/60 uppercase font-semibold" style={{ animationDelay: '0ms' }}>
+                Autopilot{selectedBrand?.name ? <> · <span className="text-text-secondary">{selectedBrand.name}</span></> : ''}
+              </p>
+              <h1 className="aw-fade-up text-4xl md:text-5xl font-serif italic text-text-primary mt-3 leading-[1.05] tracking-tight" style={{ animationDelay: '120ms' }}>
+                Competitors
+              </h1>
+              <p className="aw-fade-up text-sm text-text-secondary/80 mt-3 max-w-lg leading-relaxed" style={{ animationDelay: '240ms' }}>
+                Scout researches every competitor on this list each cycle. Add their handles to track what's working in your niche.
+              </p>
             </div>
 
             {/* Add Competitor Form */}
-            <div className="p-5 rounded-2xl bg-panel border border-border-base space-y-4">
-              <h3 className="text-sm font-bold text-text-primary">Add Competitor</h3>
+            <div className="aw-fade-up relative z-10 p-6 rounded-3xl bg-panel border border-border-base space-y-4 hover:border-white/10 transition-colors" style={{ animationDelay: '320ms' }}>
+              <h3 className="text-[10px] font-bold tracking-[0.18em] uppercase text-text-secondary/60">Add Competitor</h3>
               {/* Row 1: Brand Name + Website */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -1649,15 +1708,21 @@ export const AutopilotPage: React.FC<AutopilotPageProps> = ({ onNavigate }) => {
 
             {/* Competitor List */}
             {config.competitors.length === 0 ? (
-              <div className="text-center py-12 border border-dashed border-border-base rounded-2xl">
-                <p className="text-text-secondary text-lg mb-1">No competitors tracked</p>
-                <p className="text-xs text-text-secondary">Add competitor brand name + social handles — Scout will research them</p>
+              <div className="aw-fade-up relative z-10 text-center py-14 border border-dashed border-border-base/60 rounded-2xl group hover:border-border-base transition-colors" style={{ animationDelay: '440ms' }}>
+                <p className="text-text-secondary text-lg mb-1.5 aw-float">No competitors tracked</p>
+                <p className="text-xs text-text-secondary/60">Add a competitor above — Scout will research them next cycle</p>
               </div>
             ) : (
-              <div className="space-y-3">
+              <div className="relative z-10 space-y-3">
                 {config.competitors.map((comp, i) => (
-                  <div key={i} className="flex items-center gap-4 p-4 rounded-xl bg-panel border border-border-base">
-                    <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center text-lg">🏢</div>
+                  <div key={i} className="aw-fade-up aw-spotlight flex items-center gap-4 p-4 rounded-2xl bg-panel border border-border-base hover:border-white/15 hover:-translate-y-0.5 transition-all duration-300" style={{ animationDelay: `${440 + i * 60}ms` }}
+                    onMouseMove={(e) => {
+                      const r = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
+                      (e.currentTarget as HTMLDivElement).style.setProperty('--mx', `${e.clientX - r.left}px`);
+                      (e.currentTarget as HTMLDivElement).style.setProperty('--my', `${e.clientY - r.top}px`);
+                    }}
+                  >
+                    <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center text-lg ring-1 ring-white/[0.04]">🏢</div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-bold text-text-primary">{comp.handle}</p>
                       {comp.website && <span className="text-[10px] text-text-secondary/40">{comp.website}</span>}
@@ -1687,23 +1752,40 @@ export const AutopilotPage: React.FC<AutopilotPageProps> = ({ onNavigate }) => {
 
         {/* ── ACTIVITY LOG VIEW ──────────────────────────────────────── */}
         {view === 'activity' && (
-          <div className="px-6 pt-28 pb-6 space-y-5">
-            <div className="flex items-center gap-3">
-              <h1 className="text-lg font-bold text-text-primary">Activity</h1>
-              <span className="text-xs text-text-secondary">Agent execution events</span>
+          <div className="relative px-8 pt-28 pb-12 space-y-8">
+            <div aria-hidden className="pointer-events-none absolute top-16 left-0 right-0 h-[420px] -z-0 overflow-hidden">
+              <div className="absolute inset-0 aw-aurora" style={{ background: 'radial-gradient(45% 45% at 22% 22%, rgba(204,255,0,0.08), transparent 65%)' }} />
+            </div>
+
+            <div className="relative z-10">
+              <p className="aw-fade-up text-[10px] tracking-[0.22em] text-text-secondary/60 uppercase font-semibold" style={{ animationDelay: '0ms' }}>
+                Autopilot{selectedBrand?.name ? <> · <span className="text-text-secondary">{selectedBrand.name}</span></> : ''}
+              </p>
+              <h1 className="aw-fade-up text-4xl md:text-5xl font-serif italic text-text-primary mt-3 leading-[1.05] tracking-tight" style={{ animationDelay: '120ms' }}>
+                Activity
+              </h1>
+              <p className="aw-fade-up text-sm text-text-secondary/80 mt-3 max-w-lg leading-relaxed" style={{ animationDelay: '240ms' }}>
+                Every agent execution, in order. Status, duration, and the data each step produced.
+              </p>
             </div>
 
             {allStageLogs.length === 0 ? (
-              <div className="text-center py-12 border border-dashed border-border-base rounded-2xl">
-                <p className="text-text-secondary">No activity yet</p>
-                <p className="text-xs text-text-secondary mt-1">Run a pipeline cycle to see agent events</p>
+              <div className="aw-fade-up relative z-10 text-center py-14 border border-dashed border-border-base/60 rounded-2xl" style={{ animationDelay: '320ms' }}>
+                <p className="text-text-secondary aw-float">No activity yet</p>
+                <p className="text-xs text-text-secondary/60 mt-1.5">Run a pipeline cycle to see agent events</p>
               </div>
             ) : (
-              <div className="space-y-2">
-                {allStageLogs.map(log => {
+              <div className="relative z-10 space-y-2">
+                {allStageLogs.map((log, i) => {
                   const agent = AGENTS.find(a => a.stage === log.stage);
                   return (
-                    <div key={log.id} className="flex items-start gap-3 p-3 rounded-xl bg-panel border border-border-base">
+                    <div key={log.id} className="aw-fade-up aw-spotlight flex items-start gap-3 p-4 rounded-2xl bg-panel border border-border-base hover:border-white/15 transition-all" style={{ animationDelay: `${320 + i * 50}ms` }}
+                      onMouseMove={(e) => {
+                        const r = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
+                        (e.currentTarget as HTMLDivElement).style.setProperty('--mx', `${e.clientX - r.left}px`);
+                        (e.currentTarget as HTMLDivElement).style.setProperty('--my', `${e.clientY - r.top}px`);
+                      }}
+                    >
                       <span className="text-lg mt-0.5">{agent?.icon || '⚙️'}</span>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
@@ -2069,15 +2151,28 @@ const BrandProfilePane: React.FC<{ brandId: string; userId: string; brand: Brand
   };
 
   return (
-    <div className="pt-20 pb-6 h-full overflow-y-auto relative">
-      {/* Delete Brand button — top-right of the Brand Profile pane.
-          Lives at the pane level (not inside BrandWizard) so it's always
-          visible regardless of which wizard step is showing. */}
-      <div className="absolute top-24 right-6 z-10">
+    <div className="relative pt-28 pb-12 px-8 h-full overflow-y-auto">
+      <div aria-hidden className="pointer-events-none absolute top-16 left-0 right-0 h-[420px] -z-0 overflow-hidden">
+        <div className="absolute inset-0 aw-aurora" style={{ background: 'radial-gradient(45% 45% at 22% 22%, rgba(204,255,0,0.08), transparent 65%)' }} />
+      </div>
+
+      <div className="relative z-10 flex items-end justify-between gap-6 mb-8 flex-wrap">
+        <div className="min-w-0">
+          <p className="aw-fade-up text-[10px] tracking-[0.22em] text-text-secondary/60 uppercase font-semibold" style={{ animationDelay: '0ms' }}>
+            Autopilot · <span className="text-text-secondary">{brand?.name || 'Brand'}</span>
+          </p>
+          <h1 className="aw-fade-up text-4xl md:text-5xl font-serif italic text-text-primary mt-3 leading-[1.05] tracking-tight" style={{ animationDelay: '120ms' }}>
+            Brand Profile
+          </h1>
+          <p className="aw-fade-up text-sm text-text-secondary/80 mt-3 max-w-lg leading-relaxed" style={{ animationDelay: '240ms' }}>
+            The DNA Scout uses for research and Priya uses for drafts. Edit it here — changes apply to the next cycle.
+          </p>
+        </div>
         <button
           onClick={handleDelete}
           disabled={isDeleting}
-          className="flex items-center gap-2 px-3 py-2 rounded-full bg-red-500/10 border border-red-500/30 text-red-300 hover:bg-red-500/20 hover:border-red-500/50 hover:text-red-200 text-xs font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+          className="aw-fade-up aw-magnetic flex items-center gap-2 px-4 py-2.5 rounded-full bg-red-500/10 border border-red-500/30 text-red-300 hover:bg-red-500/20 hover:border-red-500/50 hover:text-red-200 text-xs font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+          style={{ animationDelay: '360ms' }}
           title="Permanently delete this brand"
         >
           {isDeleting ? (
@@ -2087,7 +2182,10 @@ const BrandProfilePane: React.FC<{ brandId: string; userId: string; brand: Brand
           )}
         </button>
       </div>
-      <BrandWizard userId={userId} onComplete={handleComplete} initialDNA={initialDNA} />
+
+      <div className="aw-fade-up relative z-10" style={{ animationDelay: '420ms' }}>
+        <BrandWizard userId={userId} onComplete={handleComplete} initialDNA={initialDNA} />
+      </div>
     </div>
   );
 };
@@ -2139,15 +2237,32 @@ const BrandCalendarPane: React.FC<{ brand: BrandProfile; userId: string }> = ({ 
   }
 
   return (
-    <div className="pt-20 pb-6 px-6 h-full">
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h1 className="text-lg font-bold text-text-primary">Calendar</h1>
-          <p className="text-xs text-text-secondary mt-0.5">{brand.name} · {slots.length} slot{slots.length !== 1 ? 's' : ''} this month</p>
-        </div>
-        {loading && <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-brand" />}
+    <div className="relative pt-28 pb-12 px-8 h-full">
+      <div aria-hidden className="pointer-events-none absolute top-16 left-0 right-0 h-[420px] -z-0 overflow-hidden">
+        <div className="absolute inset-0 aw-aurora" style={{ background: 'radial-gradient(45% 45% at 22% 22%, rgba(204,255,0,0.08), transparent 65%)' }} />
       </div>
-      <div className="bg-panel/40 border border-border rounded-2xl p-4 h-[calc(100vh-13rem)]">
+
+      <div className="relative z-10 flex items-end justify-between gap-6 mb-8 flex-wrap">
+        <div className="min-w-0">
+          <p className="aw-fade-up text-[10px] tracking-[0.22em] text-text-secondary/60 uppercase font-semibold" style={{ animationDelay: '0ms' }}>
+            Autopilot · <span className="text-text-secondary">{brand.name}</span>
+          </p>
+          <h1 className="aw-fade-up text-4xl md:text-5xl font-serif italic text-text-primary mt-3 leading-[1.05] tracking-tight" style={{ animationDelay: '120ms' }}>
+            Calendar
+          </h1>
+          <p className="aw-fade-up text-sm text-text-secondary/80 mt-3 leading-relaxed" style={{ animationDelay: '240ms' }}>
+            {slots.length} slot{slots.length !== 1 ? 's' : ''} planned this month. Each Priya cycle drops new posts here.
+          </p>
+        </div>
+        {loading && (
+          <div className="aw-fade-up flex items-center gap-2" style={{ animationDelay: '360ms' }}>
+            <div className="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-brand" />
+            <span className="text-[10px] tracking-[0.18em] uppercase text-text-secondary/60">Loading…</span>
+          </div>
+        )}
+      </div>
+
+      <div className="aw-fade-up relative z-10 bg-panel/60 border border-border-base rounded-3xl p-5 h-[calc(100vh-15rem)] hover:border-white/10 transition-colors" style={{ animationDelay: '420ms' }}>
         <BrandCalendar
           year={year}
           month={month}

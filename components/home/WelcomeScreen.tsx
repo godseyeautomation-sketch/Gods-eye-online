@@ -2,12 +2,51 @@ import React, { useState, useMemo } from 'react';
 import { CHAT_MODELS, type ChatModelId, type SkillOption } from './ChatInput';
 
 const CATEGORY_CHIPS = [
-  { label: 'Create', icon: '✦' },
-  { label: 'Brand', icon: '◎' },
-  { label: 'Video', icon: '▶' },
-  { label: 'Research', icon: '◈' },
-  { label: 'Analyze', icon: '⬡' },
+  { label: 'Create',   icon: '✦', tint: '#CCFF00' },
+  { label: 'Brand',    icon: '◎', tint: '#A78BFA' },
+  { label: 'Video',    icon: '▶', tint: '#60A5FA' },
+  { label: 'Research', icon: '◈', tint: '#FB923C' },
+  { label: 'Analyze',  icon: '⬡', tint: '#4ADE80' },
 ];
+
+// Pick the most punchy word in the greeting to render in brand colour.
+const pickAccent = (text: string, name: string): string | null => {
+  // Strip ", {name}" or " {name}" + trailing punctuation, then return last word.
+  const cleaned = text
+    .replace(new RegExp(`[,\\s]+${name}[\\.\\?!]?\\s*$`), '')
+    .replace(/[\.\?!,]+\s*$/, '')
+    .trim();
+  if (!cleaned) return null;
+  const words = cleaned.split(/\s+/);
+  const last = words[words.length - 1];
+  if (!last || last.length < 3) return null;
+  return last.replace(/[\.\?!,]+$/, '');
+};
+
+const renderWithAccent = (text: string, accent: string | null): React.ReactNode => {
+  if (!accent) return text;
+  const idx = text.lastIndexOf(accent);
+  if (idx === -1) return text;
+  return (
+    <>
+      {text.slice(0, idx)}
+      <span className="text-brand">{accent}</span>
+      {text.slice(idx + accent.length)}
+    </>
+  );
+};
+
+const timeOfDayLabel = () => {
+  const h = new Date().getHours();
+  if (h >= 5 && h < 12) return 'Good Morning';
+  if (h >= 12 && h < 17) return 'Good Afternoon';
+  if (h >= 17 && h < 21) return 'Good Evening';
+  if (h >= 21 || h === 0) return 'Good Night';
+  return 'Late Night';
+};
+
+const dateLabel = () =>
+  new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 
 // ── Time-based greetings ──
 const GREETINGS = {
@@ -173,18 +212,62 @@ export const WelcomeScreen: React.FC<Props> = ({
     onSuggestionClick(prompts[label] || label);
   };
 
+  // Strip the "Hi, Bitan." sentence wrapper if present, accent the punchy word.
+  const dotIdx = greeting.indexOf('. ');
+  const greetingTail = dotIdx > 0 ? greeting.slice(dotIdx + 2) : greeting;
+  const accent = pickAccent(greetingTail, displayName);
+
   return (
-    <div className="flex-1 flex flex-col items-center justify-center px-6">
-      {/* Greeting — single line, centered */}
-      <div className="mb-8 text-center">
-        <h1 className="text-2xl sm:text-3xl lg:text-4xl font-medium text-text-primary/80 tracking-tight whitespace-nowrap">
-          <span className="text-brand">✦</span>{' '}{greeting}
+    <div className="relative flex-1 flex flex-col items-center justify-center px-6">
+      {/* Animated multi-layer aurora — richer, more colourful */}
+      <div aria-hidden className="pointer-events-none absolute inset-0 -z-0 overflow-hidden">
+        <div
+          className="absolute top-[-20%] left-[-10%] right-[-10%] h-[680px] aw-aurora"
+          style={{ background: 'radial-gradient(38% 42% at 22% 28%, rgba(204,255,0,0.16), transparent 65%)' }}
+        />
+        <div
+          className="absolute top-[-15%] left-[-10%] right-[-10%] h-[680px] aw-aurora"
+          style={{
+            background: 'radial-gradient(34% 42% at 76% 30%, rgba(167,139,250,0.10), transparent 65%)',
+            animationDelay: '-7s',
+            animationDuration: '18s',
+          }}
+        />
+        <div
+          className="absolute bottom-[-25%] left-[5%] right-[40%] h-[640px] aw-aurora"
+          style={{
+            background: 'radial-gradient(45% 50% at 30% 75%, rgba(204,255,0,0.10), transparent 65%)',
+            animationDelay: '-12s',
+            animationDuration: '22s',
+          }}
+        />
+        <div
+          className="absolute bottom-[-30%] left-[40%] right-[5%] h-[640px] aw-aurora"
+          style={{
+            background: 'radial-gradient(40% 50% at 70% 75%, rgba(96,165,250,0.07), transparent 65%)',
+            animationDelay: '-3s',
+            animationDuration: '24s',
+          }}
+        />
+      </div>
+
+      {/* Greeting */}
+      <div className="relative z-10 mb-10 text-center max-w-3xl">
+        <p className="aw-fade-up flex items-center justify-center gap-2 text-[11px] tracking-[0.24em] text-text-secondary/70 uppercase font-semibold" style={{ animationDelay: '0ms' }}>
+          <span className="relative flex w-2 h-2">
+            <span className="absolute inset-0 rounded-full bg-brand animate-ping opacity-75" />
+            <span className="relative w-2 h-2 rounded-full bg-brand" />
+          </span>
+          {timeOfDayLabel()} <span className="text-text-secondary/40">·</span> {dateLabel()}
+        </p>
+        <h1 className="aw-fade-up text-4xl sm:text-5xl lg:text-6xl font-serif italic text-text-primary mt-4 leading-[1.04] tracking-tight" style={{ animationDelay: '120ms' }}>
+          {renderWithAccent(greetingTail, accent)}<span className="aw-blink text-brand ml-1">.</span>
         </h1>
       </div>
 
       {/* Central input box */}
-      <div className="w-full max-w-2xl">
-        <div className="rounded-2xl border border-border-base bg-surface focus-within:border-brand/30 transition-colors">
+      <div className="aw-fade-up relative z-10 w-full max-w-2xl" style={{ animationDelay: '240ms' }}>
+        <div className="rounded-3xl border border-border-base bg-surface/80 backdrop-blur focus-within:border-brand/40 focus-within:shadow-[0_0_0_4px_rgba(204,255,0,0.06)] transition-all duration-500">
           {/* Attached images preview */}
           {attachedImages.length > 0 && (
             <div className="flex gap-2 px-4 pt-3">
@@ -369,27 +452,45 @@ export const WelcomeScreen: React.FC<Props> = ({
           </div>
         </div>
 
-        {/* Category chips */}
-        <div className="flex items-center justify-center gap-2 mt-4">
-          {CATEGORY_CHIPS.map((chip) => (
+        {/* Category chips — each in its own accent colour */}
+        <div className="flex items-center justify-center gap-2 mt-5 flex-wrap">
+          {CATEGORY_CHIPS.map((chip, i) => (
             <button
               key={chip.label}
               onClick={() => handleCategoryClick(chip.label)}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-full border border-border-base bg-surface/30 hover:bg-surface hover:border-brand/20 text-sm text-text-secondary hover:text-text-primary transition-all"
+              className="aw-fade-up aw-magnetic group flex items-center gap-2 px-4 py-2 rounded-full border border-border-base bg-surface/30 hover:bg-surface text-sm text-text-secondary hover:text-text-primary transition-colors"
+              style={{
+                animationDelay: `${360 + i * 60}ms`,
+                ['--chip-tint' as any]: chip.tint,
+              }}
+              onMouseEnter={(e) => {
+                (e.currentTarget as HTMLButtonElement).style.borderColor = `${chip.tint}55`;
+                (e.currentTarget as HTMLButtonElement).style.boxShadow = `0 0 0 4px ${chip.tint}10`;
+              }}
+              onMouseLeave={(e) => {
+                (e.currentTarget as HTMLButtonElement).style.borderColor = '';
+                (e.currentTarget as HTMLButtonElement).style.boxShadow = '';
+              }}
             >
-              <span className="text-xs">{chip.icon}</span>
+              <span className="text-xs transition-transform group-hover:scale-125" style={{ color: chip.tint }}>{chip.icon}</span>
               {chip.label}
             </button>
           ))}
         </div>
 
         {/* Contextual suggestions */}
-        <div className="mt-6 space-y-2 max-w-lg mx-auto">
-          {suggestions.map((s) => (
+        <div className="mt-7 space-y-2 max-w-lg mx-auto">
+          {suggestions.map((s, i) => (
             <button
               key={s}
               onClick={() => onSuggestionClick(s)}
-              className="w-full text-left px-4 py-2.5 rounded-xl border border-transparent hover:border-border-base hover:bg-black/[0.03] dark:hover:bg-white/[0.03] text-sm text-text-secondary/60 hover:text-text-secondary transition-all"
+              onMouseMove={(e) => {
+                const r = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
+                (e.currentTarget as HTMLButtonElement).style.setProperty('--mx', `${e.clientX - r.left}px`);
+                (e.currentTarget as HTMLButtonElement).style.setProperty('--my', `${e.clientY - r.top}px`);
+              }}
+              className="aw-fade-up aw-spotlight w-full text-left px-4 py-2.5 rounded-xl border border-transparent hover:border-border-base/60 hover:bg-white/[0.02] text-sm text-text-secondary/70 hover:text-text-primary transition-colors"
+              style={{ animationDelay: `${480 + i * 60}ms` }}
             >
               {s}
             </button>

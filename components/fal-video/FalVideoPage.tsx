@@ -827,10 +827,15 @@ export const FalVideoPage: React.FC<FalVideoPageProps> = ({ initialImage }) => {
   // ═══════════════════════════════════════════════════════════════════════
 
   return (
-    <div className="h-screen w-full flex flex-col overflow-hidden pt-[72px] bg-white dark:bg-[#0a0a0a]">
+    <div className="relative h-screen w-full flex flex-col overflow-hidden pt-[72px] bg-white dark:bg-[#0a0a0a]">
+      {/* Brand-green aurora — only in dark mode */}
+      <div aria-hidden className="hidden dark:block pointer-events-none absolute inset-0 z-0 overflow-hidden">
+        <div className="absolute top-[-10%] left-[-5%] right-[55%] h-[560px] aw-aurora" style={{ background: 'radial-gradient(45% 50% at 22% 28%, rgba(204,255,0,0.08), transparent 65%)' }} />
+        <div className="absolute bottom-[-15%] left-[55%] right-[-5%] h-[560px] aw-aurora" style={{ background: 'radial-gradient(40% 50% at 75% 70%, rgba(204,255,0,0.05), transparent 65%)', animationDelay: '-8s', animationDuration: '22s' }} />
+      </div>
 
       {/* ══ TOP BAR — tabs left, featured models center, search right ══ */}
-      <div className="flex items-center px-5 h-12 flex-shrink-0 border-b border-zinc-200 dark:border-white/[0.06] bg-white dark:bg-[#0a0a0a]">
+      <div className="relative z-10 flex items-center px-5 h-12 flex-shrink-0 border-b border-zinc-200 dark:border-white/[0.06] bg-white/80 dark:bg-[#0a0a0a]/80 backdrop-blur">
         {/* Tabs */}
         <div className="flex items-center gap-4 mr-8">
           {([

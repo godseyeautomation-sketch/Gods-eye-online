@@ -232,7 +232,12 @@ export const ImageGallery: React.FC<ImageGalleryProps> = ({ assets, onEdit, onDe
   // All hooks must be called before any conditional returns
   if (assets.length === 0) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center text-text-secondary pb-32 relative">
+      <div className="relative flex-1 flex flex-col items-center justify-center text-text-secondary pt-40 pb-40 min-h-[calc(100vh-4rem)]">
+        <div aria-hidden className="pointer-events-none absolute inset-0 top-16 -z-0 overflow-hidden">
+          <div className="absolute top-[-10%] left-[-10%] right-[40%] h-[600px] aw-aurora" style={{ background: 'radial-gradient(45% 50% at 25% 35%, rgba(204,255,0,0.10), transparent 65%)' }} />
+          <div className="absolute bottom-[-20%] left-[40%] right-[-10%] h-[600px] aw-aurora" style={{ background: 'radial-gradient(40% 50% at 70% 70%, rgba(204,255,0,0.05), transparent 65%)', animationDelay: '-9s', animationDuration: '20s' }} />
+        </div>
+
         {/* Folder Sync Button - Top Right */}
         <div className="fixed top-28 right-6 z-[9999]">
           <label className="cursor-pointer flex items-center gap-2 px-4 py-2.5 bg-brand text-bg rounded-xl font-bold text-sm shadow-2xl transition-all hover:scale-105 active:scale-95 border-2 border-brand/20">
@@ -258,11 +263,21 @@ export const ImageGallery: React.FC<ImageGalleryProps> = ({ assets, onEdit, onDe
           </label>
         </div>
 
-        <div className="w-24 h-24 bg-white/[0.03] backdrop-blur-md border border-white/5 rounded-full flex items-center justify-center mb-6">
-          <Maximize2 size={32} className="opacity-20" />
+        <div className="relative z-10 text-center">
+          <p className="aw-fade-up text-[10px] tracking-[0.22em] text-text-secondary/60 uppercase font-semibold flex items-center justify-center gap-2" style={{ animationDelay: '0ms' }}>
+            <span className="relative flex w-2 h-2">
+              <span className="absolute inset-0 rounded-full bg-brand animate-ping opacity-75" />
+              <span className="relative w-2 h-2 rounded-full bg-brand" />
+            </span>
+            Image Studio
+          </p>
+          <h1 className="aw-fade-up text-4xl md:text-5xl font-serif italic text-text-primary mt-3 leading-[1.05] tracking-tight" style={{ animationDelay: '120ms' }}>
+            Your canvas is empty<span className="aw-blink text-brand ml-1">.</span>
+          </h1>
+          <p className="aw-fade-up text-sm text-text-secondary/80 mt-3 max-w-md mx-auto leading-relaxed" style={{ animationDelay: '240ms' }}>
+            Enter a prompt below to start creating. Every generation lands here in your gallery — searchable, editable, ready for the next move.
+          </p>
         </div>
-        <p className="text-lg font-medium text-text-primary">Your canvas is empty</p>
-        <p className="text-sm text-text-secondary">Enter a prompt below to start creating</p>
       </div>
     );
   }
