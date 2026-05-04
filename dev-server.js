@@ -3496,13 +3496,29 @@ app.post('/api/pipeline/run-agent', async (req, res) => {
           } catch {}
         }
         const idx = syncData.data.findIndex(b => b.id === brand.id);
-        // Merge: preserve scout_report if it exists, update everything else
-        const merged = { ...(idx >= 0 ? syncData.data[idx] : {}), ...brand, user_id: brand.user_id || userId, updated_at: new Date().toISOString() };
+        const existingLocal = idx >= 0 ? syncData.data[idx] : {};
+        // CRITICAL: Server-only fields written by agents (scout_report,
+        // scout_report_history, priya_campaign) are NOT round-tripped to the
+        // client's IndexedDB. So when the client posts its brand on the next
+        // run-agent call, these fields would be `undefined` in `brand` and a
+        // naive `{...existing, ...brand}` would erase them — which is exactly
+        // why Priya was failing with "No Scout research found" right after
+        // an Approve & Continue. We explicitly preserve the existing local
+        // values for these fields when the client doesn't carry them.
+        const merged = {
+          ...existingLocal,
+          ...brand,
+          scout_report: brand.scout_report || existingLocal.scout_report,
+          scout_report_history: brand.scout_report_history || existingLocal.scout_report_history,
+          priya_campaign: brand.priya_campaign || existingLocal.priya_campaign,
+          user_id: brand.user_id || userId,
+          updated_at: new Date().toISOString(),
+        };
         if (idx >= 0) syncData.data[idx] = merged;
         else syncData.data.push(merged);
         syncData._updatedAt = new Date().toISOString();
         fs.writeFileSync(brandsFile, JSON.stringify(syncData, null, 2), 'utf-8');
-        console.log(`[Pipeline] Synced brand "${brand.name}" (${brand.id}) to local file`);
+        console.log(`[Pipeline] Synced brand "${brand.name}" (${brand.id}) to local file (scout_report ${merged.scout_report ? 'preserved' : 'absent'})`);
       } catch (e) {
         console.warn('[Pipeline] Brand sync failed:', e.message);
       }
