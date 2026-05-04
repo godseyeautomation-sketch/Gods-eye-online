@@ -127,9 +127,9 @@ export const PriyaQuestionnaire: React.FC<Props> = ({ brand, scoutAudience, onCo
           </button>
         </div>
 
-        {/* Total posts */}
+        {/* Posts per platform */}
         <div className="space-y-2">
-          <div className={sectionLabel}>Total Posts</div>
+          <div className={sectionLabel}>Posts per Platform</div>
           <div className="grid grid-cols-3 gap-2">
             {DURATION_OPTIONS.map(d => {
               const active = duration === d;
@@ -145,11 +145,14 @@ export const PriyaQuestionnaire: React.FC<Props> = ({ brand, scoutAudience, onCo
                   }`}
                 >
                   <span>{d} posts</span>
-                  <span className={`text-[10px] font-medium mt-0.5 ${active ? 'text-bg/60' : 'text-text-secondary/50'}`}>over {d} days</span>
+                  <span className={`text-[10px] font-medium mt-0.5 ${active ? 'text-bg/60' : 'text-text-secondary/50'}`}>per platform · {d} days</span>
                 </button>
               );
             })}
           </div>
+          <p className="text-[11px] text-text-secondary/60 leading-relaxed">
+            Each selected platform gets its own independently researched calendar — TikTok content stays distinct from Instagram, LinkedIn from YouTube.
+          </p>
         </div>
 
         {/* Target Audience */}

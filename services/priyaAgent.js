@@ -149,19 +149,19 @@ Scout's strategy: ${JSON.stringify(pillars)}
 Target audience: ${campaign.target_audience || 'General'}
 Campaign goals: ${campaign.campaign_goals || 'Brand awareness'}
 Themes: ${(campaign.themes || []).join(', ')}
-Total content pieces: ${campaign.duration_days || 30} (spread over ${campaign.duration_days || 30} days)
+Posts per platform: ${campaign.duration_days || 30} (each platform gets its own ${campaign.duration_days || 30}-piece calendar, spread over ${campaign.duration_days || 30} days)
 Target platforms: ${(campaign.platforms || ['instagram']).join(', ')}
 
-Research:
-1. Current trending topics in this industry across each platform
-2. Best-performing content formats per platform in the last 30 days
-3. Seasonal / cultural relevance for content calendar
-4. Competitor content approaches to avoid or adapt
+Research INDEPENDENTLY for each platform (each platform behaves differently — a TikTok hook will not work on LinkedIn, an Instagram Reel format won't fit a YouTube long-form audience):
+1. Current trending topics specific to THIS BRAND'S industry on each platform
+2. Best-performing content formats and lengths PER platform in the last 30 days
+3. Seasonal / cultural relevance for the content calendar
+4. Competitor content approaches to avoid or adapt — call out platform-specific patterns
 
-Return JSON:
+Return JSON (every listed platform MUST appear as a key in trending_topics and best_formats):
 {
-  "trending_topics": { "instagram": ["..."], "tiktok": ["..."] },
-  "best_formats": { "instagram": ["..."] },
+  "trending_topics": { "instagram": ["..."], "tiktok": ["..."], "linkedin": ["..."] },
+  "best_formats": { "instagram": ["..."], "tiktok": ["..."], "linkedin": ["..."] },
   "seasonal_notes": "...",
   "avoid_patterns": ["..."]
 }
@@ -479,17 +479,18 @@ async function executePriya(userId, brandId, config = {}) {
   };
   const platforms = (campaign.platforms && campaign.platforms.length) ? campaign.platforms : ['instagram'];
   const duration = campaign.duration_days || 30;
-  // The user picked 15/30/45 in the questionnaire — they expect that many
-  // total pieces of content across the campaign, not per-platform. So split
-  // the target evenly across the chosen platforms (rounded up so we never
-  // undershoot). Dates are still spread over `duration` days (~1 post/day
-  // for a 15-post run, which surfaces nicely in the calendar).
-  const targetTotalPosts = duration;
-  const slotsPerPlatform = Math.max(1, Math.ceil(targetTotalPosts / platforms.length));
+  // The user picked 15/30/45 in the questionnaire — they want that many
+  // pieces of content PER platform. So 3 platforms × 30 = 90 total slots,
+  // each platform researched + generated independently (own hooks, own
+  // trending topics, own platform-specific guidance — all already wired in
+  // generatePlatformCalendar via getPlatformGuidance + per-platform
+  // enrichmentData.trending_topics[platform]).
+  const slotsPerPlatform = duration;
+  const totalSlots = slotsPerPlatform * platforms.length;
   const rejectionFeedback = campaign.rejection_feedback || null;
   const isRegen = !!rejectionFeedback;
 
-  console.log(`[Priya] ${targetTotalPosts} total posts target → ${slotsPerPlatform}/platform × ${platforms.length} platform(s) [${platforms.join(', ')}] over ${duration} days${isRegen ? ` | REGEN with feedback: "${rejectionFeedback.slice(0, 80)}..."` : ''}`);
+  console.log(`[Priya] ${slotsPerPlatform} posts × ${platforms.length} platform(s) [${platforms.join(', ')}] = ${totalSlots} total slots over ${duration} days${isRegen ? ` | REGEN with feedback: "${rejectionFeedback.slice(0, 80)}..."` : ''}`);
 
   // Initial progress write
   writeProgress(brandId, {
