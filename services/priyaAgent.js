@@ -404,9 +404,12 @@ Return ONLY valid JSON (no markdown fences), exact schema:
 Generate exactly ${count} slots. NO commentary. JSON only.`;
 
   console.log(`[Priya] Generating ${count} slots for ${platform}...`);
-  const tokenBudget = 12288;
+  // Each slot's JSON is ~450-600 tokens (hook+caption+hashtags+image_prompt+visual_direction+CTA+emotion).
+  // For 30 slots that's ~15-18k tokens of output, plus the model needs slack.
+  // We scale the budget with count and cap at Gemini 2.5 Flash's 32k output ceiling.
+  const tokenBudget = Math.min(32768, Math.max(8192, count * 700 + 2048));
   const text = await callGemini(prompt, { temperature: 0.85, maxTokens: tokenBudget });
-  console.log(`[Priya] ${platform} response length: ${text.length} chars`);
+  console.log(`[Priya] ${platform} response length: ${text.length} chars (budget ${tokenBudget})`);
 
   let slots = [];
 
@@ -431,6 +434,37 @@ Generate exactly ${count} slots. NO commentary. JSON only.`;
   slots = slots
     .filter(s => s && s.date && s.format && s.brief)
     .map(s => ({ ...s, platform: platform.toLowerCase() }));
+
+  // ── Retry loop: if the model truncated, ask for the missing slots ─────────
+  // Gemini sometimes returns 14/30 even with 32k budget — usually due to
+  // model-side stop signals. We do up to 2 follow-up calls asking for the
+  // remainder, with explicit "starting from slot N" framing so it doesn't
+  // duplicate dates/ideas.
+  let retries = 0;
+  while (slots.length < count && retries < 2) {
+    retries++;
+    const missing = count - slots.length;
+    const usedDates = slots.map(s => s.date).filter(Boolean);
+    const remainingDates = dateSuggestions.filter(d => !usedDates.includes(d)).slice(0, missing);
+    const remainingPrompt = `${prompt}\n\nIMPORTANT RETRY CONTEXT: You already generated ${slots.length} slots. We need ${missing} MORE slots to reach ${count} total. Use ONLY these remaining dates: ${remainingDates.join(', ')}. Do NOT repeat the previously-used dates: ${usedDates.join(', ')}. Generate exactly ${missing} additional slots. JSON only.`;
+    console.log(`[Priya] ${platform} retry #${retries}: requesting ${missing} more slots`);
+    try {
+      const retryText = await callGemini(remainingPrompt, { temperature: 0.85, maxTokens: Math.min(32768, missing * 700 + 2048) });
+      const retryParsed = parseJSON(retryText);
+      let retrySlots = retryParsed?.slots && Array.isArray(retryParsed.slots) ? retryParsed.slots : recoverPartialSlots(retryText);
+      retrySlots = retrySlots
+        .filter(s => s && s.date && s.format && s.brief && !usedDates.includes(s.date))
+        .map(s => ({ ...s, platform: platform.toLowerCase() }));
+      slots.push(...retrySlots);
+      console.log(`[Priya] ${platform} retry #${retries} added ${retrySlots.length} slots (total ${slots.length}/${count})`);
+    } catch (err) {
+      console.warn(`[Priya] ${platform} retry #${retries} failed:`, err.message);
+      break;
+    }
+  }
+
+  // Trim if we somehow over-generated
+  if (slots.length > count) slots = slots.slice(0, count);
 
   console.log(`[Priya] ✓ ${platform} final valid slots: ${slots.length}/${count}`);
   return slots;
@@ -465,8 +499,33 @@ async function executePriya(userId, brandId, config = {}) {
     }
   }
 
+  // Graceful fallback: if no Scout report exists (e.g. Cloud Run cold start
+  // wiped the sync files, or user is running Priya standalone for the first
+  // time), synthesize a minimal strategy from the brand profile itself so
+  // Priya can still produce a content plan instead of erroring out.
   if (!strategyData) {
-    throw new Error('No Scout research found. Run the Scout agent first.');
+    console.warn(`[Priya] No Scout strategy found — falling back to brand profile only.`);
+    const keywords = (brand.keywords || []).slice(0, 8);
+    const values = (brand.brand_values || []).slice(0, 5);
+    const tone = Array.isArray(brand.tone) ? brand.tone.join(', ') : (brand.tone || 'Professional, friendly');
+    strategyData = {
+      brand_summary: brand.overview || `${brand.name} — ${brand.industry || 'general business'}`,
+      target_audience: brand.audience || 'General audience',
+      tone_and_voice: tone,
+      content_pillars: keywords.length
+        ? keywords.slice(0, 5).map(k => ({ name: k, description: `Content focused on ${k}.`, percentage: 20 }))
+        : [
+            { name: 'Education', description: 'Teach the audience about your category.', percentage: 30 },
+            { name: 'Inspiration', description: 'Showcase customer wins and brand values.', percentage: 25 },
+            { name: 'Behind the scenes', description: 'Process, team, and craft.', percentage: 20 },
+            { name: 'Product spotlight', description: 'Hero your offerings.', percentage: 15 },
+            { name: 'Community', description: 'UGC, testimonials, conversations.', percentage: 10 },
+          ],
+      hooks: keywords.length ? keywords.map(k => `Why ${k} matters for ${brand.audience || 'you'}`) : [],
+      values,
+      _synthetic: true,
+      _reason: 'No Scout report available; built from brand profile only.',
+    };
   }
 
   // ── Normalize campaign config ────────────────────────────────────────────

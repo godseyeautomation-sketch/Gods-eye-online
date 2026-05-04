@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef, memo } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import QualityScoreBadge from './QualityScoreBadge';
 import type { ApprovalQueueItem, ApprovalStatus, ContentFormat, SocialPlatform } from '../../types/brand.types';
@@ -43,13 +43,39 @@ function loadCachedItems(brandId: string): ApprovalQueueItem[] {
     const parsed = JSON.parse(raw) as { items: ApprovalQueueItem[]; cachedAt: number };
     if (!parsed?.items || !Array.isArray(parsed.items)) return [];
     if (Date.now() - (parsed.cachedAt || 0) > CACHE_TTL_MS) return [];
-    return parsed.items;
+    // Drop the strip-marker so cards don't render <img src="__cached_strip__">.
+    // Real media URLs will come back on the next server fetch.
+    return parsed.items.map((it: any) => ({
+      ...it,
+      generated_image: it.generated_image === '__cached_strip__' ? null : it.generated_image,
+      generated_video: it.generated_video === '__cached_strip__' ? null : it.generated_video,
+    }));
   } catch { return []; }
 }
 function saveCachedItems(brandId: string, items: ApprovalQueueItem[]) {
+  // Strip heavy media (base64 images / videos) before caching so we don't
+  // blow the ~5 MB localStorage quota with 30+ slots. The server is the
+  // source of truth for the actual asset URL — on reload we hydrate the
+  // cache to show the queue immediately, then refetch fills in the media.
+  const slim = items.map((it: any) => {
+    const o: any = { ...it };
+    if (typeof o.generated_image === 'string' && o.generated_image.startsWith('data:')) {
+      o.generated_image = '__cached_strip__';
+    }
+    if (typeof o.generated_video === 'string' && o.generated_video.startsWith('data:')) {
+      o.generated_video = '__cached_strip__';
+    }
+    return o;
+  });
   try {
-    localStorage.setItem(CACHE_KEY(brandId), JSON.stringify({ items, cachedAt: Date.now() }));
-  } catch { /* quota exceeded — ignore */ }
+    localStorage.setItem(CACHE_KEY(brandId), JSON.stringify({ items: slim, cachedAt: Date.now() }));
+  } catch (err: any) {
+    // Quota exceeded — try once more with a smaller window (most recent 50).
+    try {
+      const trimmed = slim.slice(-50);
+      localStorage.setItem(CACHE_KEY(brandId), JSON.stringify({ items: trimmed, cachedAt: Date.now() }));
+    } catch { /* still over quota — skip cache write rather than throw */ }
+  }
 }
 // Merge server response with cache: server is source of truth for items
 // it returns, but if the server is empty (e.g. ephemeral filesystem wiped
@@ -156,18 +182,25 @@ export default function ApprovalQueue({ brandId, onRefresh }: ApprovalQueueProps
     saveCachedItems(brandId, items);
   }, [items, brandId]);
 
-  // Auto-refresh every 30s as long as any item is still pending. Pass
-  // silent=true so the spinner doesn't flash and unchanged polls don't
-  // replace the array (the equality check inside fetchQueue takes care
-  // of the array swap).
+  // Auto-refresh every 30s. We don't gate on items.some(pending) here
+  // because that would re-create the interval every time `items` changes,
+  // which fires on every poll and produces stutter. Instead we read the
+  // current items via ref inside the tick and bail if there's nothing
+  // pending. Stable interval → no flicker on poll.
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
   useEffect(() => {
-    const hasPending = items.some(i => i.status === 'pending');
-    if (!hasPending) return;
-    const interval = setInterval(() => fetchQueue(true), 30000);
+    const interval = setInterval(() => {
+      if (itemsRef.current.some(i => i.status === 'pending')) {
+        fetchQueue(true);
+      }
+    }, 30000);
     return () => clearInterval(interval);
-  }, [items, fetchQueue]);
+  }, [fetchQueue]);
 
-  const handleApprove = async (id: string) => {
+  // Stable handlers — keep prop identity constant so memo'd ApprovalCard
+  // doesn't re-render every poll just because the parent re-rendered.
+  const handleApprove = useCallback(async (id: string) => {
     if (!user?.id) return;
     setActionLoading(id);
     try {
@@ -184,9 +217,9 @@ export default function ApprovalQueue({ brandId, onRefresh }: ApprovalQueueProps
       console.error('Approve failed:', err);
     }
     setActionLoading(null);
-  };
+  }, [user?.id, onRefresh]);
 
-  const handleReject = async (id: string, reason = '') => {
+  const handleReject = useCallback(async (id: string, reason = '') => {
     if (!user?.id) return;
     setActionLoading(id);
     try {
@@ -203,9 +236,9 @@ export default function ApprovalQueue({ brandId, onRefresh }: ApprovalQueueProps
       console.error('Reject failed:', err);
     }
     setActionLoading(null);
-  };
+  }, [user?.id, onRefresh]);
 
-  const handleBulkApprove = async () => {
+  const handleBulkApprove = useCallback(async () => {
     if (!user?.id || !selectedIds.size) return;
     setActionLoading('bulk');
     try {
@@ -223,15 +256,15 @@ export default function ApprovalQueue({ brandId, onRefresh }: ApprovalQueueProps
       console.error('Bulk approve failed:', err);
     }
     setActionLoading(null);
-  };
+  }, [user?.id, selectedIds, onRefresh]);
 
-  const toggleSelect = (id: string) => {
+  const toggleSelect = useCallback((id: string) => {
     setSelectedIds(prev => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id); else next.add(id);
       return next;
     });
-  };
+  }, []);
 
   // Platform counts (before platform filter, so pills show full universe)
   const platformCounts: Record<string, { total: number; auto: number }> = {};
@@ -604,7 +637,26 @@ interface ApprovalCardProps {
   onRefresh?: () => void;
 }
 
-function ApprovalCard({ item, isAB, isSelected, isLoading, onApprove, onReject, onToggleSelect, timeRemaining, isPending, onRefresh }: ApprovalCardProps) {
+// Stable fingerprint used by memo comparator — must include every field
+// the card visibly displays. If something on screen changes but isn't here,
+// it'll appear stale until the user navigates away and back.
+function cardFingerprint(it: ApprovalQueueItem): string {
+  const i: any = it;
+  return [
+    i.id, i.status,
+    i.scheduled_at || '', i.slot_date || '',
+    i.generated_image ? i.generated_image.slice(0, 64) : '',
+    i.generated_video || '',
+    i.upload_post_job_id || '', i.upload_post_request_id || '',
+    i.brief?.caption || '', i.brief?.hook || '',
+    (i.brief?.hashtags || []).join(','), i.brief?.call_to_action || '',
+    i.brief?.image_prompt || '',
+    i.reviewer_notes || '', i.resubmitted_at || '',
+    i.auto_approve_at || '',
+  ].join('|');
+}
+
+function ApprovalCardImpl({ item, isAB, isSelected, isLoading, onApprove, onReject, onToggleSelect, timeRemaining, isPending, onRefresh }: ApprovalCardProps) {
   const [expanded, setExpanded] = useState(false);
   const [showRejectInput, setShowRejectInput] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
@@ -1217,3 +1269,18 @@ function ApprovalCard({ item, isAB, isSelected, isLoading, onApprove, onReject, 
     </div>
   );
 }
+
+// Memo wrapper: skip re-render unless the card's visible content actually
+// changed. Crucially we IGNORE handler identity — the parent uses inline
+// arrows for onApprove/onReject/etc. (one per item id) so they get a new
+// reference every render, but the cards don't care. Without this guard,
+// every 30s poll would force every card to re-render mid-edit, blowing
+// away open inputs and making clicks feel laggy / unresponsive.
+const ApprovalCard = memo(ApprovalCardImpl, (prev, next) => {
+  if (prev.isAB !== next.isAB) return false;
+  if (prev.isSelected !== next.isSelected) return false;
+  if (prev.isLoading !== next.isLoading) return false;
+  if (prev.isPending !== next.isPending) return false;
+  if (prev.timeRemaining !== next.timeRemaining) return false;
+  return cardFingerprint(prev.item) === cardFingerprint(next.item);
+});
