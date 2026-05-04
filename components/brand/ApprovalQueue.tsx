@@ -99,19 +99,31 @@ function saveCachedItems(brandId: string, items: ApprovalQueueItem[]) {
   }
   // Skip the write rather than throw — UI keeps in-memory state intact.
 }
-// Merge server response with cache: server is source of truth for items
-// it returns, but if the server is empty (e.g. ephemeral filesystem wiped
-// after a deploy) we keep the cache so the user still sees their work.
+// Merge server response with cache. Server is the source of truth for
+// status / scheduled_at / reviewer_notes etc, but for media fields
+// (generated_image, generated_video) we MUST fall back to the cache when
+// the server returns null. Cloud Run cold starts wipe approval_queue.json
+// — without this fill-in, items reappear on the dashboard with their image
+// erased, even though the cache had the full base64 right there.
 function mergeServerWithCache(server: ApprovalQueueItem[], cache: ApprovalQueueItem[]): ApprovalQueueItem[] {
-  if (server.length > 0) {
-    // Server has data: use server's items, but enrich with any cache-only
-    // items the server doesn't know about (recovers from server file wipe).
-    const serverIds = new Set(server.map(i => i.id));
-    const orphaned = cache.filter(i => !serverIds.has(i.id));
-    return [...server, ...orphaned];
-  }
-  // Server returned empty — fall back to cache entirely
-  return cache;
+  if (server.length === 0) return cache; // server empty → all cache
+  const cacheById = new Map(cache.map(i => [i.id, i]));
+  const merged = server.map((sv: any) => {
+    const ch: any = cacheById.get(sv.id);
+    if (!ch) return sv;
+    return {
+      ...sv,
+      // Fill in media + brief fields from cache when the server's copy is null
+      generated_image: sv.generated_image || ch.generated_image || null,
+      generated_video: sv.generated_video || ch.generated_video || null,
+      brief: sv.brief || ch.brief || null,
+    };
+  });
+  // Add cache-only items the server doesn't know about (rare, but covers
+  // local writes that haven't round-tripped to the server yet)
+  const serverIds = new Set(server.map(i => i.id));
+  const orphaned = cache.filter(i => !serverIds.has(i.id));
+  return [...merged, ...orphaned];
 }
 
 export default function ApprovalQueue({ brandId, onRefresh }: ApprovalQueueProps) {
