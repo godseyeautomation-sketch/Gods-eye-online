@@ -185,6 +185,30 @@ const TOOL_DECLARATIONS = [
     },
   },
   {
+    name: 'run_agent',
+    description: 'Trigger a specific agent in the Autopilot pipeline for a brand. The pipeline has 5 agents that run in order: Scout (research) → Priya (creative drafts) → Review (quality scoring) → Dispatch (publishing) → Karma (analytics). You can run any one independently. Use this when the user asks to "scout my brand", "have Priya draft 30 posts", "send to review", "publish approved content", "run analytics", or any equivalent. ALWAYS confirm which brand to run on if multiple exist.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        agent_id: { type: 'STRING', description: 'Which agent to run: scout (research+strategy), priya (creative drafts), review (quality scoring + approval prep), dispatch (publish approved content), karma (pull analytics from published posts), or full_cycle (run scout → priya → review chain).' },
+        brand_id: { type: 'STRING', description: 'UUID of the brand to run on. If omitted, uses the most recently active brand.' },
+        post_count: { type: 'NUMBER', description: 'For priya: number of posts to generate per platform (15 / 30 / 45). Default 15.' },
+        platforms: { type: 'STRING', description: 'For priya: comma-separated platforms (e.g. "instagram,tiktok,linkedin"). Default "instagram".' },
+      },
+      required: ['agent_id'],
+    },
+  },
+  {
+    name: 'query_pipeline_state',
+    description: 'Read the current Autopilot pipeline state for a brand: whether Scout has produced a report, last Priya run, approval queue counts (pending/approved/rejected), recent agent runs. Use this BEFORE answering questions like "what\'s in my queue?", "did Scout run?", "what content is pending?", or before triggering an agent so you know the right defaults.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        brand_id: { type: 'STRING', description: 'Brand UUID. If omitted, uses the most recently active brand.' },
+      },
+    },
+  },
+  {
     name: 'manage_cron',
     description: 'Create, list, update, delete, or run scheduled cron jobs. Jobs are per-user and per-brand scoped. Available task types: research-trends (research trending topics), pull-analytics (pull engagement metrics), weekly-strategy (weekly content plan), auto-publish (publish scheduled posts), competitor-scan (analyze competitors), custom (run a custom prompt).',
     parameters: {
@@ -253,6 +277,16 @@ OTHER TOOLS:
 • Query user's trained creative memory (Brain/RAG)
 • Navigate to app sections: IMAGE, VIDEO, EDIT, CHARACTER, BRAND, SPACES, APPS
 • PUBLISH to social media (10+ platforms): Instagram, TikTok, X, Facebook, LinkedIn, YouTube, Threads, Pinterest, Bluesky, Reddit. Use publish_content tool. Can schedule posts for later.
+• AUTOPILOT AGENTS — the brand pipeline. Five agents work in order, each can be triggered independently via run_agent tool:
+  - SCOUT (research): Researches trending topics, scrapes competitor content, builds a strategy report (.docx). Run with run_agent({agent_id:"scout"}). Generates a Scout Report that the user must approve before Priya runs.
+  - PRIYA (creative): Drafts a full content calendar — captions, hashtags, hooks, CTAs, image prompts — for each platform. Run with run_agent({agent_id:"priya", post_count:30, platforms:"instagram,tiktok"}). Per-platform output is independent.
+  - REVIEW (quality): Scores content on 4 dimensions (brand voice, hook strength, clarity, compliance), runs embedding dedup, and posts approval cards either to Slack or the in-app dashboard.
+  - DISPATCH (publisher): Schedules and publishes approved content to social platforms via Upload-Post.
+  - KARMA (analytics): Pulls engagement metrics from published posts, distills winning patterns, feeds them back to Scout for the next cycle.
+  - run_agent({agent_id:"full_cycle"}) runs Scout and lets the user approve before Priya picks it up.
+  - Use query_pipeline_state FIRST whenever the user asks "what's in my queue", "did Scout run yet", "did Priya finish", "what content is pending review", etc. — it returns the current Scout/Priya/queue state for the active brand so you can answer accurately instead of guessing.
+  - These agents are real, persistent, and have side effects (write to Supabase, post to Slack, post to social). Always confirm before running on the wrong brand. If the user says "run Priya" and they have multiple brands, ask which.
+
 • SCHEDULED TASKS (Cron): Create automated recurring tasks using manage_cron tool. Available agents:
   - research-trends: Research trending topics daily (uses web search)
   - pull-analytics: Pull engagement metrics from social platforms
@@ -660,6 +694,117 @@ async function executeTool(
         platforms,
         request_id: result.request_id,
         total_platforms: result.total_platforms || platforms.length,
+      };
+    }
+
+    case 'run_agent': {
+      // Resolve brand: explicit brand_id wins, else last active, else first
+      let brandId = args.brand_id as string | undefined;
+      let brandPayload: any = null;
+      try {
+        const allBrands = await getAllBrandProfiles(callbacks.userId);
+        if (!brandId) {
+          const lastActive = localStorage.getItem(`klint_active_brand_${callbacks.userId}`);
+          brandId = (lastActive && allBrands.find(b => b.id === lastActive)?.id) || allBrands[0]?.id;
+        }
+        brandPayload = allBrands.find(b => b.id === brandId) || null;
+      } catch (e: any) {
+        return { error: `Could not load brands: ${e?.message || e}` };
+      }
+      if (!brandId) return { error: 'No brand found. Create one in Brand Profile first.' };
+
+      // Map "full_cycle" to triggering scout (server auto-chains via Chain Mode setting elsewhere)
+      const agentId = (args.agent_id || '').toLowerCase();
+      const validAgents = ['scout', 'priya', 'creative', 'review', 'reviewer', 'dispatch', 'dispatcher', 'karma', 'analyst', 'full_cycle'];
+      if (!validAgents.includes(agentId)) {
+        return { error: `Unknown agent: ${args.agent_id}. Use one of: scout, priya, review, dispatch, karma, full_cycle.` };
+      }
+
+      // Build config (extend if priya-specific options provided)
+      const config: Record<string, any> = {};
+      if (args.post_count) config.duration_days = args.post_count;
+      if (args.platforms) {
+        config.platforms = String(args.platforms).split(',').map(s => s.trim()).filter(Boolean);
+      }
+      if (Array.isArray(brandPayload?.competitors)) {
+        config.competitors = brandPayload.competitors.map((c: any) => ({
+          handle: c.name, platform: 'instagram',
+          instagram: c.instagram, tiktok: c.tiktok, facebook: c.facebook,
+          youtube: c.youtube, linkedin: c.linkedin, x: c.x,
+          pinterest: c.pinterest, threads: c.threads, website: c.website,
+        }));
+      }
+
+      const realAgentId = agentId === 'full_cycle' ? 'scout' : agentId;
+      try {
+        const res = await fetch('/api/pipeline/run-agent', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-user-id': callbacks.userId },
+          body: JSON.stringify({ agent_id: realAgentId, brand_id: brandId, brand: brandPayload, config }),
+        });
+        const data = await res.json();
+        if (!res.ok || data.error) return { error: data.error || `Agent run failed: ${res.status}` };
+        return {
+          success: true,
+          agent: realAgentId,
+          brand: brandPayload?.name || brandId,
+          message: data.text || `${realAgentId} started`,
+          result: data.result,
+        };
+      } catch (err: any) {
+        return { error: `Agent run failed: ${err?.message || err}` };
+      }
+    }
+
+    case 'query_pipeline_state': {
+      let brandId = args.brand_id as string | undefined;
+      let brand: any = null;
+      try {
+        const allBrands = await getAllBrandProfiles(callbacks.userId);
+        if (!brandId) {
+          const lastActive = localStorage.getItem(`klint_active_brand_${callbacks.userId}`);
+          brandId = (lastActive && allBrands.find(b => b.id === lastActive)?.id) || allBrands[0]?.id;
+        }
+        brand = allBrands.find(b => b.id === brandId) || null;
+      } catch (e: any) {
+        return { error: `Could not load brand: ${e?.message || e}` };
+      }
+      if (!brand) return { error: 'No brand found.' };
+
+      // Pull queue counts + recent runs in parallel
+      const [queueRes, runsRes] = await Promise.allSettled([
+        fetch(`/api/approval-queue?brand_id=${brand.id}&status=all&limit=200`, {
+          headers: { 'x-user-id': callbacks.userId },
+        }).then(r => r.json()),
+        fetch(`/api/pipeline/runs?brand_id=${brand.id}&limit=10`, {
+          headers: { 'x-user-id': callbacks.userId },
+        }).then(r => r.json()),
+      ]);
+      const queueItems = queueRes.status === 'fulfilled' ? (queueRes.value?.items || []) : [];
+      const counts = {
+        pending: queueItems.filter((i: any) => i.status === 'pending').length,
+        approved: queueItems.filter((i: any) => i.status === 'approved' || i.status === 'auto_approved').length,
+        rejected: queueItems.filter((i: any) => i.status === 'rejected').length,
+        total: queueItems.length,
+      };
+      const runs = runsRes.status === 'fulfilled' ? (runsRes.value?.runs || []) : [];
+
+      return {
+        brand: { id: brand.id, name: brand.name, industry: brand.industry, audience: brand.audience },
+        scout: brand.scout_report ? {
+          available: true,
+          generated_at: brand.scout_report.generated_at,
+          awaiting_approval: !!brand.scout_report.awaiting_approval,
+          approved_at: brand.scout_report.approved_at || null,
+          competitors_analyzed: brand.scout_report.competitors_analyzed || 0,
+          content_pillars: brand.scout_report.content_pillars || 0,
+          rejection_count: brand.scout_report.rejection_count || 0,
+        } : { available: false },
+        priya_campaign: brand.priya_campaign || null,
+        approval_queue: counts,
+        recent_runs: runs.slice(0, 5).map((r: any) => ({
+          id: r.id, status: r.status, current_stage: r.current_stage, started_at: r.started_at,
+        })),
       };
     }
 
