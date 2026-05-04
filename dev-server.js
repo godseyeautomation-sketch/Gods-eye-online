@@ -3564,7 +3564,7 @@ app.get('/api/pipeline/scout-report/:filename', (req, res) => {
 });
 
 // Approve Scout's report — unlocks Priya
-app.patch('/api/pipeline/scout/approve', (req, res) => {
+app.patch('/api/pipeline/scout/approve', async (req, res) => {
   try {
     const userId = req.headers['x-user-id'];
     if (!userId) return res.status(401).json({ error: 'x-user-id header required' });
@@ -3583,6 +3583,27 @@ app.patch('/api/pipeline/scout/approve', (req, res) => {
       idx = allBrands.length - 1;
     }
     if (idx < 0) return res.status(404).json({ error: 'Brand not found' });
+
+    // Cold-start scout_report recovery: scout_report is server-only — clients
+    // never carry it, so after a Cloud Run cycle the in-memory + posted brand
+    // both lack it. The full Scout result is archived to content_briefs on
+    // every run, so pull the latest one from there before giving up.
+    if (!allBrands[idx].scout_report) {
+      try {
+        const briefs = await supabaseRest(
+          `content_briefs?brand_id=eq.${brand_id}&created_by=eq.scout_agent&order=created_at.desc&limit=1&select=trend_summary`
+        );
+        const recovered = briefs?.[0]?.trend_summary;
+        if (recovered) {
+          const parsed = typeof recovered === 'string' ? JSON.parse(recovered) : recovered;
+          if (parsed && parsed.scan_data) {
+            allBrands[idx] = { ...allBrands[idx], scout_report: parsed };
+            console.log(`[Scout approve] Recovered scout_report from content_briefs`);
+          }
+        }
+      } catch (e) { console.warn('[Scout approve] Supabase recovery failed:', e.message); }
+    }
+
     if (!allBrands[idx].scout_report) return res.status(400).json({ error: 'No scout report on this brand' });
 
     const approvedAt = new Date().toISOString();
