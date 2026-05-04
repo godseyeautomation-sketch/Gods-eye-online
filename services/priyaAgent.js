@@ -149,7 +149,7 @@ Scout's strategy: ${JSON.stringify(pillars)}
 Target audience: ${campaign.target_audience || 'General'}
 Campaign goals: ${campaign.campaign_goals || 'Brand awareness'}
 Themes: ${(campaign.themes || []).join(', ')}
-Duration: ${campaign.duration_days || 30} days
+Total content pieces: ${campaign.duration_days || 30} (spread over ${campaign.duration_days || 30} days)
 Target platforms: ${(campaign.platforms || ['instagram']).join(', ')}
 
 Research:
@@ -479,11 +479,17 @@ async function executePriya(userId, brandId, config = {}) {
   };
   const platforms = (campaign.platforms && campaign.platforms.length) ? campaign.platforms : ['instagram'];
   const duration = campaign.duration_days || 30;
-  const slotsPerPlatform = Math.ceil(duration / 2); // ~15 posts/month cadence
+  // The user picked 15/30/45 in the questionnaire — they expect that many
+  // total pieces of content across the campaign, not per-platform. So split
+  // the target evenly across the chosen platforms (rounded up so we never
+  // undershoot). Dates are still spread over `duration` days (~1 post/day
+  // for a 15-post run, which surfaces nicely in the calendar).
+  const targetTotalPosts = duration;
+  const slotsPerPlatform = Math.max(1, Math.ceil(targetTotalPosts / platforms.length));
   const rejectionFeedback = campaign.rejection_feedback || null;
   const isRegen = !!rejectionFeedback;
 
-  console.log(`[Priya] Platforms: ${platforms.join(', ')} | ${slotsPerPlatform} slots each over ${duration} days${isRegen ? ` | REGEN with feedback: "${rejectionFeedback.slice(0, 80)}..."` : ''}`);
+  console.log(`[Priya] ${targetTotalPosts} total posts target → ${slotsPerPlatform}/platform × ${platforms.length} platform(s) [${platforms.join(', ')}] over ${duration} days${isRegen ? ` | REGEN with feedback: "${rejectionFeedback.slice(0, 80)}..."` : ''}`);
 
   // Initial progress write
   writeProgress(brandId, {

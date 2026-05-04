@@ -127,9 +127,9 @@ export const PriyaQuestionnaire: React.FC<Props> = ({ brand, scoutAudience, onCo
           </button>
         </div>
 
-        {/* Duration */}
+        {/* Total posts */}
         <div className="space-y-2">
-          <div className={sectionLabel}>Duration</div>
+          <div className={sectionLabel}>Total Posts</div>
           <div className="grid grid-cols-3 gap-2">
             {DURATION_OPTIONS.map(d => {
               const active = duration === d;
@@ -138,13 +138,14 @@ export const PriyaQuestionnaire: React.FC<Props> = ({ brand, scoutAudience, onCo
                   key={d}
                   type="button"
                   onClick={() => setDuration(d)}
-                  className={`py-2.5 rounded-xl text-sm font-semibold transition-all border ${
+                  className={`py-2.5 rounded-xl text-sm font-semibold transition-all border flex flex-col items-center ${
                     active
                       ? 'bg-brand text-bg border-brand shadow-[0_0_0_3px_rgba(255,255,255,0.02)]'
                       : 'bg-surface border-white/[0.06] text-text-primary hover:border-white/[0.12]'
                   }`}
                 >
-                  {d} days
+                  <span>{d} posts</span>
+                  <span className={`text-[10px] font-medium mt-0.5 ${active ? 'text-bg/60' : 'text-text-secondary/50'}`}>over {d} days</span>
                 </button>
               );
             })}

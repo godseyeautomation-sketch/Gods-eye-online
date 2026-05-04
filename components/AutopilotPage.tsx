@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { AppMode } from '../types';
 import { getAllBrandProfiles } from '../services/brandService';
@@ -126,6 +126,10 @@ export const AutopilotPage: React.FC<AutopilotPageProps> = ({ onNavigate }) => {
   const [chainMode, setChainMode] = useState(true); // auto-run next agent after current finishes
   const [scoutApproved, setScoutApproved] = useState(false); // Scout report approval gate
   const [scoutApproving, setScoutApproving] = useState(false);
+  // Synchronous double-click guard — React state updates are async so a fast
+  // second click can sneak through before scoutApproving=true is observed.
+  // The ref flips immediately and is checked in approveScoutReport.
+  const scoutApprovingRef = useRef(false);
   // Reject-with-feedback flow: inline textarea expand + regeneration state
   const [scoutRejecting, setScoutRejecting] = useState(false);
   const [scoutRejectOpen, setScoutRejectOpen] = useState(false);
@@ -731,7 +735,11 @@ export const AutopilotPage: React.FC<AutopilotPageProps> = ({ onNavigate }) => {
 
   // ── Approve Scout's report — unlocks Priya ──────────────────────────────
   const approveScoutReport = async (autoOpenModal = true) => {
-    if (!user?.id || !selectedBrandId || scoutApproving) return;
+    if (!user?.id || !selectedBrandId) return;
+    // Synchronous guard: blocks a second click that arrives before React
+    // has flushed the scoutApproving=true state from the first click.
+    if (scoutApprovingRef.current || scoutApproving || scoutApproved) return;
+    scoutApprovingRef.current = true;
     setScoutApproving(true);
     try {
       const res = await fetch('/api/pipeline/scout/approve', {
@@ -747,9 +755,11 @@ export const AutopilotPage: React.FC<AutopilotPageProps> = ({ onNavigate }) => {
         if (autoOpenModal) setShowPriyaModal(true);
       } else {
         setAgentError(`Approve failed: ${data.error || 'unknown'}`);
+        scoutApprovingRef.current = false; // allow retry on failure
       }
     } catch (err: any) {
       setAgentError(`Approve failed: ${err.message}`);
+      scoutApprovingRef.current = false;
     }
     setScoutApproving(false);
   };
@@ -1260,8 +1270,9 @@ export const AutopilotPage: React.FC<AutopilotPageProps> = ({ onNavigate }) => {
                         </button>
                         <button
                           onClick={() => approveScoutReport(true)}
-                          disabled={scoutApproving}
-                          className="px-4 py-2 rounded-xl bg-brand text-bg text-xs font-bold hover:bg-brand-hover transition disabled:opacity-40 flex items-center gap-1.5"
+                          disabled={scoutApproving || scoutApproved}
+                          aria-busy={scoutApproving}
+                          className="px-4 py-2 rounded-xl bg-brand text-bg text-xs font-bold hover:bg-brand-hover transition disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none flex items-center gap-1.5"
                         >
                           {scoutApproving ? (
                             <><div className="w-3 h-3 rounded-full border-2 border-bg border-t-transparent animate-spin" /> Approving...</>
