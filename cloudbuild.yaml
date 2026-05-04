@@ -30,7 +30,10 @@ steps:
       # local filesystem, causing Priya to fail with "No Scout research found"
       # immediately after a successful Scout + Approve flow.
       - '--min-instances=1'
-      - '--set-env-vars=SLACK_CLIENT_ID=10913470660848.11030785247795,SLACK_CLIENT_SECRET=463d40f32b904d19d508fbd93bcbd17e,SLACK_SIGNING_SECRET=1c44c5ae79b8577e0b9320b63b46e00c'
+      # NOTE: Do NOT use --set-env-vars here — it REPLACES all env vars.
+      # Runtime secrets (Gemini, Slack, FAL, Apify, etc.) are set once via:
+      #   gcloud run services update gods-eye-online --region=us-central1 --update-env-vars="KEY=val,..."
+      # and gcloud run deploy (without env var flags) preserves them across revisions.
 
 images:
   - 'gcr.io/$PROJECT_ID/gods-eye-online:$COMMIT_SHA'
