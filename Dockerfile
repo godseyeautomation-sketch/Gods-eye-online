@@ -1,6 +1,9 @@
 # Multi-stage build for optimized image size
-# Use node:18 (not alpine) — Tailwind v4 needs native bindings unavailable on Alpine
-FROM node:20 AS builder
+# Use node:22 (LTS) — provides stable native WebSocket required by
+# @supabase/realtime-js (loaded transitively by @supabase/supabase-js).
+# Node 18/20 fail at startup with "detected without native WebSocket support".
+# Builder uses non-alpine: Tailwind v4 needs native bindings unavailable on Alpine.
+FROM node:22 AS builder
 
 WORKDIR /app
 
@@ -28,7 +31,7 @@ COPY . .
 RUN npm run build
 
 # Production stage — alpine is fine here (no build step)
-FROM node:20-alpine
+FROM node:22-alpine
 
 WORKDIR /app
 
