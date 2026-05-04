@@ -794,12 +794,24 @@ function ApprovalCardImpl({ item, isAB, isSelected, isLoading, onApprove, onReje
   const isSampleSlot = !!(item as any).review_sample;
 
   return (
-    <div className={`rounded-2xl border transition-all duration-200 ${
-      isSelected ? 'border-brand/40 bg-brand/[0.03] ring-1 ring-brand/20' :
-      item.status === 'approved' ? 'border-emerald-500/20 bg-emerald-500/[0.02]' :
-      item.status === 'rejected' ? 'border-red-500/20 bg-red-500/[0.02]' :
-      'border-white/[0.06] bg-panel/60 hover:border-white/[0.10]'
-    } overflow-hidden`}>
+    <div
+      className={`rounded-2xl border transition-colors duration-200 overflow-hidden ${
+        isSelected ? 'border-brand/40 bg-brand/[0.03] ring-1 ring-brand/20' :
+        item.status === 'approved' ? 'border-emerald-500/20 bg-emerald-500/[0.02]' :
+        item.status === 'rejected' ? 'border-red-500/20 bg-red-500/[0.02]' :
+        'border-white/[0.06] bg-panel/60 hover:border-white/[0.10]'
+      }`}
+      // content-visibility: auto skips rendering of off-screen cards entirely
+      // (huge gain when 30+ cards are in the queue). contain-intrinsic-size
+      // gives the browser a placeholder height so the scrollbar doesn't jump.
+      // contain: layout paint isolates each card's layout so toggling one
+      // doesn't reflow the whole list.
+      style={{
+        contentVisibility: 'auto',
+        containIntrinsicSize: '0 720px',
+        contain: 'layout paint',
+      } as any}
+    >
       {/* Media: <video> for Reels with a Kling-generated video URL, else <img> */}
       {(() => {
         const generatedVideo = (item as any).generated_video as string | undefined;
@@ -816,12 +828,12 @@ function ApprovalCardImpl({ item, isAB, isSelected, isLoading, onApprove, onReje
                 className="w-full h-full object-contain"
               />
               <div className="absolute top-3 left-3 flex items-center gap-2">
-                <span className="px-2 py-1 rounded-lg text-[10px] font-bold bg-black/70 text-pink-300 backdrop-blur-sm">
+                <span className="px-2 py-1 rounded-lg text-[10px] font-bold bg-black/85 text-pink-300">
                   🎬 REEL · Kling 3.0
                 </span>
               </div>
               {item.status !== 'pending' && (
-                <div className={`absolute top-3 right-3 px-2.5 py-1 rounded-lg text-[10px] font-bold backdrop-blur-sm ${STATUS_COLORS[item.status]}`}>
+                <div className={`absolute top-3 right-3 px-2.5 py-1 rounded-lg text-[10px] font-bold ${STATUS_COLORS[item.status]}`}>
                   {STATUS_ICONS[item.status]} {item.status.replace('_', ' ')}
                 </div>
               )}
@@ -837,38 +849,41 @@ function ApprovalCardImpl({ item, isAB, isSelected, isLoading, onApprove, onReje
               <img
                 src={item.generated_image}
                 alt="Generated content"
-                className={`w-full h-full transition-all duration-300 ${imageZoomed ? 'object-contain' : 'object-cover'}`}
+                className={`w-full h-full transition-[object-fit] duration-300 ${imageZoomed ? 'object-contain' : 'object-cover'}`}
                 loading="lazy"
+                decoding="async"
               />
-              {/* Overlay badges */}
+              {/* Overlay badges — solid backgrounds (no backdrop-blur) so a
+                  page of 30 cards doesn't burn 150 compositing layers on the
+                  GPU. Slight opacity bump compensates for the lost blur. */}
               <div className="absolute top-3 left-3 flex items-center gap-2">
                 {item.variant_label && (
-                  <span className="px-2 py-1 rounded-lg text-[10px] font-bold bg-black/70 text-white backdrop-blur-sm">
+                  <span className="px-2 py-1 rounded-lg text-[10px] font-bold bg-black/85 text-white">
                     Variant {item.variant_label}
                   </span>
                 )}
-                <span className={`px-2 py-1 rounded-lg text-[10px] font-bold backdrop-blur-sm ${FORMAT_COLORS[item.format]}`}>
+                <span className={`px-2 py-1 rounded-lg text-[10px] font-bold ${FORMAT_COLORS[item.format]}`}>
                   {FORMAT_LABELS[item.format]}
                 </span>
                 {(item.brief as any)?.content_pillar && (
-                  <span className={`px-2 py-1 rounded-lg text-[10px] font-bold backdrop-blur-sm ${PILLAR_COLORS[pillarHash]}`}>
+                  <span className={`px-2 py-1 rounded-lg text-[10px] font-bold ${PILLAR_COLORS[pillarHash]}`}>
                     {(item.brief as any).content_pillar}
                   </span>
                 )}
                 {item.format === 'reel' && (
-                  <span className="px-2 py-1 rounded-lg text-[10px] font-bold bg-violet-500/30 text-violet-200 backdrop-blur-sm border border-violet-300/20">
+                  <span className="px-2 py-1 rounded-lg text-[10px] font-bold bg-violet-500/40 text-violet-100 border border-violet-300/20">
                     🎬 Video generating…
                   </span>
                 )}
               </div>
               {/* Status overlay for resolved items */}
               {item.status !== 'pending' && (
-                <div className={`absolute top-3 right-3 px-2.5 py-1 rounded-lg text-[10px] font-bold backdrop-blur-sm ${STATUS_COLORS[item.status]}`}>
+                <div className={`absolute top-3 right-3 px-2.5 py-1 rounded-lg text-[10px] font-bold ${STATUS_COLORS[item.status]}`}>
                   {STATUS_ICONS[item.status]} {item.status.replace('_', ' ')}
                 </div>
               )}
               {/* Zoom hint */}
-              <div className="absolute bottom-2 right-2 px-2 py-0.5 rounded text-[9px] text-white/50 bg-black/40 backdrop-blur-sm">
+              <div className="absolute bottom-2 right-2 px-2 py-0.5 rounded text-[9px] text-white/60 bg-black/60">
                 {imageZoomed ? 'Click to shrink' : 'Click to expand'}
               </div>
             </div>
