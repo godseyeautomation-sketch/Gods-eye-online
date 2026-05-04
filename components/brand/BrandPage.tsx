@@ -559,8 +559,9 @@ export const BrandPage: React.FC<BrandPageProps> = ({ embedded = false, initialB
         themes: [campaign.title],
         platforms: ['instagram'],
       });
-      // Priya writes slots directly to content_slots.json. Refetch from there.
-      const refreshed = await getSlotsForMonth(userId, brand.id, calYear, calMonth);
+      // Priya writes slots to server-side content_slots.json. getSlotsForMonth
+      // now fetches from the server first, so this picks them up.
+      const refreshed = await getSlotsForMonth(brand.id, calYear, calMonth);
       setSlots(refreshed);
     } catch (err) {
       console.error('[Brand] Calendar population failed:', err);
@@ -611,7 +612,7 @@ export const BrandPage: React.FC<BrandPageProps> = ({ embedded = false, initialB
         themes: contextLines,
         platforms: ['instagram'],
       });
-      const planned = await getSlotsForMonth(userId, brand.id, calYear, calMonth);
+      const planned = await getSlotsForMonth(brand.id, calYear, calMonth);
       setSlots(planned);
       setPopulatingCalendar(false);
 

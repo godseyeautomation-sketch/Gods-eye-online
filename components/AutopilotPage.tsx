@@ -1919,7 +1919,7 @@ const BrandCalendarPane: React.FC<{ brand: BrandProfile; userId: string }> = ({ 
     let cancelled = false;
     setLoading(true);
     import('../services/brandService').then(({ getSlotsForMonth }) => {
-      getSlotsForMonth(userId, brand.id, year, month).then(s => {
+      getSlotsForMonth(brand.id, year, month).then(s => {
         if (!cancelled) {
           setSlots(s || []);
           setLoading(false);

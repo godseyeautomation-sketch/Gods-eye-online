@@ -328,9 +328,27 @@ export const getSlotsForMonth = async (
   const lastDay = new Date(year, month, 0).getDate();
   const end = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
 
+  // ── 1. Try server first (single source of truth written by Priya) ──
+  try {
+    const res = await fetch('/api/sync/content_slots');
+    if (res.ok) {
+      const json = await res.json();
+      const allServer: any[] = json?.data?.data || json?.data || [];
+      const forBrand = allServer.filter(
+        (s: any) => s.brand_id === brandId && s.slot_date >= start && s.slot_date <= end
+      );
+      if (forBrand.length > 0) {
+        console.log(`[Brand] getSlotsForMonth: ${forBrand.length} slots from server for ${brandId} (${year}-${month})`);
+        return hydrateSlots(forBrand);
+      }
+    }
+  } catch (err) {
+    console.warn('[Brand] getSlotsForMonth server fetch failed, falling back to IDB:', err);
+  }
+
+  // ── 2. Fallback to IndexedDB (populated when Autopilot writes slots) ──
   try {
     const allSlots = await getLocalSlotsForMonth(brandId, year, month);
-    // Filter locally by date range
     const inMonth = allSlots.filter((s: any) => s.slot_date >= start && s.slot_date <= end);
     return hydrateSlots(inMonth || []);
   } catch (err) {
