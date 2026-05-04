@@ -132,6 +132,19 @@ export const AutopilotPage: React.FC<AutopilotPageProps> = ({ onNavigate }) => {
   const [scoutRejectFeedback, setScoutRejectFeedback] = useState('');
   // Scout report preview modal — render-in-app alternative to downloading the .docx
   const [showScoutPreview, setShowScoutPreview] = useState(false);
+  // Pre-Review destination chooser (Slack vs Dashboard) — sync flow: ask before
+  // Review runs so the user knows where the approval cards will land.
+  const [showReviewModeModal, setShowReviewModeModal] = useState(false);
+  const [slackConnected, setSlackConnected] = useState<boolean | null>(null);
+
+  // Fetch Slack connection status whenever the Review-mode modal opens
+  useEffect(() => {
+    if (!showReviewModeModal || !selectedBrandId) return;
+    fetch(`/api/slack/integration?brand_id=${encodeURIComponent(selectedBrandId)}`)
+      .then(r => r.json())
+      .then(d => setSlackConnected(!!d?.connected))
+      .catch(() => setSlackConnected(false));
+  }, [showReviewModeModal, selectedBrandId]);
   const [showPriyaModal, setShowPriyaModal] = useState(false); // Priya questionnaire visibility
   const [fullCycleMode, setFullCycleMode] = useState(false); // Run Full Cycle shortcut
   const [priyaPlatformProgress, setPriyaPlatformProgress] = useState<{ total: number; current: number; currentName: string; slotsByPlatform: Record<string, number>; status: string } | null>(null);
@@ -1043,7 +1056,13 @@ export const AutopilotPage: React.FC<AutopilotPageProps> = ({ onNavigate }) => {
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            runAgent(agent.id);
+                            // Sync flow: for Review, ask Slack vs Dashboard first.
+                            // Other agents run directly.
+                            if (agent.id === 'reviewer') {
+                              setShowReviewModeModal(true);
+                            } else {
+                              runAgent(agent.id);
+                            }
                           }}
                           disabled={!!runningAgent || (status === 'running' && runningAgent === agent.id)}
                           className={`px-2.5 py-1 rounded-lg text-[9px] font-bold uppercase tracking-wider transition-all ${
@@ -1622,6 +1641,83 @@ export const AutopilotPage: React.FC<AutopilotPageProps> = ({ onNavigate }) => {
           onComplete={handlePriyaQuestionnaireSubmit}
           onCancel={() => setShowPriyaModal(false)}
         />
+      )}
+
+      {/* ── Pre-Review destination chooser (sync flow) ──────────────────
+          Asked when user clicks Run on the Review agent. Picks where the
+          approval cards land: Slack workspace (per-brand OAuth) or in-app
+          dashboard. Falls through to OAuth flow if Slack chosen but not
+          yet connected. */}
+      {showReviewModeModal && (
+        <div
+          className="fixed inset-0 z-[110] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => setShowReviewModeModal(false)}
+        >
+          <div
+            className="bg-panel border border-border rounded-2xl max-w-lg w-full p-7"
+            onClick={e => e.stopPropagation()}
+          >
+            <h2 className="text-xl font-bold text-text-primary mb-1">Where should posts go for approval?</h2>
+            <p className="text-sm text-text-secondary mb-6">Each post needs explicit approve / reject — pick where you'll review.</p>
+
+            <div className="space-y-3">
+              {/* Slack option */}
+              <button
+                onClick={async () => {
+                  if (!slackConnected) {
+                    if (!user?.id || !selectedBrandId) return;
+                    // Inline OAuth — same tab redirect
+                    window.location.href = `/api/slack/install?brand_id=${encodeURIComponent(selectedBrandId)}&user_id=${encodeURIComponent(user.id)}`;
+                    return;
+                  }
+                  setShowReviewModeModal(false);
+                  await runAgent('reviewer', { reviewMode: 'slack' });
+                }}
+                className="w-full p-4 rounded-xl bg-[#4A154B]/30 hover:bg-[#4A154B]/50 border border-[#4A154B]/40 hover:border-[#4A154B]/80 transition text-left flex items-center gap-4"
+              >
+                <div className="w-12 h-12 rounded-xl bg-[#4A154B] flex items-center justify-center flex-shrink-0">
+                  <svg viewBox="0 0 122.8 122.8" className="w-6 h-6"><path d="M25.8 77.6c0 7.1-5.8 12.9-12.9 12.9S0 84.7 0 77.6s5.8-12.9 12.9-12.9h12.9zm6.5 0c0-7.1 5.8-12.9 12.9-12.9s12.9 5.8 12.9 12.9v32.3c0 7.1-5.8 12.9-12.9 12.9s-12.9-5.8-12.9-12.9z" fill="#E01E5A"/><path d="M45.2 25.8c-7.1 0-12.9-5.8-12.9-12.9S38.1 0 45.2 0s12.9 5.8 12.9 12.9v12.9zm0 6.5c7.1 0 12.9 5.8 12.9 12.9s-5.8 12.9-12.9 12.9H12.9C5.8 58.1 0 52.3 0 45.2s5.8-12.9 12.9-12.9z" fill="#36C5F0"/><path d="M97 45.2c0-7.1 5.8-12.9 12.9-12.9s12.9 5.8 12.9 12.9-5.8 12.9-12.9 12.9H97zm-6.5 0c0 7.1-5.8 12.9-12.9 12.9s-12.9-5.8-12.9-12.9V12.9C64.7 5.8 70.5 0 77.6 0s12.9 5.8 12.9 12.9z" fill="#2EB67D"/><path d="M77.6 97c7.1 0 12.9 5.8 12.9 12.9s-5.8 12.9-12.9 12.9-12.9-5.8-12.9-12.9V97zm0-6.5c-7.1 0-12.9-5.8-12.9-12.9s5.8-12.9 12.9-12.9h32.3c7.1 0 12.9 5.8 12.9 12.9s-5.8 12.9-12.9 12.9z" fill="#ECB22E"/></svg>
+                </div>
+                <div className="flex-1">
+                  <p className="text-base font-bold text-white flex items-center gap-2">
+                    Send to Slack
+                    {slackConnected === true && <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 bg-emerald-500/15 border border-emerald-500/20 px-1.5 py-0.5 rounded">Connected</span>}
+                    {slackConnected === false && <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400 bg-amber-500/15 border border-amber-500/20 px-1.5 py-0.5 rounded">Connect first</span>}
+                  </p>
+                  <p className="text-xs text-white/60 mt-0.5">
+                    {slackConnected === false
+                      ? 'Click to connect your workspace via Slack OAuth'
+                      : 'Approve / Reject / Schedule each post directly from Slack'}
+                  </p>
+                </div>
+              </button>
+
+              {/* Dashboard option */}
+              <button
+                onClick={async () => {
+                  setShowReviewModeModal(false);
+                  await runAgent('reviewer', { reviewMode: 'dashboard' });
+                }}
+                className="w-full p-4 rounded-xl bg-brand/10 hover:bg-brand/20 border border-brand/30 hover:border-brand/60 transition text-left flex items-center gap-4"
+              >
+                <div className="w-12 h-12 rounded-xl bg-brand/20 flex items-center justify-center flex-shrink-0 text-2xl">
+                  📋
+                </div>
+                <div className="flex-1">
+                  <p className="text-base font-bold text-text-primary">Send to Approval Dashboard</p>
+                  <p className="text-xs text-text-secondary mt-0.5">Review inside Gods Eye — Approval Queue tab</p>
+                </div>
+              </button>
+            </div>
+
+            <button
+              onClick={() => setShowReviewModeModal(false)}
+              className="mt-6 w-full text-xs text-text-secondary/60 hover:text-text-secondary py-2"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
       )}
 
       {/* Scout Report Preview Modal — shows the structured report data
