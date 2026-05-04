@@ -3,6 +3,44 @@ import { useAuth } from '../../context/AuthContext';
 import QualityScoreBadge from './QualityScoreBadge';
 import type { ApprovalQueueItem, ApprovalStatus, ContentFormat, SocialPlatform } from '../../types/brand.types';
 import { SOCIAL_PLATFORMS } from '../../types/brand.types';
+import { getLocalSlotsForMonth } from '../../services/localStorageService';
+
+// Cloud Run cold-starts wipe approval_queue.json on the server, taking
+// inline base64 images with it. content_slots, however, is mirrored to
+// IndexedDB on the client — so any image that's missing on the queue
+// item can usually be recovered by looking up the matching slot here.
+async function hydrateMissingImages(items: ApprovalQueueItem[], brandId: string): Promise<ApprovalQueueItem[]> {
+  const missing = items.filter((it: any) =>
+    !it.generated_image && !it.generated_video && it.slot_date && it.format
+  );
+  if (missing.length === 0) return items;
+  let slots: any[] = [];
+  try {
+    slots = await getLocalSlotsForMonth(brandId, 0, 0); // brandId-indexed; date args ignored
+  } catch { return items; }
+  if (!slots.length) return items;
+  // Build a (slot_date|format|platform) → slot lookup
+  const byKey = new Map<string, any>();
+  for (const s of slots) {
+    const platform = s.platform || 'instagram';
+    byKey.set(`${s.slot_date}|${s.format}|${platform}`, s);
+  }
+  return items.map((it: any) => {
+    if (it.generated_image || it.generated_video) return it;
+    const platform = it.platform || 'instagram';
+    const slot = byKey.get(`${it.slot_date}|${it.format}|${platform}`);
+    if (!slot) return it;
+    // Pull whatever usable representation the slot has
+    let img: string | null = null;
+    if (slot._image_blob instanceof Blob) {
+      img = URL.createObjectURL(slot._image_blob);
+    } else if (typeof slot.generated_image === 'string' &&
+      (slot.generated_image.startsWith('http') || slot.generated_image.startsWith('data:'))) {
+      img = slot.generated_image;
+    }
+    return img ? { ...it, generated_image: img } : it;
+  });
+}
 
 const PLATFORM_EMOJI: Record<string, string> = {
   instagram: '📸', tiktok: '🎵', facebook: '📘', youtube: '📺',
@@ -137,12 +175,13 @@ export default function ApprovalQueue({ brandId, onRefresh }: ApprovalQueueProps
         const serverItems: ApprovalQueueItem[] = data.items || [];
         const cached = loadCachedItems(brandId);
         const merged = mergeServerWithCache(serverItems, cached);
+        // Recover images from IndexedDB content_slots when the server-side
+        // approval_queue.json was wiped (Cloud Run cold start).
+        const hydrated = await hydrateMissingImages(merged, brandId);
         setItems(prev => {
-          // Only swap the array if the visible state actually changed.
-          // Otherwise React keeps the same references and no card re-renders.
-          if (!itemsChanged(prev, merged)) return prev;
-          saveCachedItems(brandId, merged);
-          return merged;
+          if (!itemsChanged(prev, hydrated)) return prev;
+          saveCachedItems(brandId, hydrated);
+          return hydrated;
         });
       } else if (!silent) {
         setItems(loadCachedItems(brandId));
