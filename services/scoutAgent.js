@@ -1052,7 +1052,44 @@ async function regenerateScoutReport(userId, brandId, feedback) {
   }
   if (!brand) throw new Error(`Brand not found: ${brandId}`);
 
-  const existing = brand.scout_report;
+  let existing = brand.scout_report;
+
+  // Cold-start fallback: scout_report is server-only and gets wiped when
+  // Cloud Run recycles the container. The full Scout result (including
+  // scan_data) is also archived to content_briefs.trend_summary on each
+  // run, so when local is missing, recover from there.
+  if (!existing?.scan_data) {
+    try {
+      const briefs = await supabaseRest(
+        `content_briefs?brand_id=eq.${brandId}&created_by=eq.scout_agent&order=created_at.desc&limit=1&select=trend_summary`
+      );
+      const recovered = briefs?.[0]?.trend_summary;
+      if (recovered) {
+        const parsed = typeof recovered === 'string' ? JSON.parse(recovered) : recovered;
+        if (parsed?.scan_data) {
+          console.log(`[Scout Regen] Recovered scout_report from content_briefs (cold-start fallback)`);
+          existing = parsed;
+          // Patch local sync so future requests find it without another DB hit
+          try {
+            if (syncData) {
+              const allBrands = Array.isArray(syncData?.data) ? syncData.data : (Array.isArray(syncData) ? syncData : []);
+              const idx = allBrands.findIndex(b => b.id === brandId);
+              if (idx >= 0) {
+                allBrands[idx] = { ...allBrands[idx], scout_report: existing, updated_at: new Date().toISOString() };
+                const patched = Array.isArray(syncData?.data) ? { ...syncData, data: allBrands } : allBrands;
+                fs.writeFileSync(syncFile, JSON.stringify(patched, null, 2), 'utf-8');
+              }
+            }
+          } catch (e) { console.warn('[Scout Regen] Local sync patch failed:', e.message); }
+          // Also reflect on the brand we already have in memory
+          brand.scout_report = existing;
+        }
+      }
+    } catch (e) {
+      console.warn('[Scout Regen] Supabase recovery failed:', e.message);
+    }
+  }
+
   if (!existing?.scan_data) {
     throw new Error('No existing Scout scan_data to regenerate from. Run Scout once first.');
   }
