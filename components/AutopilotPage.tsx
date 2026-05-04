@@ -66,7 +66,7 @@ const PIPELINE_STAGES: { key: PipelineStage; label: string }[] = [
   { key: 'analyze', label: 'Analyze' },
 ];
 
-type SidebarView = 'pipeline' | 'queue' | 'competitors' | 'activity' | 'profile' | 'calendar';
+type SidebarView = 'pipeline' | 'queue' | 'competitors' | 'activity' | 'profile' | 'calendar' | 'social';
 
 // ── Config for pipeline ─────────────────────────────────────────────────────
 interface PipelineConfig {
@@ -963,6 +963,7 @@ export const AutopilotPage: React.FC<AutopilotPageProps> = ({ onNavigate }) => {
             // properly consolidated.)
             { key: 'profile' as SidebarView, label: 'Brand Profile', count: 0 },
             { key: 'calendar' as SidebarView, label: 'Calendar', count: 0 },
+            { key: 'social' as SidebarView, label: 'Social Accounts', count: 0 },
             { key: 'pipeline' as SidebarView, label: 'Run Agents', count: runs.filter(r => r.status === 'running').length },
             { key: 'queue' as SidebarView, label: 'Approval Queue', count: queuePendingCount },
             { key: 'competitors' as SidebarView, label: 'Competitors', count: config.competitors.length },
@@ -1014,6 +1015,11 @@ export const AutopilotPage: React.FC<AutopilotPageProps> = ({ onNavigate }) => {
         {/* ── CALENDAR VIEW (embedded calendar, no more clicking out) ── */}
         {view === 'calendar' && selectedBrandId && selectedBrand && (
           <BrandCalendarPane brand={selectedBrand} userId={user?.id || ''} />
+        )}
+
+        {/* ── SOCIAL ACCOUNTS VIEW — connect IG/TikTok/etc. via Upload Post ── */}
+        {view === 'social' && selectedBrandId && selectedBrand && (
+          <SocialAccountsPane brand={selectedBrand} />
         )}
 
         {/* ── PIPELINE VIEW ──────────────────────────────────────────── */}
@@ -2248,6 +2254,22 @@ const BrandCalendarPane: React.FC<{ brand: BrandProfile; userId: string }> = ({ 
     };
   }, [refetch, brand?.id, userId]);
 
+  // Upload Post status poll — flips scheduled → published when Upload Post
+  // confirms publication. Runs every 5 minutes while calendar is visible.
+  useEffect(() => {
+    if (!brand?.id) return;
+    const poll = () => {
+      fetch('/api/upload-post/poll-statuses', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ brand_id: brand.id }),
+      }).catch(() => {});
+    };
+    poll();
+    const interval = setInterval(poll, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [brand?.id]);
+
   if (!BrandCalendar) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -2293,6 +2315,68 @@ const BrandCalendarPane: React.FC<{ brand: BrandProfile; userId: string }> = ({ 
           onPlatformChange={setPlatform}
         />
       </div>
+    </div>
+  );
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SocialAccountsPane — Upload Post connect/manage UI surfaced in the sidebar.
+// Wraps the existing SocialAccountsPanel component (used in the standalone
+// Brand page) so the same connect / history / scheduled / analytics tabs are
+// available without leaving Autopilot. Also kicks off the periodic
+// status-poll so the calendar reflects published posts within minutes.
+// ─────────────────────────────────────────────────────────────────────────────
+const SocialAccountsPane: React.FC<{ brand: BrandProfile }> = ({ brand }) => {
+  const [Panel, setPanel] = useState<React.ComponentType<any> | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    import('./brand/SocialAccountsPanel').then(m => {
+      if (!cancelled) setPanel(() => m.SocialAccountsPanel);
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  // Poll Upload Post for status updates every 5 minutes while this view is
+  // visible — flips slots from 'scheduled' to 'published' once Upload Post
+  // confirms publication. Also fires immediately on mount + when the tab
+  // regains visibility so the calendar reflects publishing changes promptly.
+  useEffect(() => {
+    if (!brand?.id) return;
+    let cancelled = false;
+    const poll = () => {
+      if (cancelled) return;
+      fetch('/api/upload-post/poll-statuses', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ brand_id: brand.id }),
+      }).catch(() => {});
+    };
+    poll();
+    const interval = setInterval(poll, 5 * 60 * 1000);
+    const onVisible = () => { if (document.visibilityState === 'visible') poll(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [brand?.id]);
+
+  if (!Panel) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand" />
+      </div>
+    );
+  }
+  return (
+    <div className="pt-20 pb-6 px-6 h-full overflow-y-auto">
+      <div className="mb-4">
+        <h1 className="text-lg font-bold text-text-primary">Social Accounts</h1>
+        <p className="text-xs text-text-secondary mt-0.5">{brand.name} · Connect Instagram / TikTok / LinkedIn / etc. via Upload Post — approved posts publish automatically on schedule.</p>
+      </div>
+      <Panel brandName={brand.name} />
     </div>
   );
 };

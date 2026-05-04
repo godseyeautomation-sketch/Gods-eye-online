@@ -1,5 +1,5 @@
 export type ContentFormat = 'post' | 'story' | 'reel';
-export type SlotStatus = 'empty' | 'ideated' | 'briefed' | 'generated' | 'reviewed' | 'approved';
+export type SlotStatus = 'empty' | 'ideated' | 'briefed' | 'generated' | 'reviewed' | 'approved' | 'scheduled' | 'published';
 
 /** A specific product/service the brand wants to promote, with a photo the user uploaded or confirmed. */
 export interface BrandProduct {

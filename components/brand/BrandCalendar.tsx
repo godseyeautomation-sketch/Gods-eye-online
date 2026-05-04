@@ -33,6 +33,10 @@ const STATUS_COLORS: Record<SlotStatus, string> = {
   generated: 'bg-violet-500/10 border border-violet-500/20 text-violet-300 hover:bg-violet-500/15',
   reviewed: 'bg-cyan-500/10 border border-cyan-500/20 text-cyan-300 hover:bg-cyan-500/15',
   approved: 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 hover:bg-emerald-500/15',
+  // scheduled = approved AND queued in Upload Post; brighter green + ring
+  scheduled: 'bg-emerald-500/15 border border-emerald-400/40 text-emerald-200 hover:bg-emerald-500/20 ring-1 ring-emerald-500/20',
+  // published = Upload Post confirmed it went live; deepest green
+  published: 'bg-emerald-600/25 border border-emerald-400/60 text-emerald-100 hover:bg-emerald-600/30',
 };
 
 const STATUS_DOTS: Record<SlotStatus, string> = {
@@ -42,6 +46,14 @@ const STATUS_DOTS: Record<SlotStatus, string> = {
   generated: 'bg-violet-400',
   reviewed: 'bg-cyan-400',
   approved: 'bg-emerald-400',
+  scheduled: 'bg-emerald-300',
+  published: 'bg-emerald-100',
+};
+
+// Inline glyph next to the format name to clarify the slot's state at a glance
+const STATUS_GLYPH: Partial<Record<SlotStatus, string>> = {
+  scheduled: '⏰',
+  published: '✓',
 };
 
 const FORMATS: ContentFormat[] = ['post', 'story', 'reel'];
@@ -201,6 +213,11 @@ export const BrandCalendar: React.FC<Props> = ({ year, month, slots, onMonthChan
                             <span className={`w-1 h-1 rounded-full flex-shrink-0 ${STATUS_DOTS[status]}`} />
                             <span className="flex-shrink-0 opacity-80">{FORMAT_ICONS[format]}</span>
                             <span className="capitalize tracking-wide">{format}</span>
+                            {STATUS_GLYPH[status] && (
+                              <span className="text-[9px] opacity-90" title={status === 'scheduled' ? 'Scheduled with Upload Post' : 'Published'}>
+                                {STATUS_GLYPH[status]}
+                              </span>
+                            )}
                             {scheduledTime && (
                               <span className="ml-auto text-[9px] font-bold opacity-95 whitespace-nowrap tracking-tight" title={`Scheduled ${scheduledTime}`}>
                                 {scheduledTime}

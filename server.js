@@ -20,7 +20,7 @@ import {
   getBrandSlackIntegration,
   deleteBrandSlackIntegration,
 } from './services/slackIntegrationService.js';
-import { executeDispatch } from './services/dispatchAgent.js';
+import { executeDispatch, scheduleSlotWithUploadPost, patchScheduledPost, cancelScheduledPost, getJobStatus, resolveUploadPostUser } from './services/dispatchAgent.js';
 import { executeKarma } from './services/karmaAgent.js';
 import {
   approveItem, rejectItem, getApprovalQueue, bulkApprove,
@@ -942,7 +942,7 @@ app.get('/api/approval-queue', (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.put('/api/approval-queue/:id/approve', (req, res) => {
+app.put('/api/approval-queue/:id/approve', async (req, res) => {
   try {
     const queueFile = readSyncFile('approval_queue');
     const items = queueFile?.data || [];
@@ -1008,8 +1008,54 @@ app.put('/api/approval-queue/:id/approve', (req, res) => {
       }
     }
 
+    // ── Hand the post off to Upload Post's scheduler (Q2=auto-schedule) ──
+    // We send the post NOW with `scheduled_date` set to the slot's scheduled_at.
+    // Upload Post handles the actual publish at the scheduled time. We save
+    // the returned job_id so we can PATCH/DELETE later if the user reshuffles.
+    if (slotIdx >= 0 && (slots[slotIdx].format !== 'reel' || slots[slotIdx].generated_video)) {
+      try {
+        const brandsFile = readSyncFile('brand_profiles');
+        const allBrands = brandsFile?.data || brandsFile || [];
+        const brand = allBrands.find(b => b.id === items[idx].brand_id);
+        const uploadPostUser = brand
+          ? resolveUploadPostUser(items[idx].user_id || req.headers['x-user-id'] || '', brand)
+          : null;
+        const platforms = slots[slotIdx].platform ? [slots[slotIdx].platform] : ['instagram'];
+
+        if (uploadPostUser) {
+          const result = await scheduleSlotWithUploadPost(
+            slots[slotIdx],
+            platforms,
+            uploadPostUser,
+            slots[slotIdx].scheduled_at
+          );
+          if (result && !result.deferred) {
+            slots[slotIdx].status = 'scheduled';
+            slots[slotIdx].upload_post_job_id = result.job_id || null;
+            slots[slotIdx].upload_post_request_id = result.request_id || null;
+            slots[slotIdx].upload_post_user = uploadPostUser;
+            slots[slotIdx].upload_post_scheduled_date = result.scheduled_date;
+            items[idx].status = 'scheduled';
+            items[idx].upload_post_job_id = result.job_id || null;
+            items[idx].upload_post_request_id = result.request_id || null;
+            writeSyncFile('content_slots', { _updatedAt: new Date().toISOString(), data: slots });
+            console.log(`[Approve] Scheduled with Upload Post — job_id=${result.job_id} for ${slots[slotIdx].id}`);
+          } else if (result?.deferred) {
+            console.log(`[Approve] Deferred Upload Post scheduling for ${slots[slotIdx].id}: ${result.reason}`);
+          }
+        } else {
+          console.warn(`[Approve] No Upload Post user resolved for brand ${items[idx].brand_id} — skipping auto-schedule. User must connect a social profile in Social Accounts.`);
+        }
+      } catch (err) {
+        // Non-fatal — the post stays 'approved' and the user can retry later.
+        // Surface a warning header but still return success since the in-app
+        // approval state is correct.
+        console.warn(`[Approve] Upload Post schedule call failed: ${err.message}`);
+      }
+    }
+
     // Persist the queue file once now that we've copied the slot's
-    // scheduled_at + slot_date onto the queue item.
+    // scheduled_at + slot_date + Upload Post job_id onto the queue item.
     writeSyncFile('approval_queue', { _updatedAt: new Date().toISOString(), data: items });
 
     // If this queue item is part of an active review batch, feed the decision
@@ -1033,7 +1079,7 @@ app.put('/api/approval-queue/:id/approve', (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.put('/api/approval-queue/:id/reject', (req, res) => {
+app.put('/api/approval-queue/:id/reject', async (req, res) => {
   try {
     const queueFile = readSyncFile('approval_queue');
     const items = queueFile?.data || [];
@@ -1041,9 +1087,37 @@ app.put('/api/approval-queue/:id/reject', (req, res) => {
     if (idx < 0) return res.status(404).json({ error: 'Item not found' });
 
     const reason = req.body?.reason || '';
+    const wasScheduled = items[idx].status === 'scheduled' || !!items[idx].upload_post_job_id;
     items[idx].status = 'rejected';
     items[idx].reviewer_notes = reason;
     items[idx].resolved_at = new Date().toISOString();
+
+    // If this post was already queued in Upload Post (scheduled status),
+    // cancel the scheduled job so it doesn't actually get posted.
+    if (wasScheduled && items[idx].upload_post_job_id) {
+      try {
+        await cancelScheduledPost(items[idx].upload_post_job_id);
+        console.log(`[Reject] Cancelled Upload Post job ${items[idx].upload_post_job_id}`);
+      } catch (err) {
+        console.warn(`[Reject] Upload Post DELETE failed for job ${items[idx].upload_post_job_id}: ${err.message}`);
+      }
+      items[idx].upload_post_job_id = null;
+      // Mirror cancellation onto the linked slot too — flip back to 'briefed'
+      // so the calendar no longer shows it green.
+      if (items[idx].slot_id) {
+        const slotsFile = readSyncFile('content_slots');
+        const slots = slotsFile?.data || [];
+        const sIdx = slots.findIndex(s => s.id === items[idx].slot_id);
+        if (sIdx >= 0) {
+          slots[sIdx].status = 'briefed';
+          slots[sIdx].approved = false;
+          slots[sIdx].upload_post_job_id = null;
+          slots[sIdx].updated_at = new Date().toISOString();
+          writeSyncFile('content_slots', { _updatedAt: new Date().toISOString(), data: slots });
+        }
+      }
+    }
+
     writeSyncFile('approval_queue', { _updatedAt: new Date().toISOString(), data: items });
 
     const batchId = items[idx].review_batch_id || items[idx].review_id;
@@ -1056,7 +1130,65 @@ app.put('/api/approval-queue/:id/reject', (req, res) => {
       syncDashboardDecisionToSlack(items[idx], 'reject', { feedback: reason }).catch(() => {});
     }
 
-    res.json({ ok: true, rejected: items[idx].slot_id });
+    res.json({ ok: true, rejected: items[idx].slot_id, cancelled_upload_post: wasScheduled });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/upload-post/poll-statuses — checks every slot with status='scheduled'
+// against Upload Post and flips it to 'published' once Upload Post confirms
+// the post went live. Called periodically from the frontend (every 5 min while
+// user is on calendar/queue) and on-demand from the Karma agent.
+app.post('/api/upload-post/poll-statuses', async (req, res) => {
+  try {
+    const { brand_id } = req.body || {};
+    const slotsFile = readSyncFile('content_slots');
+    const slots = slotsFile?.data || [];
+    const candidates = slots.filter(s =>
+      s.status === 'scheduled' &&
+      (!brand_id || s.brand_id === brand_id) &&
+      (s.upload_post_job_id || s.upload_post_request_id)
+    );
+
+    const updates = [];
+    for (const slot of candidates) {
+      const id = slot.upload_post_job_id || slot.upload_post_request_id;
+      try {
+        const status = await getJobStatus(id);
+        if (!status) continue;
+        if (status.finished) {
+          const sIdx = slots.findIndex(s => s.id === slot.id);
+          if (sIdx >= 0) {
+            slots[sIdx].status = 'published';
+            slots[sIdx].published_at = new Date().toISOString();
+            slots[sIdx].published_platforms = Array.isArray(status.post_results)
+              ? status.post_results.map(r => r.platform).filter(Boolean)
+              : (slot.platform ? [slot.platform] : []);
+            slots[sIdx].publish_request_id = slot.upload_post_request_id || id;
+            slots[sIdx].updated_at = new Date().toISOString();
+            updates.push({ slot_id: slot.id, status: 'published' });
+          }
+          // Mirror onto the queue item so the dashboard reflects it
+          const queueFile = readSyncFile('approval_queue');
+          const items = queueFile?.data || [];
+          const qIdx = items.findIndex(i => i.slot_id === slot.id);
+          if (qIdx >= 0) {
+            items[qIdx].status = 'published';
+            items[qIdx].published_at = slots[sIdx].published_at;
+            writeSyncFile('approval_queue', { _updatedAt: new Date().toISOString(), data: items });
+          }
+        } else if (status.failed) {
+          updates.push({ slot_id: slot.id, status: 'error', error: status.raw?.error_message });
+        }
+      } catch (err) {
+        console.warn(`[Poll] status check failed for ${id}: ${err.message}`);
+      }
+    }
+
+    if (updates.some(u => u.status === 'published')) {
+      writeSyncFile('content_slots', { _updatedAt: new Date().toISOString(), data: slots });
+    }
+
+    res.json({ ok: true, polled: candidates.length, updates });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -1068,8 +1200,10 @@ app.get('/api/pipeline/review-platform-status/:reviewId', (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// PUT /api/approval-queue/:id/schedule — set scheduled_at on the linked slot
-app.put('/api/approval-queue/:id/schedule', (req, res) => {
+// PUT /api/approval-queue/:id/schedule — set scheduled_at on the linked slot.
+// If the slot is already queued in Upload Post (has upload_post_job_id),
+// PATCH the Upload Post schedule too so the actual posting time updates.
+app.put('/api/approval-queue/:id/schedule', async (req, res) => {
   try {
     const { scheduled_at } = req.body || {};
     if (!scheduled_at) return res.status(400).json({ error: 'scheduled_at required' });
@@ -1080,10 +1214,10 @@ app.put('/api/approval-queue/:id/schedule', (req, res) => {
     if (idx < 0) return res.status(404).json({ error: 'Item not found' });
     items[idx].scheduled_at = iso;
     items[idx].slot_date = iso.slice(0, 10);
-    writeSyncFile('approval_queue', { _updatedAt: new Date().toISOString(), data: items });
 
     // Mirror to the linked content_slot (two-way binding: change here →
     // calendar reflects, change in calendar → reflected back via separate path)
+    let slotJobId = null;
     if (items[idx].slot_id) {
       const slotsFile = readSyncFile('content_slots');
       const slots = slotsFile?.data || [];
@@ -1092,10 +1226,24 @@ app.put('/api/approval-queue/:id/schedule', (req, res) => {
         slots[sIdx].scheduled_at = iso;
         slots[sIdx].slot_date = iso.slice(0, 10);
         slots[sIdx].updated_at = new Date().toISOString();
+        slotJobId = slots[sIdx].upload_post_job_id || null;
         writeSyncFile('content_slots', { _updatedAt: new Date().toISOString(), data: slots });
       }
     }
-    res.json({ ok: true, scheduled_at: iso });
+
+    // PATCH Upload Post if this post is already in their schedule queue
+    const jobId = slotJobId || items[idx].upload_post_job_id || null;
+    if (jobId) {
+      try {
+        await patchScheduledPost(jobId, { scheduled_date: iso });
+        console.log(`[Reschedule] PATCHed Upload Post job ${jobId} → ${iso}`);
+      } catch (err) {
+        console.warn(`[Reschedule] Upload Post PATCH failed for job ${jobId}: ${err.message}`);
+      }
+    }
+
+    writeSyncFile('approval_queue', { _updatedAt: new Date().toISOString(), data: items });
+    res.json({ ok: true, scheduled_at: iso, upload_post_job_id: jobId });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

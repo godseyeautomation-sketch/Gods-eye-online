@@ -241,6 +241,172 @@ async function publishSlot(slot, platforms, uploadPostUser) {
   }
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+// scheduleSlotWithUploadPost — used by the approval flow
+// ══════════════════════════════════════════════════════════════════════════════
+// Hand a slot off to Upload Post's built-in scheduler with `scheduled_date`.
+// Upload Post then handles the actual posting at the right time without us
+// needing a cron loop. Returns { request_id, job_id } so callers can:
+//   - Save request_id for analytics (Karma agent uses it later)
+//   - Save job_id for PATCH/DELETE when the user reschedules / cancels
+async function scheduleSlotWithUploadPost(slot, platforms, uploadPostUser, scheduledDateIso) {
+  const apiKey = getApiKey();
+  if (!apiKey) throw new Error('UPLOAD_POST_API_KEY not configured');
+  if (!uploadPostUser) throw new Error('No Upload Post profile connected for this brand');
+  if (!Array.isArray(platforms) || platforms.length === 0) {
+    throw new Error('At least one platform required');
+  }
+
+  // If the requested time is in the past, bump to "now + 2 minutes" (Q4=a)
+  let when = scheduledDateIso ? new Date(scheduledDateIso) : new Date(Date.now() + 2 * 60 * 1000);
+  if (isNaN(when.getTime()) || when.getTime() < Date.now() + 60_000) {
+    when = new Date(Date.now() + 2 * 60 * 1000);
+  }
+  const scheduled_date = when.toISOString();
+
+  const caption = buildCaption(slot.brief);
+  const hasReelVideo = slot.format === 'reel'
+    && typeof slot.generated_video === 'string'
+    && /^https?:/.test(slot.generated_video);
+  const hasImage = slot.generated_image && slot.generated_image.startsWith('data:');
+
+  let endpoint;
+  let body;
+  let contentType = 'application/json';
+  let bodyBuffer = null;
+
+  if (hasReelVideo) {
+    endpoint = `${UPLOAD_POST_BASE}/api/upload`;
+    body = JSON.stringify({
+      user: uploadPostUser,
+      platform: platforms,
+      video_url: slot.generated_video,
+      ...(caption ? { description: caption, title: slot.brief?.hook || caption.slice(0, 80) } : {}),
+      scheduled_date,
+    });
+  } else if (slot.format === 'reel' && !hasReelVideo) {
+    // Kling video isn't ready yet. Defer scheduling — caller can retry once
+    // generated_video is set. Returning a sentinel lets the approve handler
+    // mark the slot as 'approved' (not 'scheduled') and try again on poll.
+    return { deferred: true, reason: 'reel_video_pending' };
+  } else if (hasImage) {
+    endpoint = `${UPLOAD_POST_BASE}/api/upload_photos`;
+    const imageData = dataUrlToBlob(slot.generated_image);
+    if (!imageData) throw new Error('Failed to decode generated_image data URL');
+    const fields = {
+      'user': uploadPostUser,
+      'platform[]': platforms,
+      'scheduled_date': scheduled_date,
+    };
+    if (caption) fields['caption'] = caption;
+    const built = buildMultipartBody(fields, {
+      name: 'photos[]',
+      buffer: imageData.buffer,
+      mimeType: imageData.mimeType,
+    });
+    bodyBuffer = built.body;
+    contentType = built.contentType;
+  } else {
+    endpoint = `${UPLOAD_POST_BASE}/api/upload_text`;
+    body = JSON.stringify({
+      user: uploadPostUser,
+      platform: platforms,
+      title: caption || slot.idea || 'New post',
+      scheduled_date,
+    });
+  }
+
+  const headers = {
+    'Authorization': `Apikey ${apiKey}`,
+    'Content-Type': contentType,
+  };
+  const fetchOpts = bodyBuffer
+    ? { method: 'POST', headers: { ...headers, 'Content-Length': String(bodyBuffer.length) }, body: bodyBuffer }
+    : { method: 'POST', headers, body };
+
+  const res = await fetch(endpoint, fetchOpts);
+  if (!res.ok) {
+    const errText = await res.text().catch(() => 'Unknown error');
+    throw new Error(`Upload Post schedule failed (${res.status}): ${errText.slice(0, 300)}`);
+  }
+  const data = await res.json().catch(() => ({}));
+  return {
+    deferred: false,
+    request_id: data?.request_id || data?.data?.request_id || null,
+    // Upload Post returns job_id for scheduled posts (vs immediate)
+    job_id: data?.job_id || data?.data?.job_id || data?.scheduled_job_id || null,
+    scheduled_date,
+    platforms,
+    raw: data,
+  };
+}
+
+// ── PATCH a scheduled post (used when user reshuffles in the calendar) ─────
+async function patchScheduledPost(jobId, patch) {
+  const apiKey = getApiKey();
+  if (!apiKey) throw new Error('UPLOAD_POST_API_KEY not configured');
+  if (!jobId) throw new Error('jobId required');
+  const allowed = {};
+  if (patch.scheduled_date) allowed.scheduled_date = new Date(patch.scheduled_date).toISOString();
+  if (patch.timezone) allowed.timezone = patch.timezone;
+  if (patch.title) allowed.title = patch.title;
+  if (patch.caption) allowed.caption = patch.caption;
+  const res = await fetch(`${UPLOAD_POST_BASE}/api/uploadposts/schedule/${encodeURIComponent(jobId)}`, {
+    method: 'PATCH',
+    headers: { 'Authorization': `Apikey ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(allowed),
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    throw new Error(`Upload Post PATCH failed (${res.status}): ${errText.slice(0, 200)}`);
+  }
+  return res.json().catch(() => ({}));
+}
+
+// ── DELETE a scheduled post (used when user un-approves / rejects) ─────────
+async function cancelScheduledPost(jobId) {
+  const apiKey = getApiKey();
+  if (!apiKey) throw new Error('UPLOAD_POST_API_KEY not configured');
+  if (!jobId) return { ok: true, skipped: true };
+  const res = await fetch(`${UPLOAD_POST_BASE}/api/uploadposts/schedule/${encodeURIComponent(jobId)}`, {
+    method: 'DELETE',
+    headers: { 'Authorization': `Apikey ${apiKey}` },
+  });
+  if (!res.ok && res.status !== 404) {
+    const errText = await res.text().catch(() => '');
+    throw new Error(`Upload Post DELETE failed (${res.status}): ${errText.slice(0, 200)}`);
+  }
+  return { ok: true };
+}
+
+// ── Poll status of one scheduled job ───────────────────────────────────────
+// Returns { status, finished, post_results } where status is one of
+// PENDING / PROCESSING / FINISHED / ERROR. Used by the periodic poller to
+// flip slot.status from 'scheduled' to 'published' once Upload Post posts.
+async function getJobStatus(jobIdOrRequestId) {
+  const apiKey = getApiKey();
+  if (!apiKey) throw new Error('UPLOAD_POST_API_KEY not configured');
+  if (!jobIdOrRequestId) return null;
+  // Try job_id first (scheduled post), fall back to request_id (async)
+  const tryFetch = async (param) => {
+    const url = `${UPLOAD_POST_BASE}/api/uploadposts/status?${param}=${encodeURIComponent(jobIdOrRequestId)}`;
+    const res = await fetch(url, { headers: { 'Authorization': `Apikey ${apiKey}` } });
+    if (!res.ok) return null;
+    return res.json().catch(() => null);
+  };
+  let data = await tryFetch('job_id');
+  if (!data) data = await tryFetch('request_id');
+  if (!data) return null;
+  const status = String(data.status || '').toUpperCase();
+  return {
+    status,
+    finished: status === 'FINISHED',
+    failed: status === 'ERROR',
+    post_results: data.post_results || data.results || data.platforms || null,
+    raw: data,
+  };
+}
+
 // ── Resolve the Upload-Post username for a brand ────────────────────────────
 
 function resolveUploadPostUser(userId, brand) {
@@ -414,4 +580,11 @@ async function executeDispatch(userId, brandId, config = {}) {
   };
 }
 
-export { executeDispatch };
+export {
+  executeDispatch,
+  scheduleSlotWithUploadPost,
+  patchScheduledPost,
+  cancelScheduledPost,
+  getJobStatus,
+  resolveUploadPostUser,
+};
