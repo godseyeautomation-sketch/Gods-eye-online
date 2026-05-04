@@ -82,15 +82,42 @@ export default function ApprovalQueue({ brandId, onRefresh }: ApprovalQueueProps
     setItems(loadCachedItems(brandId));
   }, [brandId]);
 
+  // Compare two queue lists for meaningful changes — used to skip setItems
+  // when the server response matches what we're already rendering. Without
+  // this, every poll replaces the array reference and React re-renders
+  // every card, which makes open edit forms reset, focused inputs lose
+  // focus, and images briefly disappear. We only compare the fields that
+  // visibly drive the card so transient server-side timestamps don't force
+  // a full re-render.
+  const itemsChanged = (a: ApprovalQueueItem[], b: ApprovalQueueItem[]) => {
+    if (a.length !== b.length) return true;
+    const fingerprint = (it: ApprovalQueueItem) => {
+      const i: any = it;
+      return [
+        i.id, i.status, i.scheduled_at, i.slot_date,
+        i.generated_image ? i.generated_image.slice(0, 64) : '',
+        i.generated_video || '',
+        i.upload_post_job_id || '', i.upload_post_request_id || '',
+        i.brief?.caption || '', i.brief?.hook || '',
+        (i.brief?.hashtags || []).join(','), i.brief?.call_to_action || '',
+        i.reviewer_notes || '', i.resubmitted_at || '',
+      ].join('|');
+    };
+    const aMap = new Map(a.map(it => [it.id, fingerprint(it)]));
+    for (const it of b) {
+      if (aMap.get(it.id) !== fingerprint(it)) return true;
+    }
+    return false;
+  };
+
   // Always fetch ALL statuses from the server, then filter client-side.
-  // Previously we'd pass ?status=pending and re-fetch on every filter change,
-  // which meant: if an item got auto-approved in the background (via the Review
-  // agent's batch threshold logic), the default 'pending' view came back empty
-  // and the user thought the dashboard was lost. Fetching all lets us show
-  // accurate counts on every filter pill so nothing appears to "disappear".
-  const fetchQueue = useCallback(async () => {
+  // `silent=true` means a background poll: skip the loading spinner and
+  // skip the state update entirely if nothing meaningful changed. This is
+  // what stops the queue from flickering / unmounting cards while Priya
+  // is generating, or while the 30s auto-poll fires.
+  const fetchQueue = useCallback(async (silent: boolean = false) => {
     if (!user?.id) return;
-    setLoading(true);
+    if (!silent) setLoading(true);
     try {
       const res = await fetch(`/api/approval-queue?brand_id=${brandId}&status=all&limit=200`, {
         headers: { 'x-user-id': user.id },
@@ -100,22 +127,27 @@ export default function ApprovalQueue({ brandId, onRefresh }: ApprovalQueueProps
         const serverItems: ApprovalQueueItem[] = data.items || [];
         const cached = loadCachedItems(brandId);
         const merged = mergeServerWithCache(serverItems, cached);
-        setItems(merged);
-        // Persist the merged set so the next mount/reload has it instantly
-        saveCachedItems(brandId, merged);
-      } else {
-        // Server error — keep showing cached items rather than going empty
+        setItems(prev => {
+          // Only swap the array if the visible state actually changed.
+          // Otherwise React keeps the same references and no card re-renders.
+          if (!itemsChanged(prev, merged)) return prev;
+          saveCachedItems(brandId, merged);
+          return merged;
+        });
+      } else if (!silent) {
         setItems(loadCachedItems(brandId));
       }
     } catch (err) {
-      console.error('Failed to fetch approval queue:', err);
-      // Network error — keep showing cached items
-      setItems(loadCachedItems(brandId));
+      if (!silent) {
+        console.error('Failed to fetch approval queue:', err);
+        setItems(loadCachedItems(brandId));
+      }
     }
-    setLoading(false);
+    if (!silent) setLoading(false);
   }, [user?.id, brandId]);
 
-  useEffect(() => { fetchQueue(); }, [fetchQueue]);
+  // Initial fetch — uses the spinner so the user knows the queue is loading.
+  useEffect(() => { fetchQueue(false); }, [fetchQueue]);
 
   // Persist any local mutation (approve / reject / inline edits) back to
   // the cache so it survives a tab close before the server refresh confirms it.
@@ -124,11 +156,14 @@ export default function ApprovalQueue({ brandId, onRefresh }: ApprovalQueueProps
     saveCachedItems(brandId, items);
   }, [items, brandId]);
 
-  // Auto-refresh every 30s as long as any item is still pending
+  // Auto-refresh every 30s as long as any item is still pending. Pass
+  // silent=true so the spinner doesn't flash and unchanged polls don't
+  // replace the array (the equality check inside fetchQueue takes care
+  // of the array swap).
   useEffect(() => {
     const hasPending = items.some(i => i.status === 'pending');
     if (!hasPending) return;
-    const interval = setInterval(fetchQueue, 30000);
+    const interval = setInterval(() => fetchQueue(true), 30000);
     return () => clearInterval(interval);
   }, [items, fetchQueue]);
 
@@ -285,7 +320,7 @@ export default function ApprovalQueue({ brandId, onRefresh }: ApprovalQueueProps
                   body: JSON.stringify({ brand_id: brandId }),
                 });
                 const data = await res.json();
-                if (data.ok) { alert(`Scheduled ${data.scheduled} posts.`); fetchQueue(); }
+                if (data.ok) { alert(`Scheduled ${data.scheduled} posts.`); fetchQueue(false); }
                 else alert(data.error || 'Auto-schedule failed');
               }}
               className="px-3 py-2 rounded-xl text-xs font-bold bg-violet-500/10 hover:bg-violet-500/20 text-violet-400 border border-violet-500/20 transition flex items-center gap-1.5"
@@ -327,7 +362,7 @@ export default function ApprovalQueue({ brandId, onRefresh }: ApprovalQueueProps
             })}
           </div>
 
-          <button onClick={fetchQueue} className="p-2 rounded-xl hover:bg-white/[0.04] text-text-secondary/50 hover:text-text-secondary transition" title="Refresh">
+          <button onClick={() => fetchQueue(false)} className="p-2 rounded-xl hover:bg-white/[0.04] text-text-secondary/50 hover:text-text-secondary transition" title="Refresh">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
           </button>
         </div>
@@ -541,7 +576,7 @@ export default function ApprovalQueue({ brandId, onRefresh }: ApprovalQueueProps
                         onToggleSelect={() => toggleSelect(item.id)}
                         timeRemaining={getTimeRemaining(item.auto_approve_at)}
                         isPending={item.status === 'pending'}
-                        onRefresh={fetchQueue}
+                        onRefresh={() => fetchQueue(true)}
                       />
                     ))}
                   </div>
