@@ -1,6 +1,6 @@
 # Multi-stage build for optimized image size
 # Use node:18 (not alpine) — Tailwind v4 needs native bindings unavailable on Alpine
-FROM node:18 AS builder
+FROM node:20 AS builder
 
 WORKDIR /app
 
@@ -28,7 +28,7 @@ COPY . .
 RUN npm run build
 
 # Production stage — alpine is fine here (no build step)
-FROM node:18-alpine
+FROM node:20-alpine
 
 WORKDIR /app
 
