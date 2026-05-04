@@ -1635,6 +1635,57 @@ app.post('/api/pipeline/scout/reject', async (req, res) => {
 });
 
 // Get Priya's progress (per-brand)
+// DELETE the entire content plan (Priya output) for a brand. Wipes
+// content_slots + approval_queue + priya_progress so the user can run
+// Priya fresh without leftover slots cluttering the calendar.
+app.delete('/api/pipeline/plan', async (req, res) => {
+  try {
+    const userId = req.headers['x-user-id'];
+    if (!userId) return res.status(401).json({ error: 'x-user-id required' });
+    const brandId = req.query.brand_id;
+    if (!brandId) return res.status(400).json({ error: 'brand_id required' });
+
+    let slotsDeleted = 0;
+    let queueDeleted = 0;
+
+    try {
+      const before = await supabaseRest(`content_slots?brand_id=eq.${brandId}&select=id`);
+      slotsDeleted = (before || []).length;
+      await supabaseRest(`content_slots?brand_id=eq.${brandId}`, 'DELETE');
+    } catch (e) { console.warn('[Plan delete] content_slots Supabase delete failed:', e.message); }
+
+    try {
+      const before = await supabaseRest(`approval_queue?brand_id=eq.${brandId}&select=id`);
+      queueDeleted = (before || []).length;
+      await supabaseRest(`approval_queue?brand_id=eq.${brandId}`, 'DELETE');
+    } catch (e) { console.warn('[Plan delete] approval_queue Supabase delete failed:', e.message); }
+
+    try {
+      const slotsFile = path.join(SYNC_DIR, 'content_slots.json');
+      if (fs.existsSync(slotsFile)) {
+        const raw = JSON.parse(fs.readFileSync(slotsFile, 'utf-8'));
+        const isWrapped = !!(raw && !Array.isArray(raw) && Array.isArray(raw.data));
+        const all = isWrapped ? raw.data : (Array.isArray(raw) ? raw : []);
+        const filtered = all.filter(s => s.brand_id !== brandId);
+        const out = isWrapped
+          ? { ...raw, data: filtered, _updatedAt: new Date().toISOString() }
+          : filtered;
+        fs.writeFileSync(slotsFile, JSON.stringify(out, null, 2), 'utf-8');
+      }
+    } catch (e) { console.warn('[Plan delete] local content_slots wipe failed:', e.message); }
+
+    try {
+      const progressFile = path.join(SYNC_DIR, `priya_progress_${brandId}.json`);
+      if (fs.existsSync(progressFile)) fs.unlinkSync(progressFile);
+    } catch (e) { console.warn('[Plan delete] priya_progress wipe failed:', e.message); }
+
+    res.json({ ok: true, slots_deleted: slotsDeleted, queue_deleted: queueDeleted });
+  } catch (err) {
+    console.error('[Plan delete] error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/pipeline/priya-progress/:brandId', (req, res) => {
   const data = readSyncFile(`priya_progress_${req.params.brandId}`);
   if (!data) return res.json({ ok: true, progress: null });

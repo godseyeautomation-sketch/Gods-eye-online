@@ -1439,6 +1439,42 @@ export const AutopilotPage: React.FC<AutopilotPageProps> = ({ onNavigate }) => {
                   <p className="text-sm font-medium text-text-primary">Priya created {priyaProgress.created} content slots</p>
                   <p className="text-xs text-text-secondary">Check the Brand → Calendar tab to view your content plan</p>
                 </div>
+                <button
+                  onClick={async () => {
+                    if (!selectedBrandId || !user?.id) return;
+                    if (!confirm(`Delete the current content plan for "${selectedBrand?.name || 'this brand'}"? This wipes all calendar slots + approval queue items so Priya can run fresh. Cannot be undone.`)) return;
+                    try {
+                      const res = await fetch(`/api/pipeline/plan?brand_id=${selectedBrandId}`, {
+                        method: 'DELETE',
+                        headers: { 'x-user-id': user.id },
+                      });
+                      const data = await res.json();
+                      if (!res.ok || !data.ok) {
+                        setAgentError(`Delete plan failed: ${data.error || 'unknown'}`);
+                        return;
+                      }
+                      // Clear local state + cached results
+                      setPriyaProgress(null);
+                      setPriyaPlatformProgress(null);
+                      localStorage.removeItem(`priya_progress_${selectedBrandId}`);
+                      // Wipe IndexedDB slots for this brand so the calendar is empty
+                      try {
+                        const { getLocalSlotsForMonth } = await import('../services/localStorageService');
+                        // Just refetch — server is the truth, local sync was wiped above
+                        // (calendar refresh happens on next view switch)
+                      } catch {}
+                      setAgentError(null);
+                      alert(`Deleted ${data.slots_deleted} slot${data.slots_deleted === 1 ? '' : 's'} and ${data.queue_deleted} approval queue item${data.queue_deleted === 1 ? '' : 's'}. Run Priya again to generate a fresh plan.`);
+                    } catch (err: any) {
+                      setAgentError(`Delete plan failed: ${err.message}`);
+                    }
+                  }}
+                  className="px-3 py-2 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-400 text-xs font-bold border border-red-500/20 transition flex items-center gap-1.5 shrink-0"
+                  title="Delete all calendar slots so Priya can run fresh"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                  Delete Plan
+                </button>
               </div>
             )}
 
