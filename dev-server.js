@@ -3740,6 +3740,7 @@ app.get('/api/approval-queue', (req, res) => {
     const userId = req.headers['x-user-id'] || req.query.user_id;
     const brandId = req.query.brand_id;
     const status = req.query.status || 'pending';
+    const limit = Math.min(1000, Math.max(1, parseInt(String(req.query.limit || '200'), 10) || 200));
 
     const queueFile = readSyncFile('approval_queue');
     let items = queueFile?.data || [];
@@ -3748,7 +3749,7 @@ app.get('/api/approval-queue', (req, res) => {
     if (status && status !== 'all') items = items.filter(i => i.status === status);
 
     items.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-    res.json({ ok: true, items: items.slice(0, 50) });
+    res.json({ ok: true, items: items.slice(0, limit), total: items.length });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 

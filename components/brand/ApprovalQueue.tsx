@@ -32,14 +32,55 @@ const STATUS_ICONS: Record<ApprovalStatus, string> = {
   expired: '',
 };
 
+// localStorage cache key — per brand, so multi-brand users don't conflict
+const CACHE_KEY = (brandId: string) => `approval_queue_cache_${brandId}`;
+const CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 7; // 7 days
+
+function loadCachedItems(brandId: string): ApprovalQueueItem[] {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY(brandId));
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as { items: ApprovalQueueItem[]; cachedAt: number };
+    if (!parsed?.items || !Array.isArray(parsed.items)) return [];
+    if (Date.now() - (parsed.cachedAt || 0) > CACHE_TTL_MS) return [];
+    return parsed.items;
+  } catch { return []; }
+}
+function saveCachedItems(brandId: string, items: ApprovalQueueItem[]) {
+  try {
+    localStorage.setItem(CACHE_KEY(brandId), JSON.stringify({ items, cachedAt: Date.now() }));
+  } catch { /* quota exceeded — ignore */ }
+}
+// Merge server response with cache: server is source of truth for items
+// it returns, but if the server is empty (e.g. ephemeral filesystem wiped
+// after a deploy) we keep the cache so the user still sees their work.
+function mergeServerWithCache(server: ApprovalQueueItem[], cache: ApprovalQueueItem[]): ApprovalQueueItem[] {
+  if (server.length > 0) {
+    // Server has data: use server's items, but enrich with any cache-only
+    // items the server doesn't know about (recovers from server file wipe).
+    const serverIds = new Set(server.map(i => i.id));
+    const orphaned = cache.filter(i => !serverIds.has(i.id));
+    return [...server, ...orphaned];
+  }
+  // Server returned empty — fall back to cache entirely
+  return cache;
+}
+
 export default function ApprovalQueue({ brandId, onRefresh }: ApprovalQueueProps) {
   const { user } = useAuth();
-  const [items, setItems] = useState<ApprovalQueueItem[]>([]);
+  // Hydrate from cache on first render so the UI never shows empty if
+  // there's prior data to display, even before the server responds.
+  const [items, setItems] = useState<ApprovalQueueItem[]>(() => loadCachedItems(brandId));
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'pending' | 'all' | 'approved' | 'rejected'>('pending');
   const [platformFilter, setPlatformFilter] = useState<SocialPlatform | 'all'>('all');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  // Re-hydrate cache when brandId changes (user switches brand)
+  useEffect(() => {
+    setItems(loadCachedItems(brandId));
+  }, [brandId]);
 
   // Always fetch ALL statuses from the server, then filter client-side.
   // Previously we'd pass ?status=pending and re-fetch on every filter change,
@@ -56,18 +97,32 @@ export default function ApprovalQueue({ brandId, onRefresh }: ApprovalQueueProps
       });
       const data = await res.json();
       if (data.ok) {
-        setItems(data.items || []);
+        const serverItems: ApprovalQueueItem[] = data.items || [];
+        const cached = loadCachedItems(brandId);
+        const merged = mergeServerWithCache(serverItems, cached);
+        setItems(merged);
+        // Persist the merged set so the next mount/reload has it instantly
+        saveCachedItems(brandId, merged);
       } else {
-        setItems([]);
+        // Server error — keep showing cached items rather than going empty
+        setItems(loadCachedItems(brandId));
       }
     } catch (err) {
       console.error('Failed to fetch approval queue:', err);
-      setItems([]);
+      // Network error — keep showing cached items
+      setItems(loadCachedItems(brandId));
     }
     setLoading(false);
   }, [user?.id, brandId]);
 
   useEffect(() => { fetchQueue(); }, [fetchQueue]);
+
+  // Persist any local mutation (approve / reject / inline edits) back to
+  // the cache so it survives a tab close before the server refresh confirms it.
+  useEffect(() => {
+    if (!brandId) return;
+    saveCachedItems(brandId, items);
+  }, [items, brandId]);
 
   // Auto-refresh every 30s as long as any item is still pending
   useEffect(() => {
