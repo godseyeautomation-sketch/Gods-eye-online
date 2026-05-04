@@ -43,39 +43,23 @@ function loadCachedItems(brandId: string): ApprovalQueueItem[] {
     const parsed = JSON.parse(raw) as { items: ApprovalQueueItem[]; cachedAt: number };
     if (!parsed?.items || !Array.isArray(parsed.items)) return [];
     if (Date.now() - (parsed.cachedAt || 0) > CACHE_TTL_MS) return [];
-    // Drop the strip-marker so cards don't render <img src="__cached_strip__">.
-    // Real media URLs will come back on the next server fetch.
-    return parsed.items.map((it: any) => ({
-      ...it,
-      generated_image: it.generated_image === '__cached_strip__' ? null : it.generated_image,
-      generated_video: it.generated_video === '__cached_strip__' ? null : it.generated_video,
-    }));
+    return parsed.items;
   } catch { return []; }
 }
 function saveCachedItems(brandId: string, items: ApprovalQueueItem[]) {
-  // Strip heavy media (base64 images / videos) before caching so we don't
-  // blow the ~5 MB localStorage quota with 30+ slots. The server is the
-  // source of truth for the actual asset URL — on reload we hydrate the
-  // cache to show the queue immediately, then refetch fills in the media.
-  const slim = items.map((it: any) => {
-    const o: any = { ...it };
-    if (typeof o.generated_image === 'string' && o.generated_image.startsWith('data:')) {
-      o.generated_image = '__cached_strip__';
-    }
-    if (typeof o.generated_video === 'string' && o.generated_video.startsWith('data:')) {
-      o.generated_video = '__cached_strip__';
-    }
-    return o;
-  });
-  try {
-    localStorage.setItem(CACHE_KEY(brandId), JSON.stringify({ items: slim, cachedAt: Date.now() }));
-  } catch (err: any) {
-    // Quota exceeded — try once more with a smaller window (most recent 50).
-    try {
-      const trimmed = slim.slice(-50);
-      localStorage.setItem(CACHE_KEY(brandId), JSON.stringify({ items: trimmed, cachedAt: Date.now() }));
-    } catch { /* still over quota — skip cache write rather than throw */ }
+  // Cache the full items including base64 images / videos. localStorage is
+  // the only place generated_image survives a Cloud Run cold start when
+  // images were stored inline (no remote URL). If we hit the ~5 MB quota,
+  // progressively trim from the oldest end until it fits — never strip the
+  // image content itself, since that's what we're trying to preserve.
+  const tryWrite = (subset: ApprovalQueueItem[]) =>
+    localStorage.setItem(CACHE_KEY(brandId), JSON.stringify({ items: subset, cachedAt: Date.now() }));
+  try { tryWrite(items); return; } catch {}
+  // Progressive fallback: 50 most recent → 25 → 10 → give up
+  for (const cap of [50, 25, 10]) {
+    try { tryWrite(items.slice(-cap)); return; } catch {}
   }
+  // Skip the write rather than throw — UI keeps in-memory state intact.
 }
 // Merge server response with cache: server is source of truth for items
 // it returns, but if the server is empty (e.g. ephemeral filesystem wiped
