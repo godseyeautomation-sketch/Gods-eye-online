@@ -3568,7 +3568,7 @@ app.patch('/api/pipeline/scout/approve', async (req, res) => {
   try {
     const userId = req.headers['x-user-id'];
     if (!userId) return res.status(401).json({ error: 'x-user-id header required' });
-    const { brand_id, brand } = req.body;
+    const { brand_id, brand, scout_report: postedReport } = req.body;
     if (!brand_id) return res.status(400).json({ error: 'brand_id required' });
 
     let syncData = readSyncFile('brand_profiles');
@@ -3584,24 +3584,30 @@ app.patch('/api/pipeline/scout/approve', async (req, res) => {
     }
     if (idx < 0) return res.status(404).json({ error: 'Brand not found' });
 
-    // Cold-start scout_report recovery: scout_report is server-only — clients
-    // never carry it, so after a Cloud Run cycle the in-memory + posted brand
-    // both lack it. The full Scout result is archived to content_briefs on
-    // every run, so pull the latest one from there before giving up.
+    // Recover scout_report after a Cloud Run cold start.
+    // 1) Prefer the client's localStorage cache (posted as scout_report) —
+    //    fastest, no DB round-trip.
+    // 2) Fall back to Supabase content_briefs as a safety net (covers users
+    //    on a fresh device or after clearing browser storage).
     if (!allBrands[idx].scout_report) {
-      try {
-        const briefs = await supabaseRest(
-          `content_briefs?brand_id=eq.${brand_id}&created_by=eq.scout_agent&order=created_at.desc&limit=1&select=trend_summary`
-        );
-        const recovered = briefs?.[0]?.trend_summary;
-        if (recovered) {
-          const parsed = typeof recovered === 'string' ? JSON.parse(recovered) : recovered;
-          if (parsed && parsed.scan_data) {
-            allBrands[idx] = { ...allBrands[idx], scout_report: parsed };
-            console.log(`[Scout approve] Recovered scout_report from content_briefs`);
+      if (postedReport && postedReport.scan_data) {
+        allBrands[idx] = { ...allBrands[idx], scout_report: postedReport };
+        console.log(`[Scout approve] Hydrated scout_report from client cache`);
+      } else {
+        try {
+          const briefs = await supabaseRest(
+            `content_briefs?brand_id=eq.${brand_id}&created_by=eq.scout_agent&order=created_at.desc&limit=1&select=trend_summary`
+          );
+          const recovered = briefs?.[0]?.trend_summary;
+          if (recovered) {
+            const parsed = typeof recovered === 'string' ? JSON.parse(recovered) : recovered;
+            if (parsed && parsed.scan_data) {
+              allBrands[idx] = { ...allBrands[idx], scout_report: parsed };
+              console.log(`[Scout approve] Recovered scout_report from Supabase fallback`);
+            }
           }
-        }
-      } catch (e) { console.warn('[Scout approve] Supabase recovery failed:', e.message); }
+        } catch (e) { console.warn('[Scout approve] Supabase recovery failed:', e.message); }
+      }
     }
 
     if (!allBrands[idx].scout_report) return res.status(400).json({ error: 'No scout report on this brand' });
@@ -3633,13 +3639,15 @@ app.post('/api/pipeline/scout/reject', async (req, res) => {
   try {
     const userId = req.headers['x-user-id'];
     if (!userId) return res.status(401).json({ error: 'x-user-id header required' });
-    const { brand_id, brand, feedback } = req.body || {};
+    const { brand_id, brand, scout_report: postedReport, feedback } = req.body || {};
     if (!brand_id) return res.status(400).json({ error: 'brand_id required' });
     if (!feedback || !feedback.trim()) return res.status(400).json({ error: 'feedback required' });
 
     // Cloud Run cold starts wipe the local sync file. If the client posted
-    // the full brand object, persist it so scoutAgent's local read finds it
-    // (preserves server-only fields like scout_report when the client doesn't carry them).
+    // the full brand object, persist it so scoutAgent's local read finds it.
+    // Prefer the client's cached scout_report (full result with scan_data)
+    // over whatever the brand object carries — IndexedDB doesn't round-trip
+    // scout_report, but localStorage does.
     if (brand && brand.id) {
       try {
         const brandsFile = path.join(SYNC_DIR, 'brand_profiles.json');
@@ -3652,10 +3660,12 @@ app.post('/api/pipeline/scout/reject', async (req, res) => {
         }
         const idx = syncData.data.findIndex(b => b.id === brand.id);
         const existingLocal = idx >= 0 ? syncData.data[idx] : {};
+        const reportToUse = (postedReport && postedReport.scan_data) ? postedReport
+                          : (brand.scout_report || existingLocal.scout_report);
         const merged = {
           ...existingLocal,
           ...brand,
-          scout_report: brand.scout_report || existingLocal.scout_report,
+          scout_report: reportToUse,
           scout_report_history: brand.scout_report_history || existingLocal.scout_report_history,
           priya_campaign: brand.priya_campaign || existingLocal.priya_campaign,
           user_id: brand.user_id || userId,
@@ -3665,6 +3675,7 @@ app.post('/api/pipeline/scout/reject', async (req, res) => {
         else syncData.data.push(merged);
         syncData._updatedAt = new Date().toISOString();
         fs.writeFileSync(brandsFile, JSON.stringify(syncData, null, 2), 'utf-8');
+        if (postedReport?.scan_data) console.log(`[Scout reject] Hydrated scout_report from client cache`);
       } catch (e) {
         console.warn('[Scout reject] Brand sync failed:', e.message);
       }

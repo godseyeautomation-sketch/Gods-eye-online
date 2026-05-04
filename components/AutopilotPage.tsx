@@ -742,13 +742,20 @@ export const AutopilotPage: React.FC<AutopilotPageProps> = ({ onNavigate }) => {
     scoutApprovingRef.current = true;
     setScoutApproving(true);
     try {
-      // Send the full brand object so the server can self-heal if its
-      // local sync was wiped on cold start (same fallback used by reject).
+      // Send the full brand + the cached scout_report so the server can
+      // self-heal after a Cloud Run cold start. scout_report is server-only
+      // (never round-tripped to IndexedDB), but the FULL result was cached
+      // to localStorage right after Scout finished — pull it back out here.
       const brandPayload = brands.find(b => b.id === selectedBrandId) || null;
+      let cachedScoutReport: any = null;
+      try {
+        const raw = localStorage.getItem(`scout_result_${selectedBrandId}`);
+        if (raw) cachedScoutReport = JSON.parse(raw);
+      } catch {}
       const res = await fetch('/api/pipeline/scout/approve', {
         method: 'PATCH',
         headers,
-        body: JSON.stringify({ brand_id: selectedBrandId, brand: brandPayload }),
+        body: JSON.stringify({ brand_id: selectedBrandId, brand: brandPayload, scout_report: cachedScoutReport }),
       });
       const data = await res.json();
       if (data.ok) {
@@ -778,16 +785,21 @@ export const AutopilotPage: React.FC<AutopilotPageProps> = ({ onNavigate }) => {
     setScoutRejecting(true);
     setAgentError(null);
     try {
-      // Send the full brand object alongside the id — protects against
-      // Cloud Run cold starts that wipe the local sync file (the server
-      // re-hydrates the brand into ~/.klint/sync from this payload before
-      // looking it up). Without this, regenerate can fail with
-      // "Brand not found" even though the brand is loaded in the UI.
+      // Send the full brand + cached scout_report (with scan_data) so the
+      // regenerate works even after a Cloud Run cold start wipes the sync
+      // file. The full Scout result was cached to localStorage right after
+      // Scout finished — re-read it here so the server can use scan_data
+      // without going to Supabase.
       const brandPayload = brands.find(b => b.id === selectedBrandId) || null;
+      let cachedScoutReport: any = null;
+      try {
+        const raw = localStorage.getItem(`scout_result_${selectedBrandId}`);
+        if (raw) cachedScoutReport = JSON.parse(raw);
+      } catch {}
       const res = await fetch('/api/pipeline/scout/reject', {
         method: 'POST',
         headers,
-        body: JSON.stringify({ brand_id: selectedBrandId, brand: brandPayload, feedback }),
+        body: JSON.stringify({ brand_id: selectedBrandId, brand: brandPayload, scout_report: cachedScoutReport, feedback }),
       });
       const data = await res.json();
       if (!res.ok || !data.ok) {
