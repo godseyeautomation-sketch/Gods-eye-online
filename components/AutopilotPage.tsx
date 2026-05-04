@@ -941,6 +941,15 @@ export const AutopilotPage: React.FC<AutopilotPageProps> = ({ onNavigate }) => {
             onSaved={() => {
               if (user?.id) getAllBrandProfiles(user.id).then(all => setBrands(all));
             }}
+            onDeleted={async () => {
+              if (!user?.id) return;
+              const remaining = await getAllBrandProfiles(user.id);
+              setBrands(remaining);
+              // Self-heal: pick the first remaining brand, or clear selection
+              setSelectedBrandId(remaining[0]?.id || null);
+              // Switch back to pipeline view so the user isn't stuck on a now-deleted brand
+              setView('pipeline');
+            }}
           />
         )}
 
@@ -1872,8 +1881,9 @@ export const AutopilotPage: React.FC<AutopilotPageProps> = ({ onNavigate }) => {
 // current brand's data. NO internal tabs, NO duplicate calendar — those live
 // in their own sidebar items (Calendar / Run Agents / etc.).
 // ─────────────────────────────────────────────────────────────────────────────
-const BrandProfilePane: React.FC<{ brandId: string; userId: string; brand: BrandProfile; onSaved?: () => void }> = ({ brandId, userId, brand, onSaved }) => {
+const BrandProfilePane: React.FC<{ brandId: string; userId: string; brand: BrandProfile; onSaved?: () => void; onDeleted?: () => void }> = ({ brandId, userId, brand, onSaved, onDeleted }) => {
   const [BrandWizard, setBrandWizard] = useState<React.ComponentType<any> | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   useEffect(() => {
     let cancelled = false;
     import('./brand/BrandWizard').then(m => {
@@ -1881,6 +1891,21 @@ const BrandProfilePane: React.FC<{ brandId: string; userId: string; brand: Brand
     });
     return () => { cancelled = true; };
   }, []);
+
+  const handleDelete = async () => {
+    if (!brand?.id || isDeleting) return;
+    if (!confirm(`Delete "${brand.name || 'this brand'}"? This permanently removes the brand profile, all its content slots, and approval queue items. This cannot be undone.`)) return;
+    setIsDeleting(true);
+    try {
+      const { deleteBrandProfile } = await import('../services/brandService');
+      await deleteBrandProfile(brand.id);
+      onDeleted?.();
+    } catch (err: any) {
+      console.error('[BrandProfilePane] Delete failed:', err);
+      alert(`Delete failed: ${err?.message || 'unknown error'}`);
+      setIsDeleting(false);
+    }
+  };
 
   if (!BrandWizard) {
     return (
@@ -1936,7 +1961,24 @@ const BrandProfilePane: React.FC<{ brandId: string; userId: string; brand: Brand
   };
 
   return (
-    <div className="pt-20 pb-6 h-full overflow-y-auto">
+    <div className="pt-20 pb-6 h-full overflow-y-auto relative">
+      {/* Delete Brand button — top-right of the Brand Profile pane.
+          Lives at the pane level (not inside BrandWizard) so it's always
+          visible regardless of which wizard step is showing. */}
+      <div className="absolute top-24 right-6 z-10">
+        <button
+          onClick={handleDelete}
+          disabled={isDeleting}
+          className="flex items-center gap-2 px-3 py-2 rounded-full bg-red-500/10 border border-red-500/30 text-red-300 hover:bg-red-500/20 hover:border-red-500/50 hover:text-red-200 text-xs font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+          title="Permanently delete this brand"
+        >
+          {isDeleting ? (
+            <><div className="animate-spin rounded-full h-3 w-3 border-b-2 border-red-300" /> Deleting…</>
+          ) : (
+            <>🗑️ Delete Brand</>
+          )}
+        </button>
+      </div>
       <BrandWizard userId={userId} onComplete={handleComplete} initialDNA={initialDNA} />
     </div>
   );

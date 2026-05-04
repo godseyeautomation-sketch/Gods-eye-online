@@ -24,7 +24,12 @@ steps:
       - '--cpu=1'
       - '--timeout=300s'
       - '--max-instances=10'
-      - '--min-instances=0'
+      # min-instances=1 prevents Cloud Run from scaling down to zero, which
+      # used to wipe ~/.klint/sync/*.json (brand_profiles, content_slots, etc.)
+      # Without this, every cold start after idle deletes scout_report from the
+      # local filesystem, causing Priya to fail with "No Scout research found"
+      # immediately after a successful Scout + Approve flow.
+      - '--min-instances=1'
 
 images:
   - 'gcr.io/$PROJECT_ID/gods-eye-online:$COMMIT_SHA'
