@@ -43,7 +43,9 @@ export function buildInstallUrl(brandId, userId) {
     // returns the chosen channel in `data.incoming_webhook` — without it we
     // get a token but no channel id, and Review silently falls back to
     // dashboard-only mode.
-    scope: 'chat:write,chat:write.public,files:write,channels:read,channels:join,im:write,incoming-webhook',
+    // `files:read` is required so we can download reference images the user
+    // uploads via the Slack regenerate modal's file_input block.
+    scope: 'chat:write,chat:write.public,files:read,files:write,channels:read,channels:join,im:write,incoming-webhook',
     user_scope: '',
     redirect_uri: getRedirectUri(),
     // state encodes brand+user so the callback knows where to attach the token

@@ -132,6 +132,51 @@ function buildRejectFeedbackView({ queueId }) {
   };
 }
 
+function buildRegenerateView({ queueId }) {
+  return {
+    type: 'modal',
+    callback_id: 'regenerate_image',
+    private_metadata: queueId,
+    title: { type: 'plain_text', text: 'Regenerate Image' },
+    submit: { type: 'plain_text', text: 'Regenerate' },
+    close: { type: 'plain_text', text: 'Cancel' },
+    blocks: [
+      {
+        type: 'input',
+        block_id: 'prompt_block',
+        element: {
+          type: 'plain_text_input',
+          action_id: 'prompt_input',
+          multiline: true,
+          placeholder: { type: 'plain_text', text: 'e.g. "warmer lighting, sunset palette, model facing camera"' },
+          max_length: 1500,
+        },
+        label: { type: 'plain_text', text: 'How should the new image look?' },
+      },
+      {
+        type: 'input',
+        block_id: 'reference_block',
+        optional: true,
+        element: {
+          type: 'file_input',
+          action_id: 'reference_input',
+          filetypes: ['png', 'jpg', 'jpeg', 'webp'],
+          max_files: 1,
+        },
+        label: { type: 'plain_text', text: 'Reference image (optional)' },
+        hint: { type: 'plain_text', text: 'Upload an inspiration image to guide style, lighting, mood. Max 5 MB.' },
+      },
+      {
+        type: 'context',
+        elements: [{
+          type: 'mrkdwn',
+          text: '🎨 _Regeneration takes ~30 seconds. For Reels, the video will auto-regenerate after the image (~3 min)._',
+        }],
+      },
+    ],
+  };
+}
+
 async function slackUploadImage(imageBuffer, filename, channelId) {
   const token = getSlackToken();
 
@@ -184,48 +229,61 @@ function isUsableImageUrl(url) {
   return false;
 }
 
-async function generateImage(prompt, visualDirection, aspectRatio = '1:1', product = null) {
+async function generateImage(prompt, visualDirection, aspectRatio = '1:1', product = null, userReferenceImage = null) {
   const geminiKey = getGeminiKey();
   if (!geminiKey) throw new Error('Gemini API key not configured');
 
-  // Determine if we can use the product as a base image
-  const useProductLock = product && isUsableImageUrl(product.imageDataUrl);
+  // Reference-image priority:
+  //   1. userReferenceImage (regenerate flow — user uploaded a new visual)
+  //   2. product.imageDataUrl (Priya/Review default — product lock)
+  //   3. none → pure text-to-image
+  const useUserReference = isUsableImageUrl(userReferenceImage);
+  const useProductLock = !useUserReference && product && isUsableImageUrl(product.imageDataUrl);
 
-  let fullPrompt;
-  const parts = [];
-
-  if (useProductLock) {
-    // Image-to-image: keep product, change only the scene around it
-    fullPrompt = `Edit this image. Keep the product exactly as shown. Change ONLY the background and scene to: ${prompt}. ${visualDirection || 'High quality, cinematic, professional photography'}`;
-
-    // Build inline image part from the product's imageDataUrl
-    const imageDataUrl = product.imageDataUrl;
+  // Helper: convert any image URL/dataURL to a Gemini inlineData part
+  async function imgToInlinePart(imageDataUrl) {
     if (imageDataUrl.startsWith('data:')) {
       const mimeMatch = imageDataUrl.match(/^data:(image\/\w+);base64,/);
       const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
       const base64Data = imageDataUrl.replace(/^data:image\/\w+;base64,/, '');
-      parts.push({ inlineData: { mimeType, data: base64Data } });
-    } else {
-      // http(s) URL — fetch and convert to base64
-      try {
-        const imgRes = await fetch(imageDataUrl);
-        const imgBuf = await imgRes.arrayBuffer();
-        const b64 = Buffer.from(imgBuf).toString('base64');
-        const contentType = imgRes.headers.get('content-type') || 'image/jpeg';
-        parts.push({ inlineData: { mimeType: contentType, data: b64 } });
-      } catch (err) {
-        console.warn(`[Review] Failed to fetch product image URL, falling back to text-only:`, err.message);
-        // Fall through to text-only generation below
-      }
+      return { inlineData: { mimeType, data: base64Data } };
+    }
+    const imgRes = await fetch(imageDataUrl);
+    const imgBuf = await imgRes.arrayBuffer();
+    const b64 = Buffer.from(imgBuf).toString('base64');
+    const contentType = imgRes.headers.get('content-type') || 'image/jpeg';
+    return { inlineData: { mimeType: contentType, data: b64 } };
+  }
+
+  let fullPrompt;
+  const parts = [];
+
+  if (useUserReference) {
+    // User uploaded a new reference: use it as composition guide.
+    fullPrompt = `Use this uploaded image as the visual reference. ${prompt}. ${visualDirection || 'High quality, cinematic, professional photography.'} Match the style, lighting, and mood of the reference where it makes sense, but adapt the subject and scene per the prompt.`;
+    try {
+      parts.push(await imgToInlinePart(userReferenceImage));
+    } catch (err) {
+      console.warn('[Review] User reference image fetch failed, falling back to text-only:', err.message);
+    }
+    parts.push({ text: fullPrompt });
+  } else if (useProductLock) {
+    // Image-to-image: keep product, change only the scene around it
+    fullPrompt = `Edit this image. Keep the product exactly as shown. Change ONLY the background and scene to: ${prompt}. ${visualDirection || 'High quality, cinematic, professional photography'}`;
+    try {
+      parts.push(await imgToInlinePart(product.imageDataUrl));
+    } catch (err) {
+      console.warn('[Review] Product image fetch failed, falling back to text-only:', err.message);
     }
     parts.push({ text: fullPrompt });
   } else {
-    // No usable product image — pure lifestyle scene
+    // No usable reference — pure lifestyle scene
     fullPrompt = `${prompt}. ${visualDirection || 'High quality, cinematic, professional photography'}`;
     parts.push({ text: fullPrompt });
   }
 
-  const temperature = useProductLock ? 0.1 : 0.7;
+  // Temperature: low when locked to a reference (faithful), higher when freeform
+  const temperature = (useProductLock || useUserReference) ? 0.15 : 0.7;
 
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image-preview:generateContent?key=${geminiKey}`,
@@ -373,6 +431,12 @@ function buildSlotMessage(slot, reviewId, queueId, channelId, options = {}) {
   }
 
   actionElements.push(
+    {
+      type: 'button',
+      text: { type: 'plain_text', text: '🎨 Regenerate', emoji: true },
+      action_id: `regenerate_${queueId}`,
+      value: JSON.stringify({ reviewId, queueId, action: 'regenerate' }),
+    },
     {
       type: 'button',
       text: { type: 'plain_text', text: '📅 Schedule', emoji: true },
@@ -697,6 +761,19 @@ async function handleSlackAction(payload) {
     return;
   }
 
+  // ── REGENERATE action — open prompt + file upload modal ───────────
+  if (decision === 'regenerate') {
+    try {
+      await slackPost('views.open', {
+        trigger_id: payload.trigger_id,
+        view: buildRegenerateView({ queueId }),
+      }, token);
+    } catch (err) {
+      console.warn('[Review] views.open (regenerate) failed:', err.message);
+    }
+    return;
+  }
+
   // ── APPROVE action — finalize approval immediately ────────────────
   if (decision === 'approve') {
     // Make sure scheduled_at is set; default to 9 AM UTC of slot_date if missing
@@ -813,6 +890,52 @@ async function handleSlackViewSubmission(payload) {
     return { response_action: 'clear' };
   }
 
+  // ── REGENERATE submission — kick off image regen, ack the modal ───
+  if (callbackId === 'regenerate_image') {
+    const prompt = view.state.values?.prompt_block?.prompt_input?.value || '';
+    const fileInput = view.state.values?.reference_block?.reference_input;
+    const fileId = fileInput?.files?.[0]?.id || null;
+    const fileUrl = fileInput?.files?.[0]?.url_private || null;
+
+    if (!prompt.trim()) {
+      return {
+        response_action: 'errors',
+        errors: { prompt_block: 'Please describe how the new image should look.' },
+      };
+    }
+
+    // Run regen in background — don't block the modal close.
+    // Slack expects view_submission response within 3s, so we ack
+    // immediately and do the regeneration after.
+    (async () => {
+      try {
+        let referenceImageBase64 = null;
+        if (fileUrl) {
+          // Download the Slack-hosted file using the bot token
+          try {
+            const dlRes = await fetch(fileUrl, { headers: { Authorization: `Bearer ${token}` } });
+            if (dlRes.ok) {
+              const buf = Buffer.from(await dlRes.arrayBuffer());
+              if (buf.length > 5 * 1024 * 1024) {
+                console.warn(`[Review] Slack reference image too large (${buf.length} bytes) — skipping`);
+              } else {
+                const ct = dlRes.headers.get('content-type') || 'image/jpeg';
+                referenceImageBase64 = `data:${ct};base64,${buf.toString('base64')}`;
+              }
+            }
+          } catch (err) {
+            console.warn('[Review] Slack file download failed:', err.message);
+          }
+        }
+        await runRegeneration({ queueId, prompt, referenceImageDataUrl: referenceImageBase64, triggeredBy: payload.user?.id || 'slack' });
+      } catch (err) {
+        console.error('[Review] Slack regeneration failed:', err.message);
+      }
+    })();
+
+    return { response_action: 'clear' };
+  }
+
   // ── REJECT feedback submission ─────────────────────────────────────
   if (callbackId === 'reject_feedback') {
     const feedback = view.state.values?.feedback_block?.feedback_input?.value || '';
@@ -856,6 +979,149 @@ async function handleSlackViewSubmission(payload) {
   }
 
   return { response_action: 'clear' };
+}
+
+/**
+ * Core regeneration helper — shared by:
+ *   - Dashboard endpoint  PUT /api/approval-queue/:id/regenerate
+ *   - Slack regenerate modal submission
+ *
+ * Calls Gemini with the given prompt + optional reference image, persists
+ * the new image to approval_queue + content_slots, fires Kling video
+ * regen for Reels, and chat.update's the Slack message with the new
+ * image. Throws on hard failure so callers can surface errors.
+ */
+async function runRegeneration({ queueId, prompt, referenceImageDataUrl = null, triggeredBy = null }) {
+  const queueFile = readSync('approval_queue');
+  const items = queueFile?.data || [];
+  const idx = items.findIndex(i => i.id === queueId);
+  if (idx < 0) throw new Error(`Queue item ${queueId} not found`);
+  const item = items[idx];
+
+  const slotsFile = readSync('content_slots');
+  const slots = slotsFile?.data || [];
+  const sIdx = slots.findIndex(s => s.id === item.slot_id);
+  const slot = sIdx >= 0 ? slots[sIdx] : null;
+
+  // Resolve brand for product context (used as a secondary lock if the user
+  // didn't upload a reference image)
+  const brandsFile = readSync('brand_profiles');
+  const brand = (brandsFile?.data || brandsFile || []).find(b => b.id === item.brand_id);
+  const products = brand?.products || [];
+  let chosenProduct = null;
+  if (slot?.selected_product) {
+    const wanted = String(slot.selected_product).trim().toLowerCase();
+    chosenProduct = products.find(p => String(p?.name || '').trim().toLowerCase() === wanted) || null;
+  }
+  if (!chosenProduct && products.length) chosenProduct = products[0];
+
+  // Aspect ratio: reels = 9:16, stories = 9:16, posts = 1:1
+  const format = String(slot?.format || item.format || 'post').toLowerCase();
+  const aspectRatio = (format === 'reel' || format === 'story') ? '9:16' : '1:1';
+  const visualDirection = item.brief?.visual_direction || slot?.brief?.visual_direction || '';
+
+  console.log(`[Review] Regenerating image for ${queueId} (format=${format}, ref=${referenceImageDataUrl ? 'user-upload' : (chosenProduct ? 'product-lock' : 'none')})`);
+
+  // Generate the new image
+  const buffer = await generateImage(prompt, visualDirection, aspectRatio, chosenProduct, referenceImageDataUrl);
+  const newDataUrl = `data:image/png;base64,${buffer.toString('base64')}`;
+
+  // Persist to approval_queue + content_slots
+  const now = new Date().toISOString();
+  items[idx] = {
+    ...item,
+    generated_image: newDataUrl,
+    last_regenerated_at: now,
+    last_regenerated_by: triggeredBy,
+    last_regenerate_prompt: prompt,
+  };
+  writeSync('approval_queue', { _updatedAt: now, data: items });
+  if (sIdx >= 0) {
+    slots[sIdx] = {
+      ...slots[sIdx],
+      generated_image: newDataUrl,
+      updated_at: now,
+    };
+    writeSync('content_slots', { _updatedAt: now, data: slots });
+  }
+
+  // For Reels: kick off video regeneration in the background. Old video
+  // is invalidated since the seed frame changed.
+  if (format === 'reel') {
+    try {
+      const { kickOffReelVideoInBackground } = await import('./klingReelService.js');
+      // Clear stale video so the UI shows "regenerating"
+      items[idx].generated_video = null;
+      writeSync('approval_queue', { _updatedAt: new Date().toISOString(), data: items });
+      if (sIdx >= 0) {
+        slots[sIdx].generated_video = null;
+        writeSync('content_slots', { _updatedAt: new Date().toISOString(), data: slots });
+      }
+      const reelPrompt = item.brief?.reel_prompt || item.brief?.video_prompt || prompt || (item.brief?.hook || 'cinematic motion');
+      kickOffReelVideoInBackground({
+        slotId: item.slot_id,
+        imageUrl: newDataUrl,
+        prompt: reelPrompt,
+        aspectRatio,
+        readSyncFile: readSync,
+        writeSyncFile: writeSync,
+        queueItemId: queueId,
+      });
+    } catch (err) {
+      console.warn('[Review] Failed to kick off Kling regen:', err.message);
+    }
+  }
+
+  // Mirror the new image to the existing Slack card via chat.update
+  if (item.slack_message_ts && item.slack_channel_id) {
+    try {
+      let token = getSlackToken();
+      try {
+        const { resolveSlackForBrand } = await import('./slackIntegrationService.js');
+        const resolved = await resolveSlackForBrand(item.brand_id);
+        if (resolved.token) token = resolved.token;
+      } catch {}
+
+      // Upload the new image to Slack and use the resulting public URL,
+      // since chat.update can't reference a data: URI directly.
+      let publicImageUrl = null;
+      try {
+        const fileMeta = await slackUploadImage(buffer, `regen_${queueId}.png`, item.slack_channel_id);
+        publicImageUrl = fileMeta?.url_private || fileMeta?.permalink_public || null;
+        items[idx].slack_image_url = publicImageUrl;
+        writeSync('approval_queue', { _updatedAt: new Date().toISOString(), data: items });
+      } catch (err) {
+        console.warn('[Review] Slack image upload (regen) failed:', err.message);
+      }
+
+      const reloadedSlot = (readSync('content_slots')?.data || []).find(s => s.id === item.slot_id) || slot || items[idx];
+      const updateMsg = buildSlotMessage(
+        reloadedSlot,
+        item.review_id,
+        queueId,
+        item.slack_channel_id,
+        { imageUrl: publicImageUrl || item.slack_image_url || null, videoUrl: format === 'reel' ? null : items[idx].generated_video || null, scheduledAt: items[idx].scheduled_at }
+      );
+      await slackPost('chat.update', {
+        channel: item.slack_channel_id,
+        ts: item.slack_message_ts,
+        blocks: [
+          ...updateMsg.blocks,
+          {
+            type: 'context',
+            elements: [{
+              type: 'mrkdwn',
+              text: `🎨 *Regenerated* by <@${triggeredBy || 'someone'}>${prompt ? ` — _"${prompt.slice(0, 120)}"_` : ''}`,
+            }],
+          },
+        ],
+      }, token);
+    } catch (err) {
+      console.warn('[Review] chat.update (regen) failed:', err.message);
+    }
+  }
+
+  return items[idx];
 }
 
 /**
@@ -1355,7 +1621,8 @@ function _buildSlotMessageForExternalUpdate(slot, reviewId, queueId, channelId, 
  * routes. Errors are swallowed — approval flow stays working even if Slack
  * is down or the message was deleted.
  */
-async function syncDashboardDecisionToSlack(queueItem, decision, opts = {}) {
+async function syncDashboardDecisionToSlack(queueItem, decision, opts) {
+  if (!opts) opts = {};
   try {
     const { ts, channel } = { ts: queueItem.slack_message_ts, channel: queueItem.slack_channel_id };
     if (!ts || !channel) return;
@@ -1385,12 +1652,24 @@ async function syncDashboardDecisionToSlack(queueItem, decision, opts = {}) {
     }).blocks;
 
     let footer;
+    let keepActions = false;
     if (decision === 'approve') {
       const when = opts.scheduledAt || queueItem.scheduled_at;
       const whenStr = when ? new Date(when).toUTCString().replace(' GMT', ' UTC') : 'next dispatch run';
       footer = {
         type: 'context',
         elements: [{ type: 'mrkdwn', text: `✅ *Approved from dashboard*${opts.approverName ? ` by ${opts.approverName}` : ''} · scheduled ${whenStr}` }],
+      };
+    } else if (decision === 'resubmitted') {
+      // Item was rejected, then edited on the dashboard, and is now back to
+      // pending. Keep the action buttons so the reviewer can decide again
+      // straight from Slack. Append a banner showing the prior rejection
+      // reason if we still have it on the queue item.
+      keepActions = true;
+      const priorReason = queueItem.reviewer_notes ? `\n_Previously rejected:_ ${String(queueItem.reviewer_notes).slice(0, 200)}` : '';
+      footer = {
+        type: 'context',
+        elements: [{ type: 'mrkdwn', text: `🔁 *Resubmitted after edit* — ready for a new decision.${priorReason}` }],
       };
     } else {
       footer = {
@@ -1399,7 +1678,9 @@ async function syncDashboardDecisionToSlack(queueItem, decision, opts = {}) {
       };
     }
 
-    const blocks = [...baseBlocks.filter(b => b.type !== 'actions'), footer];
+    const blocks = keepActions
+      ? [...baseBlocks, footer]                                 // keep the action buttons
+      : [...baseBlocks.filter(b => b.type !== 'actions'), footer]; // strip them
 
     const res = await fetch('https://slack.com/api/chat.update', {
       method: 'POST',
@@ -1423,4 +1704,7 @@ export {
   pendingReviews,
   _buildSlotMessageForExternalUpdate,
   syncDashboardDecisionToSlack,
+  generateImage,
+  buildSlotMessage,
+  runRegeneration,
 };

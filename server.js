@@ -9,7 +9,7 @@ import { registerCronRoutes, loadAndScheduleAll } from './services/cronEngine.js
 import { mountMcpEndpoints } from './services/mcpServer.js';
 import { executeScout } from './services/scoutAgent.js';
 import { executePriya } from './services/priyaAgent.js';
-import { executeReview, handleSlackAction, handleSlackViewSubmission, getReviewStatus, updateReviewDecision, finalizeApproval, syncDashboardDecisionToSlack } from './services/reviewAgent.js';
+import { executeReview, handleSlackAction, handleSlackViewSubmission, getReviewStatus, updateReviewDecision, finalizeApproval, syncDashboardDecisionToSlack, runRegeneration } from './services/reviewAgent.js';
 import { kickOffReelVideoInBackground } from './services/klingReelService.js';
 import {
   isSlackOAuthConfigured,
@@ -1121,10 +1121,15 @@ app.post('/api/approval-queue/auto-schedule', (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// PUT /api/approval-queue/:id/update — edit caption / hashtags / image of a
-// pending approval card without re-triggering Review. Mirrors the changes
-// into the linked content_slot so the calendar reflects the edit too.
-app.put('/api/approval-queue/:id/update', (req, res) => {
+// PUT /api/approval-queue/:id/update — edit caption / hashtags / image of an
+// approval card without re-triggering Review. Mirrors the changes into the
+// linked content_slot so the calendar reflects the edit too.
+//
+// If the item is in `rejected` status when edited, it auto-flips back to
+// `pending` (the rejected→edit→resubmit cycle the user requested). The
+// reviewer_notes are PRESERVED so the next reviewer can see why it was
+// originally rejected and whether the edit addressed it.
+app.put('/api/approval-queue/:id/update', async (req, res) => {
   try {
     const { caption, hashtags, image, hook, call_to_action } = req.body || {};
     const queueFile = readSyncFile('approval_queue');
@@ -1138,13 +1143,24 @@ app.put('/api/approval-queue/:id/update', (req, res) => {
     if (Array.isArray(hashtags)) newBrief.hashtags = hashtags.map(t => String(t).replace(/^#+/, ''));
     if (typeof hook === 'string') newBrief.hook = hook;
     if (typeof call_to_action === 'string') newBrief.call_to_action = call_to_action;
+
+    // Auto-resubmit: rejected items go back to pending after any edit
+    const wasRejected = item.status === 'rejected';
+    const nowIso = new Date().toISOString();
     items[idx] = {
       ...item,
       brief: newBrief,
       caption_preview: (newBrief.caption || '').slice(0, 200),
       ...(typeof image === 'string' && image ? { generated_image: image } : {}),
+      ...(wasRejected ? {
+        status: 'pending',
+        resolved_at: null,
+        resubmitted_at: nowIso,
+        resubmitted_count: (item.resubmitted_count || 0) + 1,
+        // Keep `reviewer_notes` so the prior rejection reason is visible
+      } : {}),
     };
-    writeSyncFile('approval_queue', { _updatedAt: new Date().toISOString(), data: items });
+    writeSyncFile('approval_queue', { _updatedAt: nowIso, data: items });
 
     // Mirror into content_slots so the calendar shows the same caption/image
     if (item.slot_id) {
@@ -1156,13 +1172,56 @@ app.put('/api/approval-queue/:id/update', (req, res) => {
           ...slots[sIdx],
           brief: newBrief,
           ...(typeof image === 'string' && image ? { generated_image: image } : {}),
-          updated_at: new Date().toISOString(),
+          ...(wasRejected ? { status: 'briefed' } : {}),
+          updated_at: nowIso,
         };
-        writeSyncFile('content_slots', { _updatedAt: new Date().toISOString(), data: slots });
+        writeSyncFile('content_slots', { _updatedAt: nowIso, data: slots });
       }
     }
+
+    // If the item was rejected and is now pending again, restore the Slack
+    // card's action buttons so the reviewer can re-decide from Slack too.
+    if (wasRejected && items[idx].slack_message_ts && items[idx].slack_channel_id) {
+      try {
+        await syncDashboardDecisionToSlack(items[idx], 'resubmitted', null);
+      } catch (err) {
+        console.warn('[ApprovalQueue] Slack resubmit sync failed:', err.message);
+      }
+    }
+
     res.json({ ok: true, item: items[idx] });
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// PUT /api/approval-queue/:id/regenerate — regenerate the post's image with
+// a new prompt + optional uploaded reference image. Used by both the
+// dashboard edit modal and (indirectly via runRegeneration) the Slack
+// regenerate modal. For Reels, the Kling video auto-regenerates after.
+app.put('/api/approval-queue/:id/regenerate', express.json({ limit: '8mb' }), async (req, res) => {
+  try {
+    const { prompt, reference_image_base64 } = req.body || {};
+    if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
+      return res.status(400).json({ error: 'prompt is required' });
+    }
+    // 5 MB cap on uploaded reference image (base64 expands ~33% — cap raw)
+    if (reference_image_base64 && typeof reference_image_base64 === 'string') {
+      const approxBytes = Math.floor(reference_image_base64.length * 0.75);
+      if (approxBytes > 5 * 1024 * 1024) {
+        return res.status(413).json({ error: 'Reference image exceeds 5 MB limit' });
+      }
+    }
+    const triggeredBy = req.headers['x-user-id'] || 'dashboard';
+    const updated = await runRegeneration({
+      queueId: req.params.id,
+      prompt: prompt.trim(),
+      referenceImageDataUrl: reference_image_base64 || null,
+      triggeredBy,
+    });
+    res.json({ ok: true, item: updated });
+  } catch (err) {
+    console.error('[ApprovalQueue] regenerate failed:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.post('/api/approval-queue/bulk-approve', (req, res) => {

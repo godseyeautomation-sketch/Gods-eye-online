@@ -3459,7 +3459,7 @@ app.get('/api/campaigns/creatives', async (req, res) => {
 // ── Agent Pipeline Routes ──────────────────────────────────────────
 import { executeScout } from './services/scoutAgent.js';
 import { executePriya } from './services/priyaAgent.js';
-import { executeReview, handleSlackAction, handleSlackViewSubmission, getReviewStatus, updateReviewDecision, finalizeApproval, syncDashboardDecisionToSlack } from './services/reviewAgent.js';
+import { executeReview, handleSlackAction, handleSlackViewSubmission, getReviewStatus, updateReviewDecision, finalizeApproval, syncDashboardDecisionToSlack, runRegeneration } from './services/reviewAgent.js';
 import { kickOffReelVideoInBackground } from './services/klingReelService.js';
 import {
   isSlackOAuthConfigured,
@@ -3919,8 +3919,10 @@ app.post('/api/approval-queue/auto-schedule', (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// PUT /api/approval-queue/:id/update — edit a pending card's caption/hashtags/image
-app.put('/api/approval-queue/:id/update', (req, res) => {
+// PUT /api/approval-queue/:id/update — edit a card's caption/hashtags/image.
+// If the item is `rejected` when edited, auto-flip back to `pending`
+// (rejected→edit→resubmit cycle). reviewer_notes preserved as context.
+app.put('/api/approval-queue/:id/update', async (req, res) => {
   try {
     const { caption, hashtags, image, hook, call_to_action } = req.body || {};
     const queueFile = readSyncFile('approval_queue');
@@ -3934,13 +3936,22 @@ app.put('/api/approval-queue/:id/update', (req, res) => {
     if (Array.isArray(hashtags)) newBrief.hashtags = hashtags.map(t => String(t).replace(/^#+/, ''));
     if (typeof hook === 'string') newBrief.hook = hook;
     if (typeof call_to_action === 'string') newBrief.call_to_action = call_to_action;
+
+    const wasRejected = item.status === 'rejected';
+    const nowIso = new Date().toISOString();
     items[idx] = {
       ...item,
       brief: newBrief,
       caption_preview: (newBrief.caption || '').slice(0, 200),
       ...(typeof image === 'string' && image ? { generated_image: image } : {}),
+      ...(wasRejected ? {
+        status: 'pending',
+        resolved_at: null,
+        resubmitted_at: nowIso,
+        resubmitted_count: (item.resubmitted_count || 0) + 1,
+      } : {}),
     };
-    writeSyncFile('approval_queue', { _updatedAt: new Date().toISOString(), data: items });
+    writeSyncFile('approval_queue', { _updatedAt: nowIso, data: items });
 
     // Mirror into content_slots so the calendar reflects the edit
     if (item.slot_id) {
@@ -3952,13 +3963,47 @@ app.put('/api/approval-queue/:id/update', (req, res) => {
           ...slots[sIdx],
           brief: newBrief,
           ...(typeof image === 'string' && image ? { generated_image: image } : {}),
-          updated_at: new Date().toISOString(),
+          ...(wasRejected ? { status: 'briefed' } : {}),
+          updated_at: nowIso,
         };
-        writeSyncFile('content_slots', { _updatedAt: new Date().toISOString(), data: slots });
+        writeSyncFile('content_slots', { _updatedAt: nowIso, data: slots });
       }
     }
+
+    if (wasRejected && items[idx].slack_message_ts && items[idx].slack_channel_id) {
+      try { await syncDashboardDecisionToSlack(items[idx], 'resubmitted', null); }
+      catch (err) { console.warn('[ApprovalQueue] Slack resubmit sync failed:', err.message); }
+    }
+
     res.json({ ok: true, item: items[idx] });
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// PUT /api/approval-queue/:id/regenerate — see server.js for details
+app.put('/api/approval-queue/:id/regenerate', express.json({ limit: '8mb' }), async (req, res) => {
+  try {
+    const { prompt, reference_image_base64 } = req.body || {};
+    if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
+      return res.status(400).json({ error: 'prompt is required' });
+    }
+    if (reference_image_base64 && typeof reference_image_base64 === 'string') {
+      const approxBytes = Math.floor(reference_image_base64.length * 0.75);
+      if (approxBytes > 5 * 1024 * 1024) {
+        return res.status(413).json({ error: 'Reference image exceeds 5 MB limit' });
+      }
+    }
+    const triggeredBy = req.headers['x-user-id'] || 'dashboard';
+    const updated = await runRegeneration({
+      queueId: req.params.id,
+      prompt: prompt.trim(),
+      referenceImageDataUrl: reference_image_base64 || null,
+      triggeredBy,
+    });
+    res.json({ ok: true, item: updated });
+  } catch (err) {
+    console.error('[ApprovalQueue] regenerate failed:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.post('/api/approval-queue/bulk-approve', (req, res) => {
