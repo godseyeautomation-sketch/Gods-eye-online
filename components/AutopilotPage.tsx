@@ -680,7 +680,14 @@ export const AutopilotPage: React.FC<AutopilotPageProps> = ({ onNavigate }) => {
                 if (prev <= 1) {
                   clearInterval(interval);
                   setCooldownAgent(null);
-                  runAgent(nextAgent);
+                  // For Review, open the destination chooser modal instead of
+                  // running directly — keeps the Slack-vs-Dashboard sync flow
+                  // consistent across manual runs and auto-chained runs.
+                  if (nextAgent === 'reviewer') {
+                    setShowReviewModeModal(true);
+                  } else {
+                    runAgent(nextAgent);
+                  }
                   return 0;
                 }
                 return prev - 1;

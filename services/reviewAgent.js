@@ -989,6 +989,10 @@ async function executeReview(userId, brandId, config = {}) {
 
   if (requestedMode === 'dashboard') {
     console.log('[Review] reviewMode=dashboard → skipping Slack entirely');
+  } else if (requestedMode === 'slack' && !slackEnabled) {
+    // User explicitly chose Slack but resolution failed — surface the cause
+    // instead of silently writing to dashboard only.
+    console.error(`[Review] reviewMode=slack but resolution failed: token=${!!slackToken} channel=${channelId || 'NULL'}. Posts will go to dashboard only. Reconnect Slack with the channel-picker.`);
   } else if (!slackEnabled) {
     console.log('[Review] Slack not configured — falling back to dashboard-only mode');
   } else {

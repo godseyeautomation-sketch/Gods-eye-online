@@ -548,6 +548,32 @@ async function executePriya(userId, brandId, config = {}) {
   const finalSlots = [];
   const now = new Date().toISOString();
 
+  // ── Round-robin product assignment ────────────────────────────────────
+  // Each slot gets ONE product from brand.products, cycled round-robin so
+  // every product gets featured across the campaign (mix-and-match).
+  // If the LLM's brief picked a specific product (g.selected_product or
+  // g.brief.product), prefer that; otherwise fall through to round-robin.
+  const brandProducts = Array.isArray(brand.products) ? brand.products : [];
+  const productNames = brandProducts.map(p => String(p?.name || '').trim()).filter(Boolean);
+  // Per-platform round-robin counter: keeps within-platform mix balanced
+  // even when slot iteration order interleaves platforms.
+  const rrCounter = {};
+  function pickProductForSlotRR(g, platform) {
+    if (!productNames.length) return null;
+    // Honour an explicit pick from the LLM if the name actually matches
+    const explicit = String(g.selected_product || g.brief?.product || '').trim().toLowerCase();
+    if (explicit) {
+      const match = productNames.find(p => p.toLowerCase() === explicit)
+        || productNames.find(p => p.toLowerCase().includes(explicit) || explicit.includes(p.toLowerCase()));
+      if (match) return match;
+    }
+    // Round-robin per platform
+    const key = platform || 'default';
+    const idx = rrCounter[key] || 0;
+    rrCounter[key] = idx + 1;
+    return productNames[idx % productNames.length];
+  }
+
   for (const g of newSlots) {
     try {
       if (!g.date || !g.format) {
@@ -566,6 +592,7 @@ async function executePriya(userId, brandId, config = {}) {
       else format = 'post';
 
       const platform = String(g.platform || 'instagram').toLowerCase();
+      const selectedProduct = pickProductForSlotRR(g, platform);
 
       const slotId = `${brandId}_${g.date}_${format}_${platform}`;
       const slot = {
@@ -584,12 +611,22 @@ async function executePriya(userId, brandId, config = {}) {
         updated_at: now,
         created_by: 'priya_agent',
         scout_pillar: g.pillar || null,
+        selected_product: selectedProduct,  // round-robin across brand.products
       };
 
       finalSlots.push(slot);
     } catch (err) {
       console.warn('[Priya] Slot conversion failed:', err.message);
     }
+  }
+
+  if (productNames.length) {
+    const distribution = {};
+    for (const s of finalSlots) {
+      const p = s.selected_product || '(none)';
+      distribution[p] = (distribution[p] || 0) + 1;
+    }
+    console.log(`[Priya] Product distribution across ${finalSlots.length} slots:`, distribution);
   }
 
   // ── Persist to local sync file (merge with existing — upsert by id) ─────

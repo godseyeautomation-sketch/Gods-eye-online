@@ -39,7 +39,11 @@ export function isSlackOAuthConfigured() {
 export function buildInstallUrl(brandId, userId) {
   const params = new URLSearchParams({
     client_id: getClientId(),
-    scope: 'chat:write,files:write,channels:read,channels:join,chat:write.public,im:write',
+    // `incoming-webhook` triggers Slack's channel-picker during OAuth and
+    // returns the chosen channel in `data.incoming_webhook` — without it we
+    // get a token but no channel id, and Review silently falls back to
+    // dashboard-only mode.
+    scope: 'chat:write,chat:write.public,files:write,channels:read,channels:join,im:write,incoming-webhook',
     user_scope: '',
     redirect_uri: getRedirectUri(),
     // state encodes brand+user so the callback knows where to attach the token
@@ -144,9 +148,23 @@ export async function deleteBrandSlackIntegration(brandId) {
 export async function resolveSlackForBrand(brandId) {
   const row = await getBrandSlackIntegration(brandId);
   if (row && row.bot_token) {
+    let channel = row.slack_channel_id;
+    // Fallback for older integrations that were saved without
+    // `incoming-webhook` scope (no channel id captured at OAuth time).
+    // Auto-pick the first public channel the bot is a member of.
+    if (!channel) {
+      try {
+        channel = await pickFirstAccessibleChannel(row.bot_token);
+        if (channel) {
+          console.log(`[Slack] Resolved fallback channel ${channel} for brand ${brandId}`);
+        }
+      } catch (err) {
+        console.warn('[Slack] channel fallback failed:', err.message);
+      }
+    }
     return {
       token: row.bot_token,
-      channel: row.slack_channel_id,
+      channel,
       teamName: row.slack_team_name,
       perBrand: true,
     };
@@ -158,4 +176,27 @@ export async function resolveSlackForBrand(brandId) {
     teamName: null,
     perBrand: false,
   };
+}
+
+/**
+ * Last-resort channel resolver: ask Slack for the list of public channels
+ * the bot can post in and return the first one. Used when an integration
+ * row exists but has no slack_channel_id (e.g. older OAuth flow before
+ * incoming-webhook scope was added).
+ */
+async function pickFirstAccessibleChannel(botToken) {
+  if (!botToken) return null;
+  const res = await fetch(
+    'https://slack.com/api/conversations.list?types=public_channel&exclude_archived=true&limit=200',
+    { headers: { Authorization: `Bearer ${botToken}` } }
+  );
+  const data = await res.json().catch(() => null);
+  if (!data?.ok || !Array.isArray(data.channels)) return null;
+  // Prefer #general/#random/#social if available, else first channel
+  const preferred = ['general', 'random', 'social', 'marketing'];
+  for (const name of preferred) {
+    const hit = data.channels.find(c => c.name === name && !c.is_archived);
+    if (hit) return hit.id;
+  }
+  return data.channels[0]?.id || null;
 }
