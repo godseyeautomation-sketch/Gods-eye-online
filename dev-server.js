@@ -3568,13 +3568,20 @@ app.patch('/api/pipeline/scout/approve', (req, res) => {
   try {
     const userId = req.headers['x-user-id'];
     if (!userId) return res.status(401).json({ error: 'x-user-id header required' });
-    const { brand_id } = req.body;
+    const { brand_id, brand } = req.body;
     if (!brand_id) return res.status(400).json({ error: 'brand_id required' });
 
-    const syncData = readSyncFile('brand_profiles');
-    const isWrapped = !!(syncData && !Array.isArray(syncData) && Array.isArray(syncData.data));
-    const allBrands = isWrapped ? syncData.data : (Array.isArray(syncData) ? syncData : []);
-    const idx = allBrands.findIndex(b => b.id === brand_id);
+    let syncData = readSyncFile('brand_profiles');
+    let isWrapped = !!(syncData && !Array.isArray(syncData) && Array.isArray(syncData.data));
+    let allBrands = isWrapped ? syncData.data : (Array.isArray(syncData) ? syncData : []);
+    let idx = allBrands.findIndex(b => b.id === brand_id);
+    // Cold-start fallback: hydrate from posted brand if local sync was wiped
+    if (idx < 0 && brand && brand.id === brand_id) {
+      allBrands = [...allBrands, brand];
+      isWrapped = true;
+      syncData = { _updatedAt: new Date().toISOString(), data: allBrands };
+      idx = allBrands.length - 1;
+    }
     if (idx < 0) return res.status(404).json({ error: 'Brand not found' });
     if (!allBrands[idx].scout_report) return res.status(400).json({ error: 'No scout report on this brand' });
 
@@ -3605,9 +3612,42 @@ app.post('/api/pipeline/scout/reject', async (req, res) => {
   try {
     const userId = req.headers['x-user-id'];
     if (!userId) return res.status(401).json({ error: 'x-user-id header required' });
-    const { brand_id, feedback } = req.body || {};
+    const { brand_id, brand, feedback } = req.body || {};
     if (!brand_id) return res.status(400).json({ error: 'brand_id required' });
     if (!feedback || !feedback.trim()) return res.status(400).json({ error: 'feedback required' });
+
+    // Cloud Run cold starts wipe the local sync file. If the client posted
+    // the full brand object, persist it so scoutAgent's local read finds it
+    // (preserves server-only fields like scout_report when the client doesn't carry them).
+    if (brand && brand.id) {
+      try {
+        const brandsFile = path.join(SYNC_DIR, 'brand_profiles.json');
+        let syncData = { _updatedAt: new Date().toISOString(), data: [] };
+        if (fs.existsSync(brandsFile)) {
+          try {
+            const existing = JSON.parse(fs.readFileSync(brandsFile, 'utf-8'));
+            syncData = Array.isArray(existing?.data) ? existing : { _updatedAt: new Date().toISOString(), data: Array.isArray(existing) ? existing : [] };
+          } catch {}
+        }
+        const idx = syncData.data.findIndex(b => b.id === brand.id);
+        const existingLocal = idx >= 0 ? syncData.data[idx] : {};
+        const merged = {
+          ...existingLocal,
+          ...brand,
+          scout_report: brand.scout_report || existingLocal.scout_report,
+          scout_report_history: brand.scout_report_history || existingLocal.scout_report_history,
+          priya_campaign: brand.priya_campaign || existingLocal.priya_campaign,
+          user_id: brand.user_id || userId,
+          updated_at: new Date().toISOString(),
+        };
+        if (idx >= 0) syncData.data[idx] = merged;
+        else syncData.data.push(merged);
+        syncData._updatedAt = new Date().toISOString();
+        fs.writeFileSync(brandsFile, JSON.stringify(syncData, null, 2), 'utf-8');
+      } catch (e) {
+        console.warn('[Scout reject] Brand sync failed:', e.message);
+      }
+    }
 
     const { regenerateScoutReport } = await import('./services/scoutAgent.js');
     const result = await regenerateScoutReport(userId, brand_id, feedback.trim());

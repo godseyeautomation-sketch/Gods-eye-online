@@ -34,11 +34,11 @@ export const Header: React.FC<HeaderProps> = ({ currentMode, setMode, theme, tog
         { id: AppMode.VIDEO, label: 'Video' },
         { id: AppMode.EDIT, label: 'Edit' },
         { id: AppMode.CHARACTER, label: 'Character' },
-        { id: AppMode.SPACES, label: 'Spaces', badge: 'NEW' },
+        // Spaces + Connectors are still routable (deep-links, brand → connectors
+        // page) but hidden from top nav to keep the menu focused.
         { id: AppMode.AUTOPILOT, label: 'Agents', badge: 'NEW' },
         { id: AppMode.ADMIN, label: 'Admin' }, // Only visible to admins
         { id: AppMode.APPS, label: 'Apps', badge: 'NEW' },
-        { id: AppMode.CONNECTORS, label: 'Connectors' },
     ];
 
     useEffect(() => {

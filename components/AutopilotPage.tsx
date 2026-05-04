@@ -742,10 +742,13 @@ export const AutopilotPage: React.FC<AutopilotPageProps> = ({ onNavigate }) => {
     scoutApprovingRef.current = true;
     setScoutApproving(true);
     try {
+      // Send the full brand object so the server can self-heal if its
+      // local sync was wiped on cold start (same fallback used by reject).
+      const brandPayload = brands.find(b => b.id === selectedBrandId) || null;
       const res = await fetch('/api/pipeline/scout/approve', {
         method: 'PATCH',
         headers,
-        body: JSON.stringify({ brand_id: selectedBrandId }),
+        body: JSON.stringify({ brand_id: selectedBrandId, brand: brandPayload }),
       });
       const data = await res.json();
       if (data.ok) {
@@ -775,10 +778,16 @@ export const AutopilotPage: React.FC<AutopilotPageProps> = ({ onNavigate }) => {
     setScoutRejecting(true);
     setAgentError(null);
     try {
+      // Send the full brand object alongside the id — protects against
+      // Cloud Run cold starts that wipe the local sync file (the server
+      // re-hydrates the brand into ~/.klint/sync from this payload before
+      // looking it up). Without this, regenerate can fail with
+      // "Brand not found" even though the brand is loaded in the UI.
+      const brandPayload = brands.find(b => b.id === selectedBrandId) || null;
       const res = await fetch('/api/pipeline/scout/reject', {
         method: 'POST',
         headers,
-        body: JSON.stringify({ brand_id: selectedBrandId, feedback }),
+        body: JSON.stringify({ brand_id: selectedBrandId, brand: brandPayload, feedback }),
       });
       const data = await res.json();
       if (!res.ok || !data.ok) {
