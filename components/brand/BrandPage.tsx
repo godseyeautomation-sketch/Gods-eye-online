@@ -454,17 +454,46 @@ export const BrandPage: React.FC<BrandPageProps> = ({ embedded = false, initialB
 
   useEffect(() => {
     if (!brand || activeTab !== 'calendar') return;
-    setLoadingSlots(true);
-    getSlotsForMonth(brand.id, calYear, calMonth)
-      .then(data => {
-        setSlots(data);
-        setLoadingSlots(false);
-      })
-      .catch(err => {
-        console.error('[Brand] Failed to load calendar slots:', err);
-        setSlots([]);
-        setLoadingSlots(false);
-      });
+
+    // Initial load — show spinner so the user knows something's happening
+    let cancelled = false;
+    const initialLoad = () => {
+      setLoadingSlots(true);
+      return getSlotsForMonth(brand.id, calYear, calMonth)
+        .then(data => {
+          if (cancelled) return;
+          setSlots(data);
+          setLoadingSlots(false);
+        })
+        .catch(err => {
+          if (cancelled) return;
+          console.error('[Brand] Failed to load calendar slots:', err);
+          setSlots([]);
+          setLoadingSlots(false);
+        });
+    };
+
+    // Background refresh — silent, no spinner. Used by the 30s poll and
+    // the visibility-change refresh so approvals from the queue tab show
+    // up automatically without flicker.
+    const silentRefresh = () => {
+      if (cancelled) return;
+      getSlotsForMonth(brand.id, calYear, calMonth)
+        .then(data => { if (!cancelled) setSlots(data); })
+        .catch(() => { /* keep last good state on transient errors */ });
+    };
+
+    initialLoad();
+
+    const interval = setInterval(silentRefresh, 30_000);
+    const onVisible = () => { if (document.visibilityState === 'visible') silentRefresh(); };
+    document.addEventListener('visibilitychange', onVisible);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, [brand, calYear, calMonth, activeTab]);
 
   const handleWizardComplete = async (dna: BrandDNA) => {

@@ -951,7 +951,8 @@ app.put('/api/approval-queue/:id/approve', (req, res) => {
 
     items[idx].status = 'approved';
     items[idx].resolved_at = new Date().toISOString();
-    writeSyncFile('approval_queue', { _updatedAt: new Date().toISOString(), data: items });
+    // We'll mirror scheduled_at from the slot (or set a default) below, then
+    // re-write the queue file once.
 
     // Also update the content slot status
     const slotsFile = readSyncFile('content_slots');
@@ -979,6 +980,13 @@ app.put('/api/approval-queue/:id/approve', (req, res) => {
       }
       writeSyncFile('content_slots', { _updatedAt: new Date().toISOString(), data: slots });
 
+      // Mirror the slot's final scheduled_at + slot_date back to the queue
+      // item so Slack messages, calendar tooltips, and the queue UI all
+      // show the same time. Without this, the queue item kept the original
+      // "no scheduled_at" state even though the slot had been auto-scheduled.
+      items[idx].scheduled_at = slots[slotIdx].scheduled_at;
+      items[idx].slot_date = slots[slotIdx].slot_date;
+
       // Reels need motion, not stills. Kick off Kling 3.0 image-to-video
       // generation in the background. The slot gets `generated_video`
       // populated when Kling finishes (~60-180s). Dispatch will prefer
@@ -999,6 +1007,10 @@ app.put('/api/approval-queue/:id/approve', (req, res) => {
         });
       }
     }
+
+    // Persist the queue file once now that we've copied the slot's
+    // scheduled_at + slot_date onto the queue item.
+    writeSyncFile('approval_queue', { _updatedAt: new Date().toISOString(), data: items });
 
     // If this queue item is part of an active review batch, feed the decision
     // into the reviewAgent so per-platform threshold logic can fire.

@@ -2211,22 +2211,42 @@ const BrandCalendarPane: React.FC<{ brand: BrandProfile; userId: string }> = ({ 
     return () => { cancelled = true; };
   }, []);
 
+  // Stable fetcher used by the initial load, the 30s poll, and the
+  // visibility-change refresh. Doesn't toggle the loading spinner on
+  // background refreshes — only the first load shows the spinner so
+  // periodic polling doesn't make the UI flicker.
+  const refetch = useCallback((showSpinner: boolean) => {
+    if (!brand?.id || !userId) return Promise.resolve();
+    if (showSpinner) setLoading(true);
+    return import('../services/brandService').then(({ getSlotsForMonth }) =>
+      getSlotsForMonth(brand.id, year, month)
+        .then(s => { setSlots(s || []); if (showSpinner) setLoading(false); })
+        .catch(() => { setSlots([]); if (showSpinner) setLoading(false); })
+    );
+  }, [brand?.id, userId, year, month]);
+
+  // Initial fetch on brand / month change
+  useEffect(() => {
+    let cancelled = false;
+    refetch(true).then(() => { if (cancelled) return; });
+    return () => { cancelled = true; };
+  }, [refetch]);
+
+  // Auto-refresh — keeps the calendar in sync with approval-queue actions
+  // (approve/reject/reschedule) without the user having to navigate away.
+  // a) Poll every 30s while the calendar is open
+  // b) Re-fetch immediately when the tab regains visibility (covers cases
+  //    where the user approved on another tab or another device)
   useEffect(() => {
     if (!brand?.id || !userId) return;
-    let cancelled = false;
-    setLoading(true);
-    import('../services/brandService').then(({ getSlotsForMonth }) => {
-      getSlotsForMonth(brand.id, year, month).then(s => {
-        if (!cancelled) {
-          setSlots(s || []);
-          setLoading(false);
-        }
-      }).catch(() => {
-        if (!cancelled) { setSlots([]); setLoading(false); }
-      });
-    });
-    return () => { cancelled = true; };
-  }, [brand?.id, userId, year, month]);
+    const interval = setInterval(() => { refetch(false); }, 30_000);
+    const onVisible = () => { if (document.visibilityState === 'visible') refetch(false); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [refetch, brand?.id, userId]);
 
   if (!BrandCalendar) {
     return (

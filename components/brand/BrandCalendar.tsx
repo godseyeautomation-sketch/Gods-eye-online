@@ -86,6 +86,17 @@ export const BrandCalendar: React.FC<Props> = ({ year, month, slots, onMonthChan
   const isToday = (day: number) =>
     today.getFullYear() === year && today.getMonth() + 1 === month && today.getDate() === day;
 
+  // Render a "9:00 AM" style time chip from a scheduled_at ISO string in the
+  // user's locale. Returns null if no time is set so callers can fall back.
+  const formatScheduledTime = (iso?: string | null): string | null => {
+    if (!iso) return null;
+    try {
+      const d = new Date(iso);
+      if (isNaN(d.getTime())) return null;
+      return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+    } catch { return null; }
+  };
+
   return (
     <div className="flex flex-col h-full">
       {/* Month navigation */}
@@ -175,18 +186,27 @@ export const BrandCalendar: React.FC<Props> = ({ year, month, slots, onMonthChan
                       const status: SlotStatus = slot?.status || 'empty';
                       const hasContent = !!slot?.idea;
 
+                      const scheduledTime = formatScheduledTime((slot as any)?.scheduled_at);
+                      const tooltipBits: string[] = [];
+                      if (slot?.idea) tooltipBits.push(slot.idea);
+                      if (scheduledTime) tooltipBits.push(`Scheduled ${scheduledTime}`);
                       return (
                         <button
                           key={format}
                           onClick={() => onSlotClick(dateStr(day), format, slot)}
                           className={`group/slot relative flex flex-col items-start px-2 py-1.5 rounded-lg text-[10px] font-semibold transition-all duration-200 hover:-translate-y-px w-full text-left ${STATUS_COLORS[status]}`}
-                          title={slot?.idea || `${format} · ${status}`}
+                          title={tooltipBits.join(' · ') || `${format} · ${status}`}
                         >
                           <span className="flex items-center gap-1.5 w-full">
                             <span className={`w-1 h-1 rounded-full flex-shrink-0 ${STATUS_DOTS[status]}`} />
                             <span className="flex-shrink-0 opacity-80">{FORMAT_ICONS[format]}</span>
                             <span className="capitalize tracking-wide">{format}</span>
-                            {slot?.pipeline_run_id && (
+                            {scheduledTime && (
+                              <span className="ml-auto text-[9px] font-bold opacity-95 whitespace-nowrap tracking-tight" title={`Scheduled ${scheduledTime}`}>
+                                {scheduledTime}
+                              </span>
+                            )}
+                            {slot?.pipeline_run_id && !scheduledTime && (
                               <span title="Autopilot generated" className="ml-auto text-[9px] text-violet-300">⚡</span>
                             )}
                           </span>
@@ -195,7 +215,7 @@ export const BrandCalendar: React.FC<Props> = ({ year, month, slots, onMonthChan
                               className="w-full mt-1 leading-snug opacity-80 line-clamp-2 text-[9.5px] font-normal"
                               style={{ whiteSpace: 'normal', wordBreak: 'break-word' }}
                             >
-                              {slot.idea}
+                              {scheduledTime ? `${scheduledTime} · ${slot.idea}` : slot.idea}
                             </span>
                           )}
                         </button>

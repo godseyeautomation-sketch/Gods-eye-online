@@ -3762,7 +3762,6 @@ app.put('/api/approval-queue/:id/approve', (req, res) => {
 
     items[idx].status = 'approved';
     items[idx].resolved_at = new Date().toISOString();
-    writeSyncFile('approval_queue', { _updatedAt: new Date().toISOString(), data: items });
 
     // Also update the content slot status
     const slotsFile = readSyncFile('content_slots');
@@ -3788,6 +3787,11 @@ app.put('/api/approval-queue/:id/approve', (req, res) => {
       }
       writeSyncFile('content_slots', { _updatedAt: new Date().toISOString(), data: slots });
 
+      // Mirror final scheduled_at + slot_date back to the queue item so
+      // calendar tooltips, queue UI, and Slack messages all agree.
+      items[idx].scheduled_at = slots[slotIdx].scheduled_at;
+      items[idx].slot_date = slots[slotIdx].slot_date;
+
       // Reels need motion. Kick off Kling 3.0 image-to-video in background.
       const approvedSlot = slots[slotIdx];
       if (approvedSlot.format === 'reel' && approvedSlot.generated_image && !approvedSlot.generated_video) {
@@ -3805,6 +3809,9 @@ app.put('/api/approval-queue/:id/approve', (req, res) => {
         });
       }
     }
+
+    // Persist the queue file once now that scheduled_at + slot_date are mirrored.
+    writeSyncFile('approval_queue', { _updatedAt: new Date().toISOString(), data: items });
 
     // If this queue item is part of an active review batch, feed the decision
     // into the reviewAgent so per-platform threshold logic can fire.
