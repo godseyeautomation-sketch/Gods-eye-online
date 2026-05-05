@@ -1510,8 +1510,8 @@ export const AutopilotPage: React.FC<AutopilotPageProps> = ({ onNavigate }) => {
                     ? 'Generating images and sending posts to Slack…'
                     : 'Generating images and adding posts to the Approval Queue…');
               const subline = dest === 'slack'
-                ? 'Check your connected Slack channel — click Approve, Reject, or Regenerate on each post.'
-                : 'Open the Approval Queue tab — click Approve, Reject, or Regenerate on each post.';
+                ? 'Check your connected Slack channel — approve, reject, or edit each post.'
+                : 'Open the Approval Queue tab — approve, reject, or edit each post.';
               return (
                 <div className="flex items-center gap-3 p-3 rounded-xl bg-cyan-500/5 border border-cyan-500/20">
                   <div className="w-5 h-5 rounded-full border-2 border-cyan-400 border-t-transparent animate-spin" />
