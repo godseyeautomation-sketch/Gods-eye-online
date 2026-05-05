@@ -9,6 +9,7 @@ import {
   getProfiles, createProfile, deleteProfile, verifyAccount,
   getHistory, getScheduledPosts, cancelScheduledPost,
   getProfileAnalytics, generateConnectUrl,
+  listAllProfiles, claimProfile,
 } from '../../services/uploadPostService';
 import { useAuth } from '../../context/AuthContext';
 
@@ -46,6 +47,13 @@ export const SocialAccountsPanel: React.FC<Props> = ({ brandName }) => {
   const [showAddForm, setShowAddForm] = useState(false);
   const [newUsername, setNewUsername] = useState('');
   const [adding, setAdding] = useState(false);
+
+  // Orphan recovery — used when the user hits the plan ceiling because
+  // earlier failed Connect attempts left zombie profiles on the API key
+  const [showRecover, setShowRecover] = useState(false);
+  const [orphans, setOrphans] = useState<Array<SocialProfile & { owned: boolean; orphan: boolean }>>([]);
+  const [loadingOrphans, setLoadingOrphans] = useState(false);
+  const [actioningOrphan, setActioningOrphan] = useState<string | null>(null);
 
   // History
   const [postHistory, setPostHistory] = useState<any[]>([]);
@@ -145,9 +153,63 @@ export const SocialAccountsPanel: React.FC<Props> = ({ brandName }) => {
       setShowAddForm(false);
       await loadProfiles();
     } catch (e: any) {
-      setError(e.message);
+      const msg = String(e?.message || '');
+      // Detect the plan-limit error and auto-open the recovery panel so the
+      // user can claim/delete orphan profiles instead of just seeing the
+      // dead-end "limit reached" toast.
+      if (/limit|maximum|5 profiles|reach/i.test(msg)) {
+        setError(`${msg}. Opening "Recover existing profiles" — claim or delete profiles created by earlier failed attempts to free up slots.`);
+        setShowAddForm(false);
+        await loadOrphans();
+      } else {
+        setError(msg);
+      }
     } finally {
       setAdding(false);
+    }
+  };
+
+  // Load every profile on the API key so the user can claim or delete the
+  // ones we've lost track of (orphans created before the ownership-write fix)
+  const loadOrphans = async () => {
+    if (!userId) return;
+    setLoadingOrphans(true);
+    setShowRecover(true);
+    try {
+      const data = await listAllProfiles(userId);
+      setOrphans(data.profiles || []);
+    } catch (e: any) {
+      setError(`Failed to load existing profiles: ${e?.message || 'unknown'}`);
+    } finally {
+      setLoadingOrphans(false);
+    }
+  };
+
+  const handleClaimOrphan = async (username: string) => {
+    if (!userId) return;
+    setActioningOrphan(username);
+    try {
+      await claimProfile(username, userId);
+      await loadProfiles();          // refresh the main list — should now include this profile
+      await loadOrphans();           // refresh orphan list — claimed flag flips
+    } catch (e: any) {
+      setError(`Failed to claim "${username}": ${e?.message}`);
+    } finally {
+      setActioningOrphan(null);
+    }
+  };
+
+  const handleDeleteOrphan = async (username: string) => {
+    if (!confirm(`Delete profile "${username}" from Upload Post? This frees up a plan slot but disconnects any platforms linked to it. Cannot be undone.`)) return;
+    if (!userId) return;
+    setActioningOrphan(username);
+    try {
+      await deleteProfile(username, userId);
+      await loadOrphans();
+    } catch (e: any) {
+      setError(`Failed to delete "${username}": ${e?.message}`);
+    } finally {
+      setActioningOrphan(null);
     }
   };
 
@@ -380,19 +442,104 @@ export const SocialAccountsPanel: React.FC<Props> = ({ brandName }) => {
           )}
 
           {/* Empty state / Add profile */}
-          {profiles.length === 0 && !showAddForm && (
+          {profiles.length === 0 && !showAddForm && !showRecover && (
             <div className="text-center py-12 bg-surface border border-border rounded-xl">
               <Share2 size={32} className="text-text-secondary mx-auto mb-4 opacity-40" />
               <h3 className="text-text-primary font-semibold mb-1">Connect your social accounts</h3>
               <p className="text-text-secondary text-xs mb-4 max-w-sm mx-auto">
                 Create a profile to start publishing to Instagram, TikTok, X, LinkedIn, and 7 more platforms.
               </p>
-              <button
-                onClick={() => setShowAddForm(true)}
-                className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-brand text-bg text-sm font-bold mx-auto hover:opacity-90 transition-all"
-              >
-                <Plus size={14} /> Create Profile
-              </button>
+              <div className="flex items-center justify-center gap-2">
+                <button
+                  onClick={() => setShowAddForm(true)}
+                  className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-brand text-bg text-sm font-bold hover:opacity-90 transition-all"
+                >
+                  <Plus size={14} /> Create Profile
+                </button>
+                <button
+                  onClick={loadOrphans}
+                  className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl border border-border text-text-secondary text-xs hover:text-text-primary hover:border-text-secondary transition-colors"
+                  title="View profiles that exist on Upload Post but aren't linked to this account"
+                >
+                  Recover existing
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Orphan recovery panel — lists every profile on the Upload Post API
+              key. User can Claim (link to current account) or Delete (free a
+              plan slot). Shown when user hits limit or explicitly clicks
+              "Recover existing". */}
+          {showRecover && (
+            <div className="bg-surface border border-amber-500/30 rounded-xl p-4 space-y-3">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <h3 className="text-sm font-bold text-amber-300 flex items-center gap-2">
+                    <AlertTriangle size={14} /> Recover existing profiles
+                  </h3>
+                  <p className="text-[11px] text-text-secondary mt-1 leading-relaxed">
+                    These profiles exist on Upload Post but aren't linked to your account yet.
+                    Claim ones you want to use, or delete unused ones to free up plan slots
+                    (basic plan = max 5 profiles).
+                  </p>
+                </div>
+                <button onClick={() => setShowRecover(false)} className="text-text-secondary hover:text-text-primary"><X size={14} /></button>
+              </div>
+              {loadingOrphans ? (
+                <div className="flex items-center justify-center py-6">
+                  <Loader2 size={20} className="animate-spin text-text-secondary" />
+                </div>
+              ) : orphans.length === 0 ? (
+                <p className="text-xs text-text-secondary text-center py-4">No profiles found on the API key.</p>
+              ) : (
+                <div className="space-y-2">
+                  {orphans.map(p => {
+                    const connectedPlatforms = p.social_accounts ? Object.entries(p.social_accounts).filter(([, v]) => v && v !== '').map(([k]) => k) : [];
+                    return (
+                      <div key={p.username} className="flex items-center justify-between gap-3 p-3 rounded-lg bg-bg/40 border border-white/[0.04]">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-semibold text-text-primary truncate">{p.username}</span>
+                            {p.owned && <span className="text-[9px] uppercase tracking-wider text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded">Yours</span>}
+                            {p.orphan && <span className="text-[9px] uppercase tracking-wider text-amber-400 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded">Orphan</span>}
+                          </div>
+                          {connectedPlatforms.length > 0 && (
+                            <p className="text-[10px] text-text-secondary mt-0.5">Connected: {connectedPlatforms.join(', ')}</p>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1.5 flex-shrink-0">
+                          {p.orphan && (
+                            <button
+                              onClick={() => handleClaimOrphan(p.username)}
+                              disabled={actioningOrphan === p.username}
+                              className="px-2.5 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 text-[11px] font-bold border border-emerald-500/20 transition disabled:opacity-50"
+                            >
+                              {actioningOrphan === p.username ? <Loader2 size={10} className="animate-spin" /> : 'Claim'}
+                            </button>
+                          )}
+                          <button
+                            onClick={() => handleDeleteOrphan(p.username)}
+                            disabled={actioningOrphan === p.username}
+                            className="p-1.5 rounded-lg text-red-400 hover:bg-red-500/10 transition disabled:opacity-50"
+                            title="Delete profile from Upload Post (frees a plan slot)"
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              <div className="flex items-center justify-between pt-2 border-t border-white/[0.04]">
+                <p className="text-[10px] text-text-secondary/60">
+                  {orphans.filter(o => o.owned).length} owned · {orphans.filter(o => o.orphan).length} orphaned · {orphans.length} of 5 plan slots used
+                </p>
+                <button onClick={loadOrphans} className="text-[11px] text-text-secondary hover:text-text-primary flex items-center gap-1">
+                  <RefreshCw size={10} /> Refresh
+                </button>
+              </div>
             </div>
           )}
 

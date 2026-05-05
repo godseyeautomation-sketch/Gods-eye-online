@@ -555,6 +555,49 @@ app.post('/api/upload-post/users/generate-jwt', async (req, res) => {
   return proxyUploadPost(req, res, 'POST', '/api/uploadposts/users/generate-jwt', req.body);
 });
 
+// GET /api/upload-post/users/list-all — list every profile on the API key,
+// ignoring ownership. Used by the "Recover orphan profiles" UI when the
+// user has hit Upload Post's plan ceiling and needs to reclaim or delete
+// profiles created by earlier failed attempts.
+app.get('/api/upload-post/users/list-all', async (req, res) => {
+  try {
+    if (!uploadPostApiKey) return res.status(500).json({ error: 'UPLOAD_POST_API_KEY not configured' });
+    const userId = callerUserId(req);
+    const owned = new Set(await getOwnedUsernames(userId));
+    const resp = await fetch(`${UPLOAD_POST_BASE}/api/uploadposts/users`, {
+      headers: { 'Authorization': `Apikey ${uploadPostApiKey}` },
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) return res.status(resp.status).json(data);
+    const all = Array.isArray(data?.profiles) ? data.profiles : (Array.isArray(data) ? data : []);
+    const enriched = all.map(p => ({
+      ...p,
+      owned: owned.has(p.username),
+      orphan: !owned.has(p.username),
+    }));
+    res.json({ profiles: enriched, total: enriched.length, owned_count: enriched.filter(p => p.owned).length });
+  } catch (err) {
+    console.error('[Upload-Post] list-all error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/upload-post/users/claim — claim ownership of an existing profile.
+// Used to recover orphan profiles created during earlier failed connect attempts.
+app.post('/api/upload-post/users/claim', async (req, res) => {
+  try {
+    const userId = callerUserId(req);
+    if (!userId) return res.status(401).json({ error: 'x-user-id header required' });
+    const username = req.body?.username;
+    if (!username) return res.status(400).json({ error: 'username required' });
+    await recordOwnership(userId, username);
+    res.json({ ok: true, username, claimed_by: userId });
+  } catch (err) {
+    console.error('[Upload-Post] claim error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/upload-post/check-connection?brand_id=X — fast check whether the
 // caller has at least one Upload Post profile with a connected platform.
 // Used by the global "needs connection" popup to decide whether to show.

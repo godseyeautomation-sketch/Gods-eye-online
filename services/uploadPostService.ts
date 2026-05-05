@@ -274,6 +274,30 @@ export async function checkAnyConnection(userId: string): Promise<{ connected: b
   }
 }
 
+/**
+ * List EVERY profile on the API key, including orphans the user doesn't own.
+ * Used by the "Recover orphan profiles" UI when the plan ceiling is hit and
+ * the user needs to claim or delete profiles created during earlier failed
+ * connect attempts.
+ */
+export async function listAllProfiles(userId: string): Promise<{ profiles: Array<SocialProfile & { owned: boolean; orphan: boolean }>; total: number; owned_count: number }> {
+  const res = await fetch('/api/upload-post/users/list-all', {
+    headers: userId ? { 'x-user-id': userId } : undefined,
+  });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Failed to list profiles');
+  return res.json();
+}
+
+/** Claim ownership of an existing orphan profile */
+export async function claimProfile(username: string, userId: string): Promise<void> {
+  const res = await fetch('/api/upload-post/users/claim', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-user-id': userId },
+    body: JSON.stringify({ username }),
+  });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Failed to claim profile');
+}
+
 /** Create a new social profile (tagged with userId for isolation) */
 export async function createProfile(profile: { username: string; platform?: string; user_id?: string }): Promise<SocialProfile> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
