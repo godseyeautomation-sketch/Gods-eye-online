@@ -124,6 +124,18 @@ export const AutopilotPage: React.FC<AutopilotPageProps> = ({ onNavigate }) => {
   const [reviewResult, setReviewResult] = useState<{ decision: string; approved_count: number; rejected_count: number; total_reviewed: number } | null>(null);
   // Tracks where the most recent Review run was sent — drives the banner copy.
   const [lastReviewMode, setLastReviewMode] = useState<'slack' | 'dashboard' | null>(null);
+  // Dispatch status banner — fires after a successful connect-then-resume,
+  // and updates as Dispatch publishes / schedules posts. Shown on the
+  // Run Agents page above the agent cards.
+  const [dispatchStatus, setDispatchStatus] = useState<{
+    state: 'connected' | 'running' | 'done' | 'error';
+    profile?: string;
+    platforms?: string[];
+    scheduled_count?: number;
+    published_count?: number;
+    failed_count?: number;
+    message?: string;
+  } | null>(null);
   const [agentError, setAgentError] = useState<string | null>(null);
   const [chainMode, setChainMode] = useState(true); // auto-run next agent after current finishes
   const [scoutApproved, setScoutApproved] = useState(false); // Scout report approval gate
@@ -375,6 +387,38 @@ export const AutopilotPage: React.FC<AutopilotPageProps> = ({ onNavigate }) => {
     }, 800);
   }, [pendingReviewBrandId, selectedBrandId, brands, user?.id, runningAgent]);
 
+  // ── Dispatch connection-landed handler ────────────────────────────────
+  // The ConnectSocialPopup fires `upload-post:connection-landed` when the
+  // user finishes connecting and resume-pending succeeds. We:
+  //   1. Show a green "Account connected" banner above the agent cards
+  //   2. Auto-fire Dispatch one more time so the user sees the actual
+  //      publish/schedule run results (not just the resume summary).
+  // The banner is dismissable; auto-clears 12s after the dispatch result
+  // lands so it doesn't stay forever.
+  useEffect(() => {
+    const onLanded = (e: any) => {
+      const detail = e.detail || {};
+      setDispatchStatus({
+        state: 'connected',
+        profile: detail.profile,
+        platforms: detail.platforms || [],
+        scheduled_count: detail.resumed || 0,
+        message: `Account connected${detail.profile ? ` as @${detail.profile}` : ''}${detail.platforms?.length ? ` · ${detail.platforms.join(', ')}` : ''}. Posting…`,
+      });
+      // Re-run Dispatch now that connection is confirmed — picks up any
+      // remaining approved-but-not-scheduled slots and posts their results
+      if (!runningAgent) {
+        setTimeout(() => {
+          setDispatchStatus(s => s ? { ...s, state: 'running' } : s);
+          runAgent('dispatcher');
+        }, 600);
+      }
+    };
+    window.addEventListener('upload-post:connection-landed', onLanded);
+    return () => window.removeEventListener('upload-post:connection-landed', onLanded);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runningAgent]);
+
   // ── Load pipeline runs for selected brand ─────────────────────────────
   const fetchRuns = useCallback(async () => {
     if (!user?.id || !selectedBrandId) return;
@@ -535,6 +579,27 @@ export const AutopilotPage: React.FC<AutopilotPageProps> = ({ onNavigate }) => {
           window.dispatchEvent(new CustomEvent('upload-post:needs-connection', {
             detail: { source: agentId, brandId: selectedBrandId },
           }));
+          if (agentId === 'dispatcher' || agentId === 'dispatch') {
+            setDispatchStatus({ state: 'error', message: data.result.message || 'Connect a social account to publish.' });
+          }
+        }
+
+        // Dispatch result — populate the status banner with concrete numbers
+        if ((agentId === 'dispatcher' || agentId === 'dispatch') && data.result && !data.result.needs_connection) {
+          const r = data.result;
+          setDispatchStatus({
+            state: 'done',
+            published_count: r.published_count || 0,
+            failed_count: r.failed_count || 0,
+            scheduled_count: r.skipped_scheduled || 0,
+            message: r.published_count > 0
+              ? `Published ${r.published_count} post${r.published_count !== 1 ? 's' : ''}${r.failed_count ? ` · ${r.failed_count} failed` : ''}.`
+              : r.skipped_scheduled > 0
+                ? `${r.skipped_scheduled} post${r.skipped_scheduled !== 1 ? 's' : ''} already scheduled in Upload Post — they'll publish at their scheduled times.`
+                : 'No posts to publish right now.',
+          });
+          // Auto-clear the banner after 12 seconds so it doesn't linger
+          setTimeout(() => setDispatchStatus(prev => prev?.state === 'done' ? null : prev), 12_000);
         }
         if (agentId === 'scout' && data.result) {
           setScoutResult(data.result);
@@ -1584,6 +1649,45 @@ export const AutopilotPage: React.FC<AutopilotPageProps> = ({ onNavigate }) => {
                 </div>
               );
             })()}
+            {/* Dispatch status banner — populated by the connect-landed
+                handler and the Dispatch agent result. Shows the connection
+                profile + published/scheduled counts in plain English. */}
+            {dispatchStatus && (
+              <div className={`flex items-center gap-3 p-3 rounded-xl border ${
+                dispatchStatus.state === 'error' ? 'bg-red-500/5 border-red-500/20' :
+                dispatchStatus.state === 'done' ? 'bg-emerald-500/5 border-emerald-500/20' :
+                'bg-emerald-500/10 border-emerald-500/30'
+              }`}>
+                <span className="text-lg flex-shrink-0">
+                  {dispatchStatus.state === 'error' ? '⚠️' :
+                   dispatchStatus.state === 'connected' ? '🔗' :
+                   dispatchStatus.state === 'running' ? '🚀' : '✅'}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-text-primary">
+                    {dispatchStatus.state === 'connected' && 'Account connected — preparing to post'}
+                    {dispatchStatus.state === 'running' && 'Dispatch running — scheduling posts via Upload Post…'}
+                    {dispatchStatus.state === 'done' && (dispatchStatus.published_count ? 'Dispatch complete' : 'Posts scheduled')}
+                    {dispatchStatus.state === 'error' && 'Dispatch needs attention'}
+                  </p>
+                  <p className="text-xs text-text-secondary mt-0.5">{dispatchStatus.message}</p>
+                  {dispatchStatus.profile && (
+                    <p className="text-[11px] text-text-secondary/60 mt-0.5">
+                      Profile: <span className="font-semibold text-text-primary">@{dispatchStatus.profile}</span>
+                      {dispatchStatus.platforms?.length ? ` · ${dispatchStatus.platforms.join(', ')}` : ''}
+                    </p>
+                  )}
+                </div>
+                <button
+                  onClick={() => setDispatchStatus(null)}
+                  className="text-text-secondary/50 hover:text-text-primary p-1 flex-shrink-0"
+                  title="Dismiss"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+              </div>
+            )}
+
             {reviewResult && runningAgent !== 'reviewer' && (
               <div className={`flex items-center gap-3 p-3 rounded-xl border ${
                 reviewResult.decision === 'approved' ? 'bg-emerald-500/5 border-emerald-500/20' :
@@ -2604,6 +2708,13 @@ const ConnectSocialPopup: React.FC<{ userId: string; brandId: string; brandName:
         if (data.connected) {
           if (cancelled) return;
           setStep('resuming');
+          // Find the connected profile name for the toast
+          const connectedProfile = (data.profiles || []).find((p: any) => {
+            const accts = p.social_accounts || {};
+            return Object.values(accts).some((v: any) => v && String(v).length > 0);
+          });
+          let resumed = 0;
+          let failed = 0;
           try {
             const r = await fetch('/api/dispatch/resume-pending', {
               method: 'POST',
@@ -2611,9 +2722,33 @@ const ConnectSocialPopup: React.FC<{ userId: string; brandId: string; brandName:
               body: JSON.stringify({ brand_id: brandId }),
             });
             const summary = await r.json();
-            setResumeSummary({ resumed: summary.resumed || 0, failed: summary.failed || 0 });
+            resumed = summary.resumed || 0;
+            failed = summary.failed || 0;
+            setResumeSummary({ resumed, failed });
           } catch { setResumeSummary({ resumed: 0, failed: 0 }); }
           setStep('done');
+
+          // Notify the rest of the app that the connection landed — the
+          // Dispatch card listens for this and updates its status text.
+          window.dispatchEvent(new CustomEvent('upload-post:connection-landed', {
+            detail: {
+              brandId,
+              profile: connectedProfile?.username || null,
+              platforms: connectedProfile?.social_accounts ? Object.keys(connectedProfile.social_accounts).filter(k => connectedProfile.social_accounts[k]) : [],
+              resumed,
+              failed,
+            },
+          }));
+
+          // Auto-close after a short success display so the user doesn't
+          // have to click Done. Total visible "Connected & resumed" panel
+          // is ~2.5s.
+          setTimeout(() => {
+            if (cancelled) return;
+            setOpen(false);
+            setStep('idle');
+            setResumeSummary(null);
+          }, 2500);
         }
       } catch { /* keep polling */ }
     };
