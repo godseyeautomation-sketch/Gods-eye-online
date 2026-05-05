@@ -291,7 +291,7 @@ export const AutopilotPage: React.FC<AutopilotPageProps> = ({ onNavigate }) => {
     // Without this, the Competitors view reads from `config.competitors`
     // (in-memory only) which gets reset to DEFAULT_CONFIG on every reload.
     // The persisted source of truth is brand.competitors in IndexedDB.
-    const brand = brands.find(b => b.id === selectedBrandId);
+    // (`brand` was already resolved above for the scout_report restore.)
     if (brand) {
       const competitors = (brand.competitors || []).map(comp => ({
         handle: comp.name,
