@@ -70,14 +70,17 @@ const STATUS_ICONS: Record<ApprovalStatus, string> = {
   expired: '',
 };
 
-// localStorage cache key — per brand, so multi-brand users don't conflict.
-// Guard: never read/write under "approval_queue_cache_null" — that happens if
-// brandId hasn't been resolved yet. A null cache key would silently swap real
-// brand items into a junk slot, making them disappear on the next reload.
+// Two-layer cache:
+//   1. localStorage: synchronous, used for FIRST render so the UI never flashes
+//      empty. Holds the most-recent snapshot (size-limited to last 50).
+//   2. IndexedDB: durable, async, mirrors image-generation cache. Survives
+//      Cloud Run deploys, browser restarts. Holds the full set.
+// Both are written together; IndexedDB is the authoritative source on
+// background hydration. localStorage is just the hot-path "feel fast" tier.
 const CACHE_KEY = (brandId: string) => `approval_queue_cache_${brandId}`;
 const CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 7; // 7 days
 
-function loadCachedItems(brandId: string): ApprovalQueueItem[] {
+function loadCachedItemsSync(brandId: string): ApprovalQueueItem[] {
   if (!brandId) return [];
   try {
     const raw = localStorage.getItem(CACHE_KEY(brandId));
@@ -88,21 +91,33 @@ function loadCachedItems(brandId: string): ApprovalQueueItem[] {
     return parsed.items;
   } catch { return []; }
 }
+
+// Async durable load — pulls from IndexedDB. Used after mount to hydrate
+// any items the localStorage snapshot was too small to hold.
+async function loadCachedItemsDurable(brandId: string): Promise<ApprovalQueueItem[]> {
+  if (!brandId) return [];
+  try {
+    const { getApprovalQueueItems } = await import('../../services/localStorageService');
+    const items = await getApprovalQueueItems(brandId);
+    return Array.isArray(items) ? items : [];
+  } catch { return []; }
+}
+
 function saveCachedItems(brandId: string, items: ApprovalQueueItem[]) {
-  if (!brandId) return; // skip write when brandId hasn't been set yet
-  // Cache the full items including base64 images / videos. localStorage is
-  // the only place generated_image survives a Cloud Run cold start when
-  // images were stored inline (no remote URL). If we hit the ~5 MB quota,
-  // progressively trim from the oldest end until it fits — never strip the
-  // image content itself, since that's what we're trying to preserve.
+  if (!brandId) return;
+  // Tier 1: localStorage snapshot — limited to last 50 to stay under quota
+  const snapshot = items.slice(-50);
   const tryWrite = (subset: ApprovalQueueItem[]) =>
     localStorage.setItem(CACHE_KEY(brandId), JSON.stringify({ items: subset, cachedAt: Date.now() }));
-  try { tryWrite(items); return; } catch {}
-  // Progressive fallback: 50 most recent → 25 → 10 → give up
-  for (const cap of [50, 25, 10]) {
-    try { tryWrite(items.slice(-cap)); return; } catch {}
+  try { tryWrite(snapshot); } catch {
+    for (const cap of [25, 10]) {
+      try { tryWrite(items.slice(-cap)); break; } catch {}
+    }
   }
-  // Skip the write rather than throw — UI keeps in-memory state intact.
+  // Tier 2: IndexedDB — full durable set, async fire-and-forget
+  import('../../services/localStorageService').then(({ saveApprovalQueueItems }) => {
+    saveApprovalQueueItems(brandId, items).catch(() => {});
+  }).catch(() => {});
 }
 // Merge server response with cache. Server is the source of truth for
 // status / scheduled_at / reviewer_notes etc, but for media fields
@@ -135,16 +150,33 @@ export default function ApprovalQueue({ brandId, onRefresh }: ApprovalQueueProps
   const { user } = useAuth();
   // Hydrate from cache on first render so the UI never shows empty if
   // there's prior data to display, even before the server responds.
-  const [items, setItems] = useState<ApprovalQueueItem[]>(() => loadCachedItems(brandId));
+  const [items, setItems] = useState<ApprovalQueueItem[]>(() => loadCachedItemsSync(brandId));
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'pending' | 'all' | 'approved' | 'rejected'>('pending');
   const [platformFilter, setPlatformFilter] = useState<SocialPlatform | 'all'>('all');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
-  // Re-hydrate cache when brandId changes (user switches brand)
+  // Re-hydrate cache when brandId changes (user switches brand).
+  // Two-tier: synchronous localStorage snapshot first (instant render),
+  // then async IndexedDB pull which may have MORE items than the
+  // localStorage snapshot held (size-limited to 50). Durable items
+  // override the snapshot when they exist.
   useEffect(() => {
-    setItems(loadCachedItems(brandId));
+    setItems(loadCachedItemsSync(brandId));
+    if (!brandId) return;
+    let cancelled = false;
+    loadCachedItemsDurable(brandId).then(durable => {
+      if (cancelled || durable.length === 0) return;
+      setItems(prev => {
+        // Merge: durable is the source of truth, but keep any synchronous
+        // items not yet persisted (very rare race).
+        const map = new Map(durable.map(i => [i.id, i]));
+        for (const it of prev) if (!map.has(it.id)) map.set(it.id, it);
+        return Array.from(map.values());
+      });
+    }).catch(() => {});
+    return () => { cancelled = true; };
   }, [brandId]);
 
   // Compare two queue lists for meaningful changes — used to skip setItems
@@ -190,7 +222,7 @@ export default function ApprovalQueue({ brandId, onRefresh }: ApprovalQueueProps
       const data = await res.json();
       if (data.ok) {
         const serverItems: ApprovalQueueItem[] = data.items || [];
-        const cached = loadCachedItems(brandId);
+        const cached = loadCachedItemsSync(brandId);
         const merged = mergeServerWithCache(serverItems, cached);
         // Recover images from IndexedDB content_slots when the server-side
         // approval_queue.json was wiped (Cloud Run cold start).
@@ -201,12 +233,12 @@ export default function ApprovalQueue({ brandId, onRefresh }: ApprovalQueueProps
           return hydrated;
         });
       } else if (!silent) {
-        setItems(loadCachedItems(brandId));
+        setItems(loadCachedItemsSync(brandId));
       }
     } catch (err) {
       if (!silent) {
         console.error('Failed to fetch approval queue:', err);
-        setItems(loadCachedItems(brandId));
+        setItems(loadCachedItemsSync(brandId));
       }
     }
     if (!silent) setLoading(false);

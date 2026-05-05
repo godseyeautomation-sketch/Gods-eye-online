@@ -2563,6 +2563,62 @@ const BrandCalendarPane: React.FC<{ brand: BrandProfile; userId: string }> = ({ 
     return () => clearInterval(interval);
   }, [brand?.id]);
 
+  // Reschedule modal state — opens when user clicks a slot on the calendar
+  const [rescheduleSlot, setRescheduleSlot] = useState<any | null>(null);
+  const [rescheduleAt, setRescheduleAt] = useState<string>('');
+  const [rescheduleSaving, setRescheduleSaving] = useState(false);
+  const [rescheduleError, setRescheduleError] = useState<string | null>(null);
+
+  const openReschedule = (date: string, format: any, existing: any) => {
+    if (!existing) return; // empty slot — nothing to reschedule
+    setRescheduleSlot(existing);
+    setRescheduleError(null);
+    const initial = existing.scheduled_at
+      ? new Date(existing.scheduled_at).toISOString().slice(0, 16)  // datetime-local format
+      : `${date}T09:00`;
+    setRescheduleAt(initial);
+  };
+
+  const handleSaveReschedule = async () => {
+    if (!rescheduleSlot) return;
+    setRescheduleSaving(true);
+    setRescheduleError(null);
+    try {
+      const newIso = new Date(rescheduleAt).toISOString();
+      // Find the linked approval queue item to reschedule via the existing
+      // /api/approval-queue/:id/schedule endpoint, which also patches the
+      // Upload Post job_id if one exists.
+      const queueRes = await fetch(`/api/approval-queue?brand_id=${brand.id}&status=all&limit=200`);
+      const queueData = await queueRes.json();
+      const queueItem = (queueData.items || []).find((i: any) => i.slot_id === rescheduleSlot.id);
+      if (queueItem) {
+        const r = await fetch(`/api/approval-queue/${queueItem.id}/schedule`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ scheduled_at: newIso }),
+        });
+        const data = await r.json();
+        if (!data.ok) throw new Error(data.error || 'Reschedule failed');
+      } else {
+        // No queue item yet — write directly to content_slots via sync API
+        await fetch(`/api/sync/content_slots`, { method: 'GET' }); // ensure file exists
+        // For pre-approval slots, just update local IndexedDB
+        const { upsertSlot } = await import('../services/brandService');
+        await upsertSlot(userId, brand.id, newIso.slice(0, 10), rescheduleSlot.format, {
+          ...rescheduleSlot,
+          scheduled_at: newIso,
+        });
+      }
+      // Refresh calendar
+      refetch(false);
+      setRescheduleSlot(null);
+    } catch (err: any) {
+      setRescheduleError(err?.message || 'Failed to reschedule');
+    } finally {
+      setRescheduleSaving(false);
+    }
+  };
+
   if (!BrandCalendar) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -2586,7 +2642,7 @@ const BrandCalendarPane: React.FC<{ brand: BrandProfile; userId: string }> = ({ 
             Calendar
           </h1>
           <p className="aw-fade-up text-sm text-text-secondary/80 mt-3 leading-relaxed" style={{ animationDelay: '240ms' }}>
-            {slots.length} slot{slots.length !== 1 ? 's' : ''} planned this month. Each Priya cycle drops new posts here.
+            {slots.length} slot{slots.length !== 1 ? 's' : ''} planned this month · click any slot to reschedule it.
           </p>
         </div>
         {loading && (
@@ -2603,11 +2659,68 @@ const BrandCalendarPane: React.FC<{ brand: BrandProfile; userId: string }> = ({ 
           month={month}
           slots={slots}
           onMonthChange={(y: number, m: number) => { setYear(y); setMonth(m); }}
-          onSlotClick={() => {}}
+          onSlotClick={openReschedule}
           selectedPlatform={platform}
           onPlatformChange={setPlatform}
         />
       </div>
+
+      {/* Reschedule modal — opens when user clicks a slot on the calendar.
+          Lets them pick a new date+time; saves via the same /schedule
+          endpoint the approval queue uses (which also PATCHes the Upload
+          Post job if one exists). */}
+      {rescheduleSlot && (
+        <div className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => !rescheduleSaving && setRescheduleSlot(null)}>
+          <div className="bg-panel border border-border rounded-2xl max-w-lg w-full p-7 space-y-4" onClick={e => e.stopPropagation()}>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-xl font-bold text-text-primary">Reschedule post</h2>
+                <p className="text-sm text-text-secondary mt-1 capitalize">
+                  {rescheduleSlot.format} · {rescheduleSlot.platform || 'instagram'} · {rescheduleSlot.idea || rescheduleSlot.brief?.hook || 'Untitled'}
+                </p>
+              </div>
+              <button onClick={() => setRescheduleSlot(null)} disabled={rescheduleSaving} className="text-text-secondary/60 hover:text-text-primary transition disabled:opacity-50">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-[11px] uppercase tracking-wider text-text-secondary/60 font-bold">New date & time</label>
+              <input
+                type="datetime-local"
+                value={rescheduleAt}
+                min={new Date().toISOString().slice(0, 16)}
+                onChange={e => setRescheduleAt(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl bg-white/[0.03] border border-white/[0.08] text-text-primary text-sm focus:outline-none focus:border-brand/50 transition"
+              />
+              <p className="text-[11px] text-text-secondary/50">
+                {rescheduleSlot.upload_post_job_id
+                  ? 'This post is already queued in Upload Post — saving will update the actual posting time.'
+                  : 'Saving will set the slot\'s scheduled time. Once approved, Upload Post will publish at this time.'}
+              </p>
+            </div>
+
+            {rescheduleError && (
+              <p className="text-xs text-red-400">{rescheduleError}</p>
+            )}
+
+            <div className="flex items-center gap-2 pt-2">
+              <button
+                onClick={handleSaveReschedule}
+                disabled={rescheduleSaving || !rescheduleAt}
+                className="flex-1 py-2.5 rounded-xl bg-brand text-bg text-sm font-bold hover:bg-brand-hover transition disabled:opacity-40 flex items-center justify-center gap-2"
+              >
+                {rescheduleSaving ? (
+                  <><div className="w-3.5 h-3.5 rounded-full border-2 border-bg border-t-transparent animate-spin" /> Saving…</>
+                ) : 'Save new time'}
+              </button>
+              <button onClick={() => setRescheduleSlot(null)} disabled={rescheduleSaving} className="px-4 py-2.5 text-xs text-text-secondary/60 hover:text-text-primary disabled:opacity-50">
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

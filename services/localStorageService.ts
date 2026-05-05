@@ -9,7 +9,8 @@ const VIDEO_STORE = 'video_generations';
 const VIDEO_PROJECTS_STORE = 'video_projects';
 const CONVERSATIONS_STORE = 'conversations';
 const CHAT_MESSAGES_STORE = 'chat_messages';
-const VERSION = 7;
+const APPROVAL_QUEUE_STORE = 'approval_queue';
+const VERSION = 8;
 
 interface LocalGeneration {
     id: string;
@@ -79,6 +80,15 @@ async function getDB(): Promise<IDBPDatabase> {
                     const store = db.createObjectStore(CHAT_MESSAGES_STORE, { keyPath: 'id' });
                     store.createIndex('conversationId', 'conversationId');
                     store.createIndex('timestamp', 'timestamp');
+                }
+                // v8: approval queue cache — survives Cloud Run deploys because
+                // it lives in the browser's IndexedDB, same as image generations.
+                // Each item is keyed by its queue id; brand_id index lets us
+                // query everything for a brand quickly.
+                if (!db.objectStoreNames.contains(APPROVAL_QUEUE_STORE)) {
+                    const store = db.createObjectStore(APPROVAL_QUEUE_STORE, { keyPath: 'id' });
+                    store.createIndex('brand_id', 'brand_id');
+                    store.createIndex('updated_at', 'updated_at');
                 }
             },
         });
@@ -778,5 +788,57 @@ export async function restoreChatFromServer(): Promise<boolean> {
     } catch (err) {
         console.warn('[Klint Sync] ❌ Failed to restore chat from server:', err);
         return false;
+    }
+}
+
+// ── Approval Queue cache (IndexedDB) ───────────────────────────────────────
+// Stores approval queue items in IndexedDB so they survive Cloud Run deploys
+// (the server-side approval_queue.json is on ephemeral filesystem). Mirrors
+// how image generations are cached — same DB, same survival guarantees.
+export async function saveApprovalQueueItems(brandId: string, items: any[]): Promise<void> {
+    if (!brandId || !Array.isArray(items)) return;
+    try {
+        const db = await getDB();
+        const tx = db.transaction(APPROVAL_QUEUE_STORE, 'readwrite');
+        const store = tx.objectStore(APPROVAL_QUEUE_STORE);
+
+        // Replace entire brand's set: delete existing brand items first,
+        // then write the new set. Avoids stale items lingering forever.
+        const index = store.index('brand_id');
+        let cursor = await index.openCursor(brandId);
+        while (cursor) {
+            await cursor.delete();
+            cursor = await cursor.continue();
+        }
+        for (const it of items) {
+            if (!it?.id) continue;
+            await store.put({ ...it, brand_id: it.brand_id || brandId });
+        }
+        await tx.done;
+    } catch (err) {
+        console.warn('[ApprovalQueueCache] saveApprovalQueueItems failed:', err);
+    }
+}
+
+export async function getApprovalQueueItems(brandId: string): Promise<any[]> {
+    if (!brandId) return [];
+    try {
+        const db = await getDB();
+        const items = await db.getAllFromIndex(APPROVAL_QUEUE_STORE, 'brand_id', brandId);
+        return Array.isArray(items) ? items : [];
+    } catch (err) {
+        console.warn('[ApprovalQueueCache] getApprovalQueueItems failed:', err);
+        return [];
+    }
+}
+
+// Upsert a single item (used on local mutations like approve/reject)
+export async function upsertApprovalQueueItem(item: any): Promise<void> {
+    if (!item?.id) return;
+    try {
+        const db = await getDB();
+        await db.put(APPROVAL_QUEUE_STORE, item);
+    } catch (err) {
+        console.warn('[ApprovalQueueCache] upsertApprovalQueueItem failed:', err);
     }
 }

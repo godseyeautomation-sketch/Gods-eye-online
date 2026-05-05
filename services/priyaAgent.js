@@ -312,10 +312,17 @@ async function generatePlatformCalendar(brand, strategyData, enrichmentData, cam
 
   const guidance = getPlatformGuidance(platform);
 
-  // Distribute dates evenly across the campaign window
+  // Distribute dates evenly across the campaign window.
+  //
+  // Anchor: tomorrow at 00:00. We never schedule for "today" because by the
+  // time the user reviews + approves, today's optimal posting time is
+  // usually in the past — Upload Post then either rejects the schedule or
+  // bumps the post forward, which is confusing. Tomorrow gives the
+  // approval flow at least a day of breathing room.
   const duration = campaign.duration_days || 30;
   const startDate = new Date();
   startDate.setHours(0, 0, 0, 0);
+  startDate.setDate(startDate.getDate() + 1); // <-- start tomorrow
 
   const stride = Math.max(1, Math.floor(duration / count));
   const dateSuggestions = [];
