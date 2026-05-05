@@ -2745,20 +2745,45 @@ const ConnectSocialPopup: React.FC<{ userId: string; brandId: string; brandName:
   const [profileUsername, setProfileUsername] = useState('');
   const [resumeSummary, setResumeSummary] = useState<{ resumed: number; failed: number } | null>(null);
 
-  // Listen for `upload-post:needs-connection` events from anywhere in the app
+  // Listen for `upload-post:needs-connection` events from anywhere in the app.
+  // Before opening, double-check whether a connection actually exists — the
+  // server may have set needs_connection=true on a transient error (rate
+  // limit, slow API) even though the user is properly connected. We don't
+  // want to nag the user with the popup in those cases. ALSO: if the popup
+  // is already open or recently dismissed, ignore duplicate events.
+  const lastDismissed = useRef<number>(0);
   useEffect(() => {
-    const onNeed = (_e: any) => {
+    const onNeed = async (_e: any) => {
+      // Suppress if the popup was dismissed/finished within the last 60s —
+      // user just connected, this is most likely a transient error not a
+      // real disconnection.
+      if (Date.now() - lastDismissed.current < 60_000) {
+        console.log('[ConnectPopup] Suppressed needs-connection event — recently dismissed');
+        return;
+      }
+      // Don't double-open
+      if (open) return;
+      // Verify with the server before annoying the user
+      try {
+        if (userId) {
+          const res = await fetch('/api/upload-post/check-connection', { headers: { 'x-user-id': userId } });
+          const data = await res.json();
+          if (data.connected) {
+            console.log('[ConnectPopup] Suppressed — server says we are already connected');
+            return;
+          }
+        }
+      } catch { /* if check fails, fall through and open the popup */ }
       setOpen(true);
       setStep('idle');
       setError(null);
       setResumeSummary(null);
-      // Default profile name suggestion based on the brand
       const slug = (brandName || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 30) || 'godseye_brand';
       setProfileUsername(slug);
     };
     window.addEventListener('upload-post:needs-connection', onNeed);
     return () => window.removeEventListener('upload-post:needs-connection', onNeed);
-  }, [brandName]);
+  }, [brandName, userId, open]);
 
   const handleConnect = async () => {
     setError(null);
@@ -2858,6 +2883,7 @@ const ConnectSocialPopup: React.FC<{ userId: string; brandId: string; brandName:
           // is ~2.5s.
           setTimeout(() => {
             if (cancelled) return;
+            lastDismissed.current = Date.now();
             setOpen(false);
             setStep('idle');
             setResumeSummary(null);
@@ -2884,7 +2910,7 @@ const ConnectSocialPopup: React.FC<{ userId: string; brandId: string; brandName:
                 : `${brandName} doesn't have a connected social account yet. Connect one and we'll schedule any pending posts automatically.`}
             </p>
           </div>
-          <button onClick={() => setOpen(false)} className="text-text-secondary/60 hover:text-text-primary transition">
+          <button onClick={() => { lastDismissed.current = Date.now(); setOpen(false); }} className="text-text-secondary/60 hover:text-text-primary transition">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
         </div>
@@ -2912,7 +2938,7 @@ const ConnectSocialPopup: React.FC<{ userId: string; brandId: string; brandName:
               >
                 Connect platforms
               </button>
-              <button onClick={() => setOpen(false)} className="px-4 py-2.5 text-xs text-text-secondary/60 hover:text-text-primary">
+              <button onClick={() => { lastDismissed.current = Date.now(); setOpen(false); }} className="px-4 py-2.5 text-xs text-text-secondary/60 hover:text-text-primary">
                 Later
               </button>
             </div>
@@ -2962,7 +2988,7 @@ const ConnectSocialPopup: React.FC<{ userId: string; brandId: string; brandName:
               </div>
             </div>
             <button
-              onClick={() => { setOpen(false); setStep('idle'); }}
+              onClick={() => { lastDismissed.current = Date.now(); setOpen(false); setStep('idle'); }}
               className="w-full py-2.5 rounded-xl bg-brand text-bg text-sm font-bold hover:bg-brand-hover transition"
             >
               Done

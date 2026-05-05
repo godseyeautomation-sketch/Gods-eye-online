@@ -4080,7 +4080,9 @@ app.put('/api/approval-queue/:id/approve', async (req, res) => {
           console.log(`[Approve] No Upload Post profile — pending dispatch ${pendingDispatchId}`);
         }
       } catch (err) {
-        // Schedule call mid-flight failure → record pending + signal needs_connection
+        // Schedule call mid-flight failure → record pending. Only set
+        // needsConnection on actual connection errors so transient issues
+        // don't repeatedly nag the user with the popup.
         console.error(`[Approve] Upload Post schedule call failed: ${err.message}`);
         const userIdForPending = items[idx].user_id || req.headers['x-user-id'] || '';
         const pending = addPendingDispatch({
@@ -4093,7 +4095,10 @@ app.put('/api/approval-queue/:id/approve', async (req, res) => {
         pendingDispatchId = pending?.id || null;
         items[idx].pending_dispatch_id = pendingDispatchId;
         items[idx].last_schedule_error = err.message;
-        needsConnection = true;
+        const msg = String(err.message || '').toLowerCase();
+        if (/username not associated|no profile|not connected|unauthorized|expired token|reconnect|disconnected/i.test(msg)) {
+          needsConnection = true;
+        }
       }
     }
 

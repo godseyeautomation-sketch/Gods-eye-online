@@ -1206,9 +1206,12 @@ app.put('/api/approval-queue/:id/approve', async (req, res) => {
           res.locals.needsConnection = true;
         }
       } catch (err) {
-        // Schedule call failed mid-flight (e.g. Upload Post returned 4xx).
-        // Record a pending dispatch + signal needs_connection so the user
-        // can retry via the popup, instead of losing the post silently.
+        // Schedule call failed mid-flight. Record a pending dispatch but
+        // ONLY set needs_connection if the error suggests a real connection
+        // issue (wrong/missing username, profile not connected, OAuth
+        // expired). For transient errors (rate limits, 5xx, network
+        // timeouts) we just log and let the user retry — popping the
+        // popup over and over for transient issues is worse than no popup.
         console.error(`[Approve] Upload Post schedule call failed: ${err.message}`);
         const userIdForPending = items[idx].user_id || req.headers['x-user-id'] || '';
         const pending = addPendingDispatch({
@@ -1220,7 +1223,11 @@ app.put('/api/approval-queue/:id/approve', async (req, res) => {
         });
         items[idx].pending_dispatch_id = pending?.id || null;
         items[idx].last_schedule_error = err.message;
-        res.locals.needsConnection = true;
+        const msg = String(err.message || '').toLowerCase();
+        const isConnectionError = /username not associated|no profile|not connected|unauthorized|expired token|reconnect|disconnected/i.test(msg);
+        if (isConnectionError) {
+          res.locals.needsConnection = true;
+        }
         res.locals.scheduleError = err.message;
       }
     }
