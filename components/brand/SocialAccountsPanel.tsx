@@ -233,6 +233,36 @@ export const SocialAccountsPanel: React.FC<Props> = ({ brandName }) => {
     }
   };
 
+  // Connect a single platform to a profile (clickable platform pill).
+  // Same flow as openConnect but filtered to one platform so the user
+  // lands directly on that platform's OAuth screen.
+  const openConnectForPlatform = async (username: string, platformKey: string) => {
+    setConnectProfile(username);
+    setLoadingConnect(true);
+    setError(null);
+    try {
+      const result = await generateConnectUrl(username, {
+        userId,
+        platforms: [platformKey],
+        connectTitle: `Connect ${platformKey} to ${username}`,
+      });
+      console.log(`[SocialAccounts] Per-platform connect URL for ${platformKey}:`, result.access_url);
+      const win = window.open(result.access_url, '_blank', 'noopener');
+      if (!win || win.closed) {
+        const ok = window.confirm('Popup blocked. Click OK to open the connect page in this tab.');
+        if (ok) { window.location.href = result.access_url; return; }
+        setError('Popup blocked. Allow popups and try again.');
+        return;
+      }
+      setShowConnect(true);
+    } catch (e: any) {
+      console.error('[SocialAccounts] Per-platform connect failed:', e);
+      setError(`Connect ${platformKey} failed: ${e?.message || 'Unknown error'}`);
+    } finally {
+      setLoadingConnect(false);
+    }
+  };
+
   const openConnect = async (username: string) => {
     setConnectProfile(username);
     setLoadingConnect(true);
@@ -411,29 +441,44 @@ export const SocialAccountsPanel: React.FC<Props> = ({ brandName }) => {
                       </button>
                     </div>
 
-                    {/* Platform connection grid */}
+                    {/* Platform connection grid — each pill is a clickable
+                        button that opens the OAuth flow for THAT platform.
+                        Connected platforms show a green check + still let
+                        you re-auth (useful when a token expires). */}
                     <div className="px-4 pb-4">
-                      <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5">
+                      <p className="text-[10px] text-text-secondary mb-2">Click a platform to connect it to <span className="text-text-primary font-semibold">{profile.username}</span>:</p>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
                         {allPlatforms.map(p => {
                           const isConnected = connected.includes(p.key);
+                          const isLoading = loadingConnect && connectProfile === profile.username;
                           return (
-                            <div
+                            <button
                               key={p.key}
-                              className={`flex items-center gap-2 px-2.5 py-2 rounded-lg border transition-all ${
+                              onClick={() => openConnectForPlatform(profile.username, p.key)}
+                              disabled={isLoading}
+                              title={isConnected
+                                ? `${p.label} connected — click to re-auth or switch account`
+                                : `Connect ${p.label} to ${profile.username}`}
+                              className={`group flex items-center gap-2 px-2.5 py-2 rounded-lg border transition-all hover:scale-[1.02] active:scale-95 disabled:opacity-50 disabled:cursor-wait ${
                                 isConnected
-                                  ? 'border-emerald-800/40 bg-emerald-950/30'
-                                  : 'border-white/5 bg-white/[0.02] opacity-50'
+                                  ? 'border-emerald-800/40 bg-emerald-950/30 hover:border-emerald-500/60 hover:bg-emerald-950/50'
+                                  : 'border-white/10 bg-white/[0.02] hover:border-brand/40 hover:bg-brand/5'
                               }`}
                             >
                               <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: p.color }} />
-                              <span className={`text-[10px] truncate ${isConnected ? 'text-emerald-400 font-medium' : 'text-text-secondary'}`}>
+                              <span className={`text-[11px] font-medium truncate ${isConnected ? 'text-emerald-400' : 'text-text-secondary group-hover:text-text-primary'}`}>
                                 {p.label}
                               </span>
-                              {isConnected && <CheckCircle2 size={10} className="text-emerald-500 ml-auto flex-shrink-0" />}
-                            </div>
+                              {isConnected
+                                ? <CheckCircle2 size={11} className="text-emerald-500 ml-auto flex-shrink-0" />
+                                : <Plus size={11} className="text-text-secondary/40 group-hover:text-brand ml-auto flex-shrink-0" />}
+                            </button>
                           );
                         })}
                       </div>
+                      <p className="text-[10px] text-text-secondary/60 mt-2 italic">
+                        Or use <button onClick={() => openConnect(profile.username)} className="text-brand hover:underline font-medium">"Connect all platforms"</button> to open Upload Post's combined connect page.
+                      </p>
                     </div>
                   </div>
                 );
