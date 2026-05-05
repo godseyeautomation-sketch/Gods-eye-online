@@ -448,12 +448,30 @@ async function executeDispatch(userId, brandId, config = {}) {
 
   // Resolve upload-post.com username
   const uploadPostUser = config.upload_post_user || resolveUploadPostUser(userId, brand);
-  if (!uploadPostUser) {
-    // Don't throw — return a structured "needs connection" result. The frontend
-    // listens for `needs_connection: true` and pops the global connect modal,
-    // which after OAuth fires /api/dispatch/resume-pending to schedule the
-    // queued posts. This keeps the dispatch agent "running" from the user's
-    // perspective until they connect.
+
+  // ── Real connection check (not just "does a profile exist?") ─────────
+  // A profile can exist with 0 connected platforms — that's not actually
+  // dispatchable. So we hit the Upload Post users endpoint and verify
+  // that AT LEAST ONE platform is connected for this user's profiles.
+  let hasConnectedPlatform = false;
+  if (uploadPostUser) {
+    try {
+      const apiKey = getApiKey();
+      const resp = await fetch(`${UPLOAD_POST_BASE}/api/uploadposts/users`, {
+        headers: { 'Authorization': `Apikey ${apiKey}` },
+      });
+      const data = await resp.json().catch(() => ({}));
+      const all = Array.isArray(data?.profiles) ? data.profiles : (Array.isArray(data) ? data : []);
+      const me = all.find(p => p.username === uploadPostUser);
+      if (me?.social_accounts && typeof me.social_accounts === 'object') {
+        hasConnectedPlatform = Object.values(me.social_accounts).some(v => v && String(v).length > 0);
+      }
+    } catch (err) {
+      console.warn('[Dispatch] Could not verify platform connection state:', err.message);
+    }
+  }
+
+  if (!uploadPostUser || !hasConnectedPlatform) {
     return {
       ok: false,
       needs_connection: true,
@@ -464,7 +482,10 @@ async function executeDispatch(userId, brandId, config = {}) {
       skipped_count: 0,
       published_slots: [],
       errors: [],
-      message: 'No social profile connected. Connect a profile in Social Accounts → posts will publish automatically.',
+      message: !uploadPostUser
+        ? 'No social profile connected. Connect a profile in Social Accounts → posts will publish automatically.'
+        : `Profile "${uploadPostUser}" exists but no platforms are connected. Click any platform pill (Instagram / TikTok / etc.) on Social Accounts to connect.`,
+      profile_username: uploadPostUser || null,
       generated_at: new Date().toISOString(),
     };
   }

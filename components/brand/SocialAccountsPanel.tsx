@@ -86,6 +86,33 @@ export const SocialAccountsPanel: React.FC<Props> = ({ brandName }) => {
       if (profs.length > 0 && !analyticsProfile) {
         setAnalyticsProfile(profs[0].username);
       }
+
+      // ── Auto-claim orphan profiles ─────────────────────────────────────
+      // If we got 0 owned profiles back, check whether there are any
+      // unclaimed profiles on the API key (created via earlier failed
+      // attempts, or directly on upload-post.com). Auto-claim them so
+      // the user doesn't have to click "Recover existing" manually.
+      if (profs.length === 0 && userId) {
+        try {
+          const allData = await listAllProfiles(userId);
+          const unclaimed = (allData.profiles || []).filter(p => p.orphan);
+          if (unclaimed.length > 0) {
+            console.log(`[SocialAccounts] Auto-claiming ${unclaimed.length} orphan profile(s):`, unclaimed.map(p => p.username));
+            for (const p of unclaimed) {
+              try { await claimProfile(p.username, userId); }
+              catch (err) { console.warn('[SocialAccounts] auto-claim failed for', p.username, err); }
+            }
+            // Re-fetch the now-claimed profiles
+            const refreshed = await getProfiles(userId).catch(() => []);
+            setProfiles(refreshed);
+            if (refreshed.length > 0 && !analyticsProfile) {
+              setAnalyticsProfile(refreshed[0].username);
+            }
+          }
+        } catch (err) {
+          console.warn('[SocialAccounts] auto-claim flow failed:', err);
+        }
+      }
     } catch (e: any) {
       setError(e.message);
     } finally {

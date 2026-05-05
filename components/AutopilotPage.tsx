@@ -581,6 +581,27 @@ export const AutopilotPage: React.FC<AutopilotPageProps> = ({ onNavigate }) => {
                       });
                     }, 1000);
                   }
+
+                  // Chain mode: if Review completed with at least one approval,
+                  // auto-fire Dispatch so posts publish without a manual click.
+                  // If no profile is connected, Dispatch will return
+                  // needs_connection and the global popup will handle it.
+                  if (chainMode && (pollData.decision === 'approved' || (pollData.approved_count || 0) > 0)) {
+                    console.log(`[Autopilot] Review complete — chaining to Dispatch (${pollData.approved_count || 0} approved)`);
+                    setCooldownAgent('dispatcher');
+                    setCooldownSeconds(8);
+                    const dispatchCd = setInterval(() => {
+                      setCooldownSeconds(prev => {
+                        if (prev <= 1) {
+                          clearInterval(dispatchCd);
+                          setCooldownAgent(null);
+                          runAgent('dispatcher');
+                          return 0;
+                        }
+                        return prev - 1;
+                      });
+                    }, 1000);
+                  }
                 } else if (pollData.status === 'waiting') {
                   setReviewResult({
                     decision: 'waiting',
@@ -2550,19 +2571,39 @@ const ConnectSocialPopup: React.FC<{ userId: string; brandId: string; brandName:
     }
   };
 
-  // Auto-poll for connection while in the waiting step
+  // Auto-poll for connection while in the waiting step. ALSO check the
+  // raw "list-all" endpoint and auto-claim any profile that just gained a
+  // connection — covers the case where the user goes directly to upload-
+  // post.com (instead of through our Create Profile flow), which means
+  // we never recorded ownership and check-connection would return false.
   useEffect(() => {
     if (!open || step !== 'waiting' || !userId) return;
     let cancelled = false;
     const poll = async () => {
       if (cancelled) return;
       try {
+        // Look at every profile on the API key — claim any orphan that has
+        // a connected platform.
+        const { listAllProfiles, claimProfile } = await import('../services/uploadPostService');
+        const allData = await listAllProfiles(userId);
+        const orphansWithConnections = (allData.profiles || []).filter((p: any) => {
+          if (!p.orphan) return false;
+          const accts = p.social_accounts || {};
+          return Object.values(accts).some((v: any) => v && String(v).length > 0);
+        });
+        for (const p of orphansWithConnections) {
+          try {
+            await claimProfile(p.username, userId);
+            console.log(`[ConnectPopup] Auto-claimed ${p.username} on connection detection`);
+          } catch {}
+        }
+
+        // Now check connection state
         const res = await fetch('/api/upload-post/check-connection', { headers: { 'x-user-id': userId } });
         const data = await res.json();
         if (data.connected) {
           if (cancelled) return;
           setStep('resuming');
-          // Fire resume-pending → schedule every queued post for this brand
           try {
             const r = await fetch('/api/dispatch/resume-pending', {
               method: 'POST',
