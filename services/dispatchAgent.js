@@ -449,9 +449,24 @@ async function executeDispatch(userId, brandId, config = {}) {
   // Resolve upload-post.com username
   const uploadPostUser = config.upload_post_user || resolveUploadPostUser(userId, brand);
   if (!uploadPostUser) {
-    throw new Error(
-      'No social profile connected. Open the brand → Social Dashboard → click "Add Profile" → connect Instagram/TikTok/etc., then try Dispatch again.'
-    );
+    // Don't throw — return a structured "needs connection" result. The frontend
+    // listens for `needs_connection: true` and pops the global connect modal,
+    // which after OAuth fires /api/dispatch/resume-pending to schedule the
+    // queued posts. This keeps the dispatch agent "running" from the user's
+    // perspective until they connect.
+    return {
+      ok: false,
+      needs_connection: true,
+      brand_id: brandId,
+      brand_name: brand.name,
+      published_count: 0,
+      failed_count: 0,
+      skipped_count: 0,
+      published_slots: [],
+      errors: [],
+      message: 'No social profile connected. Connect a profile in Social Accounts → posts will publish automatically.',
+      generated_at: new Date().toISOString(),
+    };
   }
 
   // Verify the user actually OWNS this upload-post profile (not someone else's

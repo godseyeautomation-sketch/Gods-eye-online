@@ -240,33 +240,52 @@ app.get('/api/upload-post/status', (req, res) => {
 // degrade gracefully.
 const OWNERS_LOCAL_PATH = path.join(process.env.HOME || '', '.klint', 'sync', 'social-profile-owners.json');
 
+// Returns the union of Supabase + local-file ownership entries so a partial
+// failure on either side doesn't lose the user's connected profiles.
 async function getOwnedUsernames(userId) {
   if (!userId) return [];
+  const set = new Set();
+  // Supabase
   try {
     const rows = await supabaseRest(
       `social_profile_owners?user_id=eq.${encodeURIComponent(userId)}&select=upload_post_username`
     );
-    if (Array.isArray(rows)) return rows.map(r => r.upload_post_username).filter(Boolean);
+    if (Array.isArray(rows)) {
+      for (const r of rows) if (r.upload_post_username) set.add(r.upload_post_username);
+    }
   } catch (err) {
-    console.warn('[Upload-Post] Supabase owner lookup failed, falling back to local file:', err.message);
+    console.warn(`[Upload-Post] Supabase owner lookup failed for ${userId}: ${err.message}`);
   }
+  // Local file (always merged — covers Cloud Run cold starts where Supabase
+  // wasn't reachable when the row was originally written)
   try {
     const raw = JSON.parse(fs.readFileSync(OWNERS_LOCAL_PATH, 'utf-8'));
-    return Array.isArray(raw?.[userId]) ? raw[userId] : [];
-  } catch { return []; }
+    if (Array.isArray(raw?.[userId])) for (const u of raw[userId]) if (u) set.add(u);
+  } catch { /* file may not exist yet */ }
+  const result = Array.from(set);
+  console.log(`[Upload-Post] Owned usernames for ${userId}: [${result.join(', ')}]`);
+  return result;
 }
 
+// Writes ownership to BOTH Supabase AND local file. Even if Supabase succeeds,
+// we still write the local file as a safety net so a Supabase outage during
+// list later doesn't lose the row.
 async function recordOwnership(userId, username) {
   if (!userId || !username) return;
+  let supabaseOk = false;
   try {
-    await supabaseRest('social_profile_owners', 'POST', {
+    const result = await supabaseRest('social_profile_owners', 'POST', {
       user_id: userId,
       upload_post_username: username,
     });
-    return;
+    // supabaseRest returns null when env vars are missing, throws on HTTP errors.
+    // result truthy means Supabase actually persisted the row.
+    supabaseOk = result !== null;
+    if (supabaseOk) console.log(`[Upload-Post] Recorded ownership in Supabase: ${userId} → ${username}`);
   } catch (err) {
-    console.warn('[Upload-Post] Supabase owner insert failed, writing local fallback:', err.message);
+    console.warn(`[Upload-Post] Supabase owner insert failed for ${userId}/${username}: ${err.message}`);
   }
+  // Always write the local file too — defense in depth
   try {
     let raw = {};
     try { raw = JSON.parse(fs.readFileSync(OWNERS_LOCAL_PATH, 'utf-8')); } catch {}
@@ -274,8 +293,9 @@ async function recordOwnership(userId, username) {
     if (!raw[userId].includes(username)) raw[userId].push(username);
     fs.mkdirSync(path.dirname(OWNERS_LOCAL_PATH), { recursive: true });
     fs.writeFileSync(OWNERS_LOCAL_PATH, JSON.stringify(raw, null, 2));
+    console.log(`[Upload-Post] Recorded ownership locally: ${userId} → ${username}${supabaseOk ? ' (also in Supabase)' : ''}`);
   } catch (err) {
-    console.error('[Upload-Post] Local owner write failed:', err.message);
+    console.error(`[Upload-Post] Local owner write failed for ${userId}/${username}: ${err.message}`);
   }
 }
 

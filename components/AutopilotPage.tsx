@@ -529,6 +529,13 @@ export const AutopilotPage: React.FC<AutopilotPageProps> = ({ onNavigate }) => {
       const data = await res.json();
       if (data.ok) {
         console.log(`[Agent] ${agentId} result:`, data.text);
+        // Any agent that returns needs_connection (Dispatch with no profile,
+        // Karma with no profile, etc.) pops the global connect modal.
+        if (data.result?.needs_connection) {
+          window.dispatchEvent(new CustomEvent('upload-post:needs-connection', {
+            detail: { source: agentId, brandId: selectedBrandId },
+          }));
+        }
         if (agentId === 'scout' && data.result) {
           setScoutResult(data.result);
           localStorage.setItem(`scout_result_${selectedBrandId}`, JSON.stringify(data.result));
