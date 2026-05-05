@@ -1206,10 +1206,22 @@ app.put('/api/approval-queue/:id/approve', async (req, res) => {
           res.locals.needsConnection = true;
         }
       } catch (err) {
-        // Non-fatal — the post stays 'approved' and the user can retry later.
-        // Surface a warning header but still return success since the in-app
-        // approval state is correct.
-        console.warn(`[Approve] Upload Post schedule call failed: ${err.message}`);
+        // Schedule call failed mid-flight (e.g. Upload Post returned 4xx).
+        // Record a pending dispatch + signal needs_connection so the user
+        // can retry via the popup, instead of losing the post silently.
+        console.error(`[Approve] Upload Post schedule call failed: ${err.message}`);
+        const userIdForPending = items[idx].user_id || req.headers['x-user-id'] || '';
+        const pending = addPendingDispatch({
+          userId: userIdForPending,
+          brandId: items[idx].brand_id,
+          slotId: items[idx].slot_id,
+          queueId: items[idx].id,
+          reason: 'schedule_call_failed',
+        });
+        items[idx].pending_dispatch_id = pending?.id || null;
+        items[idx].last_schedule_error = err.message;
+        res.locals.needsConnection = true;
+        res.locals.scheduleError = err.message;
       }
     }
 
@@ -1239,6 +1251,7 @@ app.put('/api/approval-queue/:id/approve', async (req, res) => {
       approved: items[idx].slot_id,
       needs_connection: !!res.locals.needsConnection,
       pending_dispatch_id: items[idx].pending_dispatch_id || null,
+      schedule_error: res.locals.scheduleError || null,
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

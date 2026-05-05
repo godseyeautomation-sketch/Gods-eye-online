@@ -275,19 +275,19 @@ async function scheduleSlotWithUploadPost(slot, platforms, uploadPostUser, sched
   let contentType = 'application/json';
   let bodyBuffer = null;
 
+  // Field-name conventions match the original publishSlot() that's been
+  // working — `description` (not caption) for photos, `platforms` (plural)
+  // for the JSON video/text endpoints, /api/upload_videos for video URLs.
   if (hasReelVideo) {
-    endpoint = `${UPLOAD_POST_BASE}/api/upload`;
+    endpoint = `${UPLOAD_POST_BASE}/api/upload_videos`;
     body = JSON.stringify({
       user: uploadPostUser,
-      platform: platforms,
+      platforms,
       video_url: slot.generated_video,
-      ...(caption ? { description: caption, title: slot.brief?.hook || caption.slice(0, 80) } : {}),
+      ...(caption ? { description: caption } : {}),
       scheduled_date,
     });
   } else if (slot.format === 'reel' && !hasReelVideo) {
-    // Kling video isn't ready yet. Defer scheduling — caller can retry once
-    // generated_video is set. Returning a sentinel lets the approve handler
-    // mark the slot as 'approved' (not 'scheduled') and try again on poll.
     return { deferred: true, reason: 'reel_video_pending' };
   } else if (hasImage) {
     endpoint = `${UPLOAD_POST_BASE}/api/upload_photos`;
@@ -298,7 +298,7 @@ async function scheduleSlotWithUploadPost(slot, platforms, uploadPostUser, sched
       'platform[]': platforms,
       'scheduled_date': scheduled_date,
     };
-    if (caption) fields['caption'] = caption;
+    if (caption) fields['description'] = caption;  // Upload Post uses `description` for photos
     const built = buildMultipartBody(fields, {
       name: 'photos[]',
       buffer: imageData.buffer,
@@ -310,7 +310,7 @@ async function scheduleSlotWithUploadPost(slot, platforms, uploadPostUser, sched
     endpoint = `${UPLOAD_POST_BASE}/api/upload_text`;
     body = JSON.stringify({
       user: uploadPostUser,
-      platform: platforms,
+      platforms,
       title: caption || slot.idea || 'New post',
       scheduled_date,
     });
@@ -324,12 +324,15 @@ async function scheduleSlotWithUploadPost(slot, platforms, uploadPostUser, sched
     ? { method: 'POST', headers: { ...headers, 'Content-Length': String(bodyBuffer.length) }, body: bodyBuffer }
     : { method: 'POST', headers, body };
 
+  console.log(`[Dispatch:schedule] POST ${endpoint} for ${uploadPostUser} (${platforms.join(',')}) scheduled_date=${scheduled_date}`);
   const res = await fetch(endpoint, fetchOpts);
   if (!res.ok) {
     const errText = await res.text().catch(() => 'Unknown error');
+    console.error(`[Dispatch:schedule] FAILED ${res.status}: ${errText.slice(0, 500)}`);
     throw new Error(`Upload Post schedule failed (${res.status}): ${errText.slice(0, 300)}`);
   }
   const data = await res.json().catch(() => ({}));
+  console.log(`[Dispatch:schedule] OK — response keys: ${Object.keys(data).join(', ')}`);
   return {
     deferred: false,
     request_id: data?.request_id || data?.data?.request_id || null,

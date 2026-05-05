@@ -4080,7 +4080,20 @@ app.put('/api/approval-queue/:id/approve', async (req, res) => {
           console.log(`[Approve] No Upload Post profile — pending dispatch ${pendingDispatchId}`);
         }
       } catch (err) {
-        console.warn(`[Approve] Upload Post schedule failed: ${err.message}`);
+        // Schedule call mid-flight failure → record pending + signal needs_connection
+        console.error(`[Approve] Upload Post schedule call failed: ${err.message}`);
+        const userIdForPending = items[idx].user_id || req.headers['x-user-id'] || '';
+        const pending = addPendingDispatch({
+          userId: userIdForPending,
+          brandId: items[idx].brand_id,
+          slotId: items[idx].slot_id,
+          queueId: items[idx].id,
+          reason: 'schedule_call_failed',
+        });
+        pendingDispatchId = pending?.id || null;
+        items[idx].pending_dispatch_id = pendingDispatchId;
+        items[idx].last_schedule_error = err.message;
+        needsConnection = true;
       }
     }
 
