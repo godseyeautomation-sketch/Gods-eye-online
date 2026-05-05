@@ -176,17 +176,65 @@ export const SocialAccountsPanel: React.FC<Props> = ({ brandName }) => {
     setLoadingConnect(true);
     setError(null);
     try {
-      const result = await generateConnectUrl(username);
-      // Open in new tab — Upload-Post blocks iframes
-      window.open(result.access_url, '_blank', 'noopener');
-      // Show the "refresh after connecting" banner
+      // Pass userId so Upload-Post can isolate the JWT to this account
+      const result = await generateConnectUrl(username, { userId });
+      console.log('[SocialAccounts] Got connect URL, opening:', result.access_url);
+
+      // Open in new tab. If a popup blocker stops it, fall back to same-tab
+      // navigation so the user isn't stuck. We pass `noopener` for safety
+      // but accept that means we can't communicate back — the auto-poll
+      // below detects connection completion instead.
+      const win = window.open(result.access_url, '_blank', 'noopener');
+      if (!win || win.closed || typeof win.closed === 'undefined') {
+        // Popup blocked — open in same tab as fallback. This loses our
+        // session but better than the user being stuck. (Alternatively
+        // we could show a toast asking them to allow popups.)
+        const userChoice = window.confirm(
+          'Your browser blocked the connect popup. Click OK to open the connect page in this tab (you\'ll be brought back automatically), or Cancel to allow popups in your browser settings.'
+        );
+        if (userChoice) {
+          window.location.href = result.access_url;
+          return;
+        }
+        setError('Popup blocked. Please allow popups for this site and try again.');
+        return;
+      }
+
+      // Show the "connecting…" banner with auto-poll messaging
       setShowConnect(true);
     } catch (e: any) {
-      setError(e.message);
+      console.error('[SocialAccounts] Connect URL generation failed:', e);
+      setError(`Connect failed: ${e?.message || 'Unknown error'}. Check that UPLOAD_POST_API_KEY is set on the server.`);
     } finally {
       setLoadingConnect(false);
     }
   };
+
+  // Auto-poll while the connect tab is open. Once we detect that the profile
+  // has at least one connected platform, dismiss the banner and refresh.
+  // Polls every 5 seconds — Upload Post returns the connection status fast.
+  useEffect(() => {
+    if (!showConnect || !connectProfile || !userId) return;
+    let cancelled = false;
+    const pollInterval = setInterval(async () => {
+      if (cancelled) return;
+      try {
+        const profiles = await getProfiles(userId);
+        const me = profiles.find((p: any) => p.username === connectProfile);
+        const hasConnection = me && me.social_accounts && Object.values(me.social_accounts).some((v: any) => v && String(v).length > 0);
+        if (hasConnection) {
+          console.log(`[SocialAccounts] Detected connection for ${connectProfile} — closing banner`);
+          if (!cancelled) {
+            setShowConnect(false);
+            setProfiles(profiles);
+            // Notify any listening components (e.g. global popup) that connection landed
+            window.dispatchEvent(new CustomEvent('upload-post:connected', { detail: { profile: connectProfile } }));
+          }
+        }
+      } catch { /* ignore transient errors */ }
+    }, 5000);
+    return () => { cancelled = true; clearInterval(pollInterval); };
+  }, [showConnect, connectProfile, userId]);
 
   const getPlatformInfo = (key: string) => SOCIAL_PLATFORMS.find(p => p.key === key) || { key, label: key, color: '#888' };
 

@@ -945,6 +945,18 @@ export const AutopilotPage: React.FC<AutopilotPageProps> = ({ onNavigate }) => {
 
   return (
     <div className="h-full flex overflow-hidden">
+      {/* ── Global "connect a social account" popup ─────────────────────
+          Listens for `upload-post:needs-connection` events fired from any
+          flow that hits a no-profile case (approve, manual Dispatch, etc.).
+          Walks the user through the connect flow inline; once a connection
+          is detected, fires resume-pending which schedules every queued
+          post and dismisses itself. */}
+      <ConnectSocialPopup
+        userId={user?.id || ''}
+        brandId={selectedBrandId || ''}
+        brandName={selectedBrand?.name || 'this brand'}
+      />
+
       {/* ── Slack-connected success toast (top-right, auto-dismiss 6s) ── */}
       {slackSuccessToast && (
         <div className="fixed top-6 right-6 z-[200] animate-in slide-in-from-top-2 fade-in duration-300">
@@ -2475,6 +2487,197 @@ const BrandCalendarPane: React.FC<{ brand: BrandProfile; userId: string }> = ({ 
 // available without leaving Autopilot. Also kicks off the periodic
 // status-poll so the calendar reflects published posts within minutes.
 // ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// ConnectSocialPopup — global modal triggered when any flow (approve, manual
+// Dispatch) hits a "no Upload Post profile connected" state. Walks the user
+// through the connect flow inline and auto-resumes pending dispatches once a
+// connection is detected.
+// ─────────────────────────────────────────────────────────────────────────────
+const ConnectSocialPopup: React.FC<{ userId: string; brandId: string; brandName: string }> = ({ userId, brandId, brandName }) => {
+  const [open, setOpen] = useState(false);
+  const [step, setStep] = useState<'idle' | 'opening' | 'waiting' | 'resuming' | 'done'>('idle');
+  const [error, setError] = useState<string | null>(null);
+  const [profileUsername, setProfileUsername] = useState('');
+  const [resumeSummary, setResumeSummary] = useState<{ resumed: number; failed: number } | null>(null);
+
+  // Listen for `upload-post:needs-connection` events from anywhere in the app
+  useEffect(() => {
+    const onNeed = (_e: any) => {
+      setOpen(true);
+      setStep('idle');
+      setError(null);
+      setResumeSummary(null);
+      // Default profile name suggestion based on the brand
+      const slug = (brandName || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 30) || 'godseye_brand';
+      setProfileUsername(slug);
+    };
+    window.addEventListener('upload-post:needs-connection', onNeed);
+    return () => window.removeEventListener('upload-post:needs-connection', onNeed);
+  }, [brandName]);
+
+  const handleConnect = async () => {
+    setError(null);
+    setStep('opening');
+    try {
+      // Lazy-load the upload-post service so we don't bloat the main bundle
+      const { generateConnectUrl, createProfile } = await import('../services/uploadPostService');
+
+      // Make sure the profile exists first (no-op if already created)
+      try { await createProfile({ username: profileUsername.trim(), user_id: userId }); }
+      catch { /* may already exist — fine */ }
+
+      const result = await generateConnectUrl(profileUsername.trim(), { userId });
+      const win = window.open(result.access_url, '_blank', 'noopener');
+      if (!win || win.closed) {
+        const ok = window.confirm('Popup blocked. Click OK to open the connect page in this tab (you\'ll come back automatically).');
+        if (ok) { window.location.href = result.access_url; return; }
+        setError('Popup blocked. Allow popups and try again.');
+        setStep('idle');
+        return;
+      }
+      setStep('waiting');
+    } catch (err: any) {
+      console.error('[ConnectPopup] generate URL failed:', err);
+      setError(err?.message || 'Could not start the connect flow.');
+      setStep('idle');
+    }
+  };
+
+  // Auto-poll for connection while in the waiting step
+  useEffect(() => {
+    if (!open || step !== 'waiting' || !userId) return;
+    let cancelled = false;
+    const poll = async () => {
+      if (cancelled) return;
+      try {
+        const res = await fetch('/api/upload-post/check-connection', { headers: { 'x-user-id': userId } });
+        const data = await res.json();
+        if (data.connected) {
+          if (cancelled) return;
+          setStep('resuming');
+          // Fire resume-pending → schedule every queued post for this brand
+          try {
+            const r = await fetch('/api/dispatch/resume-pending', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'x-user-id': userId },
+              body: JSON.stringify({ brand_id: brandId }),
+            });
+            const summary = await r.json();
+            setResumeSummary({ resumed: summary.resumed || 0, failed: summary.failed || 0 });
+          } catch { setResumeSummary({ resumed: 0, failed: 0 }); }
+          setStep('done');
+        }
+      } catch { /* keep polling */ }
+    };
+    poll();
+    const id = setInterval(poll, 5000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [open, step, userId, brandId]);
+
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+      <div className="bg-panel border border-border rounded-2xl max-w-lg w-full p-7 space-y-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-xl font-bold text-text-primary">Connect a social account</h2>
+            <p className="text-sm text-text-secondary mt-1">
+              {step === 'done'
+                ? 'All set! Your queued posts have been scheduled.'
+                : `${brandName} doesn't have a connected social account yet. Connect one and we'll schedule any pending posts automatically.`}
+            </p>
+          </div>
+          <button onClick={() => setOpen(false)} className="text-text-secondary/60 hover:text-text-primary transition">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
+        </div>
+
+        {step === 'idle' && (
+          <>
+            <div className="space-y-2">
+              <label className="text-[11px] uppercase tracking-wider text-text-secondary/60 font-bold">Profile username</label>
+              <input
+                value={profileUsername}
+                onChange={e => setProfileUsername(e.target.value.replace(/[^a-zA-Z0-9_]/g, ''))}
+                placeholder="brand_handle"
+                className="w-full px-3 py-2 rounded-xl bg-white/[0.03] border border-white/[0.08] text-text-primary text-sm focus:outline-none focus:border-brand/50 transition"
+              />
+              <p className="text-[11px] text-text-secondary/50">
+                A label that groups all platforms (Instagram + TikTok + LinkedIn etc.) for {brandName}. You only do this once per brand.
+              </p>
+            </div>
+            {error && <p className="text-xs text-red-400">{error}</p>}
+            <div className="flex items-center gap-2 pt-1">
+              <button
+                onClick={handleConnect}
+                disabled={!profileUsername.trim()}
+                className="flex-1 py-2.5 rounded-xl bg-brand text-bg text-sm font-bold hover:bg-brand-hover transition disabled:opacity-40"
+              >
+                Connect platforms
+              </button>
+              <button onClick={() => setOpen(false)} className="px-4 py-2.5 text-xs text-text-secondary/60 hover:text-text-primary">
+                Later
+              </button>
+            </div>
+          </>
+        )}
+
+        {step === 'opening' && (
+          <div className="flex items-center gap-3 py-3">
+            <div className="w-5 h-5 rounded-full border-2 border-brand border-t-transparent animate-spin" />
+            <p className="text-sm text-text-secondary">Opening the connect page…</p>
+          </div>
+        )}
+
+        {step === 'waiting' && (
+          <div className="space-y-3 py-2">
+            <div className="flex items-center gap-3">
+              <div className="w-5 h-5 rounded-full border-2 border-brand border-t-transparent animate-spin" />
+              <p className="text-sm font-semibold text-text-primary">Waiting for you to finish connecting…</p>
+            </div>
+            <ol className="text-xs text-text-secondary space-y-1.5 pl-4 list-decimal">
+              <li>A new tab opened with the Upload Post connect page.</li>
+              <li>Click each platform you want to publish to (Instagram, TikTok, LinkedIn, etc.) and log in.</li>
+              <li>Come back here — this popup will close automatically once we detect the connection (within 5 seconds).</li>
+            </ol>
+            <p className="text-[11px] text-text-secondary/50 italic">Tab closed by accident? Click "Connect platforms" again.</p>
+          </div>
+        )}
+
+        {step === 'resuming' && (
+          <div className="flex items-center gap-3 py-3">
+            <div className="w-5 h-5 rounded-full border-2 border-emerald-400 border-t-transparent animate-spin" />
+            <p className="text-sm text-text-secondary">Connection detected — scheduling your queued posts…</p>
+          </div>
+        )}
+
+        {step === 'done' && (
+          <div className="space-y-3 py-2">
+            <div className="flex items-center gap-3 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
+              <span className="text-emerald-400 text-xl">✓</span>
+              <div>
+                <p className="text-sm font-bold text-emerald-200">Connected & resumed</p>
+                <p className="text-xs text-emerald-300/80 mt-0.5">
+                  {resumeSummary
+                    ? `${resumeSummary.resumed} post${resumeSummary.resumed !== 1 ? 's' : ''} scheduled${resumeSummary.failed ? `, ${resumeSummary.failed} failed` : ''}.`
+                    : 'Posts will publish on schedule.'}
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => { setOpen(false); setStep('idle'); }}
+              className="w-full py-2.5 rounded-xl bg-brand text-bg text-sm font-bold hover:bg-brand-hover transition"
+            >
+              Done
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 const SocialAccountsPane: React.FC<{ brand: BrandProfile }> = ({ brand }) => {
   const [Panel, setPanel] = useState<React.ComponentType<any> | null>(null);
 

@@ -249,15 +249,24 @@ export default function ApprovalQueue({ brandId, onRefresh }: ApprovalQueueProps
         headers: { 'Content-Type': 'application/json', 'x-user-id': user.id },
         body: JSON.stringify({ platforms: [] }),
       });
-      if ((await res.json()).ok) {
+      const data = await res.json();
+      if (data.ok) {
         setItems(prev => prev.map(i => i.id === id ? { ...i, status: 'approved' as ApprovalStatus, resolved_at: new Date().toISOString() } : i));
         onRefresh?.();
+        // If the server told us to connect a social profile, raise the global
+        // popup. The post stays approved + a pending dispatch is recorded
+        // server-side; once the user connects, it auto-fires.
+        if (data.needs_connection) {
+          window.dispatchEvent(new CustomEvent('upload-post:needs-connection', {
+            detail: { source: 'approve', queueId: id, brandId: brandId },
+          }));
+        }
       }
     } catch (err) {
       console.error('Approve failed:', err);
     }
     setActionLoading(null);
-  }, [user?.id, onRefresh]);
+  }, [user?.id, onRefresh, brandId]);
 
   const handleReject = useCallback(async (id: string, reason = '') => {
     if (!user?.id) return;

@@ -519,7 +519,48 @@ app.post('/api/admin/upload-post/wipe', async (req, res) => {
 });
 
 // JWT token management — generates a secure URL for users to connect social accounts
-app.post('/api/upload-post/users/generate-jwt', (req, res) => proxyUploadPost(req, res, 'POST', '/api/uploadposts/users/generate-jwt', req.body));
+app.post('/api/upload-post/users/generate-jwt', async (req, res) => {
+  // Pre-create the ownership row BEFORE the user goes through OAuth — that
+  // way when they come back, resolveUploadPostUser() can find this profile
+  // even though the user hasn't actually connected anything yet. Otherwise
+  // dispatches would still report "no profile connected" until refresh.
+  try {
+    const userId = callerUserId(req);
+    const username = req.body?.username;
+    if (userId && username) {
+      try { await recordOwnership(userId, username); }
+      catch (err) { console.warn('[Upload-Post] pre-record ownership failed:', err.message); }
+    }
+  } catch {}
+  return proxyUploadPost(req, res, 'POST', '/api/uploadposts/users/generate-jwt', req.body);
+});
+
+// GET /api/upload-post/check-connection?brand_id=X — fast check whether the
+// caller has at least one Upload Post profile with a connected platform.
+// Used by the global "needs connection" popup to decide whether to show.
+app.get('/api/upload-post/check-connection', async (req, res) => {
+  try {
+    if (!uploadPostApiKey) return res.json({ connected: false, profiles: [] });
+    const userId = callerUserId(req);
+    const owned = new Set(await getOwnedUsernames(userId));
+    if (!owned.size) return res.json({ connected: false, profiles: [] });
+
+    const resp = await fetch(`${UPLOAD_POST_BASE}/api/uploadposts/users`, {
+      headers: { 'Authorization': `Apikey ${uploadPostApiKey}` },
+    });
+    const data = await resp.json().catch(() => ({}));
+    const allProfiles = Array.isArray(data?.profiles) ? data.profiles : (Array.isArray(data) ? data : []);
+    const ours = allProfiles.filter(p => owned.has(p.username));
+    const connected = ours.some(p => {
+      const accts = p.social_accounts || {};
+      return Object.values(accts).some(v => v && String(v).length > 0);
+    });
+    res.json({ connected, profiles: ours });
+  } catch (err) {
+    console.error('[Upload-Post] check-connection error:', err.message);
+    res.json({ connected: false, profiles: [] });
+  }
+});
 app.post('/api/upload-post/users/validate-jwt', (req, res) => proxyUploadPost(req, res, 'POST', '/api/uploadposts/users/validate-jwt', req.body));
 
 // Account verification
@@ -840,6 +881,48 @@ function writeSyncFile(name, data) {
   fs.writeFileSync(fp, JSON.stringify(data, null, 2), 'utf-8');
 }
 
+// ── Pending dispatches (Q2=B1: wait-and-resume) ────────────────────────────
+// When a user approves a post or runs Dispatch with NO Upload Post profile
+// connected, we record a "pending" entry here instead of failing. Once the
+// user finishes the connect flow, /api/dispatch/resume-pending fires every
+// matching pending entry and they get scheduled normally.
+function listPendingDispatches(filter = {}) {
+  const file = readSyncFile('pending_dispatches');
+  const items = Array.isArray(file?.data) ? file.data : [];
+  return items.filter(p => {
+    if (filter.userId && p.user_id !== filter.userId) return false;
+    if (filter.brandId && p.brand_id !== filter.brandId) return false;
+    return true;
+  });
+}
+function addPendingDispatch({ userId, brandId, slotId, queueId, reason }) {
+  const file = readSyncFile('pending_dispatches') || { data: [] };
+  const items = Array.isArray(file.data) ? file.data : [];
+  // Dedup: don't double-record the same slot
+  if (items.some(p => p.slot_id === slotId && p.user_id === userId)) return null;
+  const entry = {
+    id: `pd_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    user_id: userId,
+    brand_id: brandId,
+    slot_id: slotId,
+    queue_id: queueId,
+    reason: reason || 'no_profile_connected',
+    created_at: new Date().toISOString(),
+  };
+  items.push(entry);
+  writeSyncFile('pending_dispatches', { _updatedAt: new Date().toISOString(), data: items });
+  return entry;
+}
+function removePendingDispatches(ids) {
+  if (!ids?.length) return 0;
+  const file = readSyncFile('pending_dispatches') || { data: [] };
+  const items = Array.isArray(file.data) ? file.data : [];
+  const idSet = new Set(ids);
+  const remaining = items.filter(p => !idSet.has(p.id));
+  writeSyncFile('pending_dispatches', { _updatedAt: new Date().toISOString(), data: remaining });
+  return items.length - remaining.length;
+}
+
 // GET /api/sync/:store — read a store (brands, calendar, gallery, videos, videoProjects)
 app.get('/api/sync/:store', (req, res) => {
   try {
@@ -1044,7 +1127,20 @@ app.put('/api/approval-queue/:id/approve', async (req, res) => {
             console.log(`[Approve] Deferred Upload Post scheduling for ${slots[slotIdx].id}: ${result.reason}`);
           }
         } else {
-          console.warn(`[Approve] No Upload Post user resolved for brand ${items[idx].brand_id} — skipping auto-schedule. User must connect a social profile in Social Accounts.`);
+          // No connected profile — record a pending dispatch so it auto-fires
+          // when the user finishes connecting. The post stays approved.
+          const userIdForPending = items[idx].user_id || req.headers['x-user-id'] || '';
+          const pending = addPendingDispatch({
+            userId: userIdForPending,
+            brandId: items[idx].brand_id,
+            slotId: items[idx].slot_id,
+            queueId: items[idx].id,
+            reason: 'no_profile_connected',
+          });
+          console.log(`[Approve] No Upload Post profile connected — recorded pending dispatch ${pending?.id}. User must connect a social profile.`);
+          items[idx].pending_dispatch_id = pending?.id || null;
+          // Surface this on the response so the frontend can pop the modal
+          res.locals.needsConnection = true;
         }
       } catch (err) {
         // Non-fatal — the post stays 'approved' and the user can retry later.
@@ -1075,7 +1171,12 @@ app.put('/api/approval-queue/:id/approve', async (req, res) => {
       }).catch(() => {});
     }
 
-    res.json({ ok: true, approved: items[idx].slot_id });
+    res.json({
+      ok: true,
+      approved: items[idx].slot_id,
+      needs_connection: !!res.locals.needsConnection,
+      pending_dispatch_id: items[idx].pending_dispatch_id || null,
+    });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -1190,6 +1291,93 @@ app.post('/api/upload-post/poll-statuses', async (req, res) => {
 
     res.json({ ok: true, polled: candidates.length, updates });
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// GET /api/dispatch/pending-dispatches?brand_id=X — list pending dispatches
+app.get('/api/dispatch/pending-dispatches', (req, res) => {
+  try {
+    const userId = req.headers['x-user-id'] || req.query.user_id || '';
+    const brandId = req.query.brand_id || null;
+    const items = listPendingDispatches({ userId, brandId });
+    res.json({ ok: true, items, count: items.length });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/dispatch/resume-pending — fired by the frontend when the user
+// finishes the connect flow. Re-runs the Upload Post scheduling for every
+// pending slot for that user/brand. Each successful schedule clears the
+// pending entry. Idempotent — safe to call multiple times.
+app.post('/api/dispatch/resume-pending', async (req, res) => {
+  try {
+    const userId = req.headers['x-user-id'] || req.body?.user_id || '';
+    const brandId = req.body?.brand_id || null;
+    const pending = listPendingDispatches({ userId, brandId });
+    if (!pending.length) {
+      return res.json({ ok: true, resumed: 0, failed: 0, items: [] });
+    }
+
+    // Resolve the brand's Upload Post user once (same for every pending entry
+    // since they're scoped to one brand).
+    const brandsFile = readSyncFile('brand_profiles');
+    const allBrands = brandsFile?.data || brandsFile || [];
+    const slotsFile = readSyncFile('content_slots');
+    const slots = slotsFile?.data || [];
+    const queueFile = readSyncFile('approval_queue');
+    const queue = queueFile?.data || [];
+
+    const resolved = {};
+    const completed = [];
+    const failed = [];
+    for (const p of pending) {
+      try {
+        const brand = allBrands.find(b => b.id === p.brand_id);
+        if (!brand) { failed.push({ ...p, error: 'brand not found' }); continue; }
+        if (!resolved[p.brand_id]) resolved[p.brand_id] = resolveUploadPostUser(p.user_id || userId, brand);
+        const uploadPostUser = resolved[p.brand_id];
+        if (!uploadPostUser) { failed.push({ ...p, error: 'still no profile' }); continue; }
+
+        const sIdx = slots.findIndex(s => s.id === p.slot_id);
+        if (sIdx < 0) { completed.push(p.id); continue; } // slot deleted; drop the pending
+        const slot = slots[sIdx];
+        if (slot.format === 'reel' && !slot.generated_video) {
+          // Reel video still rendering — skip for now, leave as pending
+          continue;
+        }
+        const platforms = slot.platform ? [slot.platform] : ['instagram'];
+        const result = await scheduleSlotWithUploadPost(slot, platforms, uploadPostUser, slot.scheduled_at);
+        if (result && !result.deferred) {
+          slots[sIdx].status = 'scheduled';
+          slots[sIdx].upload_post_job_id = result.job_id || null;
+          slots[sIdx].upload_post_request_id = result.request_id || null;
+          slots[sIdx].upload_post_user = uploadPostUser;
+
+          const qIdx = queue.findIndex(i => i.id === p.queue_id);
+          if (qIdx >= 0) {
+            queue[qIdx].status = 'scheduled';
+            queue[qIdx].upload_post_job_id = result.job_id || null;
+            queue[qIdx].upload_post_request_id = result.request_id || null;
+            queue[qIdx].pending_dispatch_id = null;
+          }
+          completed.push(p.id);
+          console.log(`[ResumePending] Scheduled slot ${p.slot_id} via Upload Post job ${result.job_id}`);
+        }
+      } catch (err) {
+        console.warn(`[ResumePending] Failed for pending ${p.id}:`, err.message);
+        failed.push({ ...p, error: err.message });
+      }
+    }
+
+    if (completed.length) {
+      writeSyncFile('content_slots', { _updatedAt: new Date().toISOString(), data: slots });
+      writeSyncFile('approval_queue', { _updatedAt: new Date().toISOString(), data: queue });
+      removePendingDispatches(completed);
+    }
+
+    res.json({ ok: true, resumed: completed.length, failed: failed.length, total: pending.length });
+  } catch (err) {
+    console.error('[ResumePending] error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Per-platform review status for live progress in dashboard

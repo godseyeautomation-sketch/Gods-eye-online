@@ -225,17 +225,23 @@ export async function getProfiles(userId?: string): Promise<SocialProfile[]> {
 
 /** Generate a secure URL for a user to connect their social accounts via OAuth */
 export async function generateConnectUrl(username: string, options?: {
+  userId?: string;
   platforms?: string[];
   logoImage?: string;
   connectTitle?: string;
   connectDescription?: string;
   showCalendar?: boolean;
 }): Promise<{ access_url: string; duration: string }> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (options?.userId) headers['x-user-id'] = options.userId;
   const res = await fetch('/api/upload-post/users/generate-jwt', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify({
       username,
+      // user_id in the body so the server can pre-create the ownership row
+      // even before the user finishes the OAuth flow on upload-post.com
+      ...(options?.userId ? { user_id: options.userId } : {}),
       platforms: options?.platforms || ['tiktok', 'instagram', 'facebook', 'x', 'linkedin', 'youtube', 'threads', 'pinterest', 'google_business'],
       connect_title: options?.connectTitle || 'Connect Social Media',
       connect_description: options?.connectDescription || 'Link your social accounts to Gods Eye Studio',
@@ -248,6 +254,24 @@ export async function generateConnectUrl(username: string, options?: {
     throw new Error(err.error || err.message || 'Failed to generate connect URL');
   }
   return res.json();
+}
+
+/**
+ * Quick check whether the current user has at least one Upload-Post profile
+ * with a connected platform. Used by the global "needs connection" popup
+ * to decide whether to show.
+ */
+export async function checkAnyConnection(userId: string): Promise<{ connected: boolean; profiles: SocialProfile[] }> {
+  try {
+    const profiles = await getProfiles(userId);
+    const connected = profiles.some(p => {
+      const accts = p.social_accounts || {};
+      return Object.values(accts).some(v => v && String(v).length > 0);
+    });
+    return { connected, profiles };
+  } catch {
+    return { connected: false, profiles: [] };
+  }
 }
 
 /** Create a new social profile (tagged with userId for isolation) */
