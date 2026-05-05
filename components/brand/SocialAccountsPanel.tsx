@@ -727,109 +727,284 @@ export const SocialAccountsPanel: React.FC<Props> = ({ brandName }) => {
 
       {/* ═══ Scheduled Tab ═══ */}
       {dashTab === 'scheduled' && (
-        <div className="space-y-3">
-          {loadingScheduled ? (
-            <div className="flex items-center justify-center py-16"><Loader2 size={20} className="animate-spin text-brand" /></div>
-          ) : scheduled.length === 0 ? (
-            <div className="text-center py-16 bg-surface border border-border rounded-xl">
-              <Calendar size={24} className="text-text-secondary mx-auto mb-3 opacity-50" />
-              <p className="text-text-secondary text-sm">No scheduled posts.</p>
-              <p className="text-text-secondary text-xs mt-1">Schedule posts from the calendar to see them here.</p>
-            </div>
-          ) : (
-            scheduled.map((post, i) => (
-              <div key={post.job_id || i} className="bg-surface border border-border rounded-xl p-4">
-                <div className="flex items-start justify-between">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <Clock size={12} className="text-brand" />
-                      <span className="text-xs font-medium text-text-primary">
-                        {post.scheduled_date ? new Date(post.scheduled_date).toLocaleString() : 'Pending'}
-                      </span>
-                    </div>
-                    {post.platforms && (
-                      <div className="flex gap-1 mb-1.5">
-                        {(Array.isArray(post.platforms) ? post.platforms : [post.platforms]).map((p: string) => {
-                          const info = getPlatformInfo(p);
-                          return (
-                            <span key={p} className="flex items-center gap-1 px-1.5 py-0.5 bg-white/5 border border-white/10 rounded text-[9px] text-text-secondary">
-                              <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: info.color }} />
-                              {info.label}
-                            </span>
-                          );
-                        })}
-                      </div>
-                    )}
-                    {(post.caption || post.text) && <p className="text-xs text-text-secondary line-clamp-2">{post.caption || post.text}</p>}
-                  </div>
-                  <button
-                    onClick={() => handleCancelScheduled(post.job_id)}
-                    className="flex items-center gap-1 px-2 py-1 rounded-lg text-red-400 text-[10px] hover:bg-red-500/10 transition-colors flex-shrink-0"
-                  >
-                    <X size={10} /> Cancel
-                  </button>
+        (() => {
+          // Group scheduled posts by date for a calendar-style view
+          const grouped: Record<string, any[]> = {};
+          for (const post of scheduled) {
+            const dateKey = post.scheduled_date
+              ? new Date(post.scheduled_date).toISOString().slice(0, 10)
+              : 'unscheduled';
+            if (!grouped[dateKey]) grouped[dateKey] = [];
+            grouped[dateKey].push(post);
+          }
+          // Sort dates ascending, sort posts within each date by time
+          const sortedDates = Object.keys(grouped).sort();
+          for (const d of sortedDates) {
+            grouped[d].sort((a, b) =>
+              new Date(a.scheduled_date || 0).getTime() - new Date(b.scheduled_date || 0).getTime()
+            );
+          }
+          // Friendly date label (Today, Tomorrow, weekday + date)
+          const dateLabel = (iso: string) => {
+            if (iso === 'unscheduled') return 'Unscheduled';
+            const d = new Date(iso + 'T00:00:00');
+            const today = new Date(); today.setHours(0, 0, 0, 0);
+            const tom = new Date(today); tom.setDate(today.getDate() + 1);
+            if (d.toDateString() === today.toDateString()) return `Today · ${d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
+            if (d.toDateString() === tom.toDateString()) return `Tomorrow · ${d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
+            return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: d.getFullYear() === today.getFullYear() ? undefined : 'numeric' });
+          };
+          return (
+            <div className="space-y-4">
+              {loadingScheduled ? (
+                <div className="flex items-center justify-center py-16"><Loader2 size={20} className="animate-spin text-brand" /></div>
+              ) : scheduled.length === 0 ? (
+                <div className="text-center py-16 bg-surface border border-border rounded-xl">
+                  <Calendar size={24} className="text-text-secondary mx-auto mb-3 opacity-50" />
+                  <p className="text-text-secondary text-sm">No scheduled posts.</p>
+                  <p className="text-text-secondary text-xs mt-1">Approved posts on the calendar publish automatically — they'll appear here.</p>
                 </div>
-              </div>
-            ))
-          )}
-        </div>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs text-text-secondary">
+                      <span className="text-text-primary font-bold">{scheduled.length}</span> scheduled post{scheduled.length !== 1 ? 's' : ''} across <span className="text-text-primary font-bold">{sortedDates.length}</span> day{sortedDates.length !== 1 ? 's' : ''}
+                    </p>
+                  </div>
+                  {sortedDates.map(d => (
+                    <div key={d} className="space-y-2">
+                      <div className="flex items-center gap-2 sticky top-0 bg-bg/95 backdrop-blur-sm py-1 z-10">
+                        <span className="text-[11px] uppercase tracking-wider text-brand font-bold">{dateLabel(d)}</span>
+                        <span className="text-[10px] text-text-secondary/50">· {grouped[d].length} post{grouped[d].length !== 1 ? 's' : ''}</span>
+                        <span className="flex-1 h-px bg-white/[0.05]" />
+                      </div>
+                      {grouped[d].map((post, i) => {
+                        const time = post.scheduled_date ? new Date(post.scheduled_date).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : '—';
+                        return (
+                          <div key={post.job_id || i} className="bg-surface border border-border rounded-xl p-3 hover:border-white/10 transition-colors">
+                            <div className="flex items-start gap-3">
+                              <div className="flex-shrink-0 text-center w-14">
+                                <div className="text-xs font-bold text-brand">{time}</div>
+                                <div className="text-[9px] uppercase tracking-wider text-text-secondary/50 mt-0.5">scheduled</div>
+                              </div>
+                              <div className="w-px self-stretch bg-white/[0.06]" />
+                              <div className="flex-1 min-w-0">
+                                {post.platforms && (
+                                  <div className="flex flex-wrap gap-1 mb-1.5">
+                                    {(Array.isArray(post.platforms) ? post.platforms : [post.platforms]).map((p: string) => {
+                                      const info = getPlatformInfo(p);
+                                      return (
+                                        <span key={p} className="flex items-center gap-1 px-1.5 py-0.5 bg-white/5 border border-white/10 rounded text-[9px] text-text-secondary">
+                                          <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: info.color }} />
+                                          {info.label}
+                                        </span>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                                {(post.caption || post.text || post.title) && (
+                                  <p className="text-xs text-text-secondary line-clamp-2 leading-relaxed">
+                                    {post.caption || post.text || post.title}
+                                  </p>
+                                )}
+                                {post.profile_username && (
+                                  <p className="text-[10px] text-text-secondary/40 mt-1">@{post.profile_username}</p>
+                                )}
+                              </div>
+                              <button
+                                onClick={() => handleCancelScheduled(post.job_id)}
+                                className="flex items-center gap-1 px-2 py-1 rounded-lg text-red-400 text-[10px] hover:bg-red-500/10 transition-colors flex-shrink-0"
+                                title="Cancel scheduled post"
+                              >
+                                <X size={10} /> Cancel
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ))}
+                </>
+              )}
+            </div>
+          );
+        })()
       )}
 
       {/* ═══ Analytics Tab ═══ */}
-      {dashTab === 'analytics' && (
-        <div className="space-y-4">
-          {profiles.length > 1 && (
-            <select
-              value={analyticsProfile}
-              onChange={e => { setAnalyticsProfile(e.target.value); loadAnalytics(e.target.value); }}
-              className="bg-surface border border-border rounded-lg px-3 py-2 text-text-primary text-sm focus:outline-none focus:border-brand"
-            >
-              {profiles.map(p => (
-                <option key={p.username} value={p.username}>{p.username}</option>
-              ))}
-            </select>
-          )}
+      {dashTab === 'analytics' && (() => {
+        // Upload Post's /api/analytics/{username} returns per-platform stats.
+        // Shape varies — try several common locations and aggregate.
+        const platformsData: Record<string, any> = (() => {
+          if (!analytics) return {};
+          // Common shape: { instagram: {...}, tiktok: {...} }
+          if (analytics.instagram || analytics.tiktok || analytics.facebook || analytics.linkedin || analytics.youtube || analytics.x || analytics.threads || analytics.pinterest) {
+            return analytics;
+          }
+          // Nested: { platforms: { ... } }
+          if (analytics.platforms && typeof analytics.platforms === 'object') return analytics.platforms;
+          // Single-platform flat shape
+          if (analytics.followers != null || analytics.reach != null || analytics.impressions != null) {
+            return { all: analytics };
+          }
+          return {};
+        })();
+        const platformKeys = Object.keys(platformsData);
+        // Sum across platforms for the headline cards
+        const sum = (key: string) => platformKeys.reduce((acc, k) => acc + (Number(platformsData[k]?.[key]) || 0), 0);
+        const followers = sum('followers');
+        const reach = sum('reach');
+        const impressions = sum('impressions') || sum('views');
+        const likes = sum('likes');
+        const comments = sum('comments');
+        const shares = sum('shares');
 
-          {loadingAnalytics ? (
-            <div className="flex items-center justify-center py-16"><Loader2 size={20} className="animate-spin text-brand" /></div>
-          ) : Object.keys(analytics).length === 0 || (!analytics.followers && !analytics.impressions) ? (
-            <div className="text-center py-16 bg-surface border border-border rounded-xl">
-              <BarChart3 size={24} className="text-text-secondary mx-auto mb-3 opacity-50" />
-              <p className="text-text-secondary text-sm">No analytics data yet.</p>
-              <p className="text-text-secondary text-xs mt-1">Analytics will appear after you connect platforms and start publishing.</p>
-            </div>
-          ) : (
-            <>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                {[
-                  { label: 'Followers', value: analytics.followers, icon: TrendingUp, color: 'text-brand' },
-                  { label: 'Impressions', value: analytics.impressions, icon: Eye, color: 'text-blue-400' },
-                  { label: 'Likes', value: analytics.likes, icon: Heart, color: 'text-red-400' },
-                  { label: 'Comments', value: analytics.comments, icon: MessageCircle, color: 'text-amber-400' },
-                ].map(stat => (
-                  <div key={stat.label} className="bg-surface border border-border rounded-xl p-3">
-                    <div className="flex items-center gap-1.5 mb-1">
-                      <stat.icon size={12} className={stat.color} />
-                      <span className="text-[10px] font-bold text-text-secondary uppercase tracking-wider">{stat.label}</span>
-                    </div>
-                    <p className="text-lg font-bold text-text-primary">
-                      {stat.value != null ? Number(stat.value).toLocaleString() : '—'}
-                    </p>
-                  </div>
+        // Pull a reach timeseries from any platform that has one
+        const timeseries: Array<{ date: string; value: number }> = (() => {
+          for (const k of platformKeys) {
+            const ts = platformsData[k]?.reach_timeseries || platformsData[k]?.timeseries;
+            if (Array.isArray(ts) && ts.length) {
+              return ts.map((t: any) => ({
+                date: t.date || t.day || t.timestamp || '',
+                value: Number(t.value || t.reach || t.impressions || 0),
+              })).filter(p => p.date);
+            }
+          }
+          return [];
+        })();
+        const tsMax = Math.max(1, ...timeseries.map(t => t.value));
+
+        const hasData = followers > 0 || reach > 0 || impressions > 0 || platformKeys.length > 0;
+
+        return (
+          <div className="space-y-4">
+            {profiles.length > 1 && (
+              <select
+                value={analyticsProfile}
+                onChange={e => { setAnalyticsProfile(e.target.value); loadAnalytics(e.target.value); }}
+                className="bg-surface border border-border rounded-lg px-3 py-2 text-text-primary text-sm focus:outline-none focus:border-brand"
+              >
+                {profiles.map(p => (
+                  <option key={p.username} value={p.username}>{p.username}</option>
                 ))}
+              </select>
+            )}
+
+            {loadingAnalytics ? (
+              <div className="flex items-center justify-center py-16"><Loader2 size={20} className="animate-spin text-brand" /></div>
+            ) : !hasData ? (
+              <div className="text-center py-16 bg-surface border border-border rounded-xl">
+                <BarChart3 size={24} className="text-text-secondary mx-auto mb-3 opacity-50" />
+                <p className="text-text-secondary text-sm">No analytics data yet.</p>
+                <p className="text-text-secondary text-xs mt-1">Connect platforms + publish a few posts. Analytics populate within ~24 hours.</p>
               </div>
-              {analytics.engagement_rate != null && (
-                <div className="bg-surface border border-border rounded-xl p-4">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-text-secondary uppercase tracking-wider">Engagement Rate</span>
-                    <span className="text-xl font-bold text-brand">{(analytics.engagement_rate * 100).toFixed(2)}%</span>
+            ) : (
+              <>
+                {/* Sources row — which platforms contributed to this aggregate */}
+                <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-surface border border-border">
+                  <span className="text-[10px] uppercase tracking-wider text-text-secondary/60 font-bold">Sources:</span>
+                  <div className="flex items-center gap-1.5">
+                    {platformKeys.filter(k => k !== 'all').map(k => {
+                      const info = getPlatformInfo(k);
+                      return (
+                        <span key={k} className="flex items-center gap-1 px-1.5 py-0.5 bg-white/[0.02] border border-white/10 rounded text-[10px] text-text-secondary">
+                          <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: info.color }} />
+                          {info.label}
+                        </span>
+                      );
+                    })}
                   </div>
                 </div>
-              )}
-            </>
-          )}
-        </div>
-      )}
+
+                {/* Headline metric cards — Followers / Reach / Impressions */}
+                <div className="grid grid-cols-3 gap-3">
+                  {[
+                    { label: 'Followers', value: followers, icon: TrendingUp, color: 'text-brand' },
+                    { label: 'Reach', value: reach, icon: Eye, color: 'text-violet-400' },
+                    { label: 'Impressions', value: impressions, icon: Eye, color: 'text-blue-400' },
+                  ].map(stat => (
+                    <div key={stat.label} className="bg-surface border border-border rounded-xl p-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-[10px] font-bold text-text-secondary uppercase tracking-wider">{stat.label}</span>
+                        <stat.icon size={14} className={stat.color} />
+                      </div>
+                      <p className="text-2xl font-bold text-text-primary">{Number(stat.value).toLocaleString()}</p>
+                    </div>
+                  ))}
+                </div>
+
+                {/* 30-day chart from reach_timeseries */}
+                {timeseries.length > 0 && (
+                  <div className="bg-surface border border-border rounded-xl p-4">
+                    <p className="text-xs font-bold text-text-secondary uppercase tracking-wider mb-3">Reach — Last {timeseries.length} Days</p>
+                    <div className="flex items-end gap-1 h-32">
+                      {timeseries.map((t, i) => (
+                        <div
+                          key={i}
+                          className="flex-1 bg-gradient-to-t from-brand/30 to-brand/60 rounded-sm hover:from-brand/40 hover:to-brand/80 transition-colors relative group"
+                          style={{ height: `${Math.max(2, (t.value / tsMax) * 100)}%` }}
+                          title={`${t.date}: ${t.value.toLocaleString()}`}
+                        >
+                          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2 py-1 bg-bg border border-border rounded text-[10px] text-text-primary opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
+                            {t.date}: {t.value.toLocaleString()}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex items-center justify-between mt-2 text-[10px] text-text-secondary/50">
+                      <span>{timeseries[0]?.date}</span>
+                      <span>{timeseries[timeseries.length - 1]?.date}</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Engagement summary */}
+                <div className="grid grid-cols-3 gap-3">
+                  {[
+                    { label: 'Likes', value: likes, icon: Heart, color: 'text-red-400' },
+                    { label: 'Comments', value: comments, icon: MessageCircle, color: 'text-amber-400' },
+                    { label: 'Shares', value: shares, icon: Share2, color: 'text-emerald-400' },
+                  ].map(stat => (
+                    <div key={stat.label} className="bg-surface border border-border rounded-xl p-3">
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <stat.icon size={12} className={stat.color} />
+                        <span className="text-[10px] font-bold text-text-secondary uppercase tracking-wider">{stat.label}</span>
+                      </div>
+                      <p className="text-lg font-bold text-text-primary">{Number(stat.value).toLocaleString()}</p>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Per-platform breakdown */}
+                {platformKeys.filter(k => k !== 'all').length > 1 && (
+                  <div className="bg-surface border border-border rounded-xl p-4">
+                    <p className="text-xs font-bold text-text-secondary uppercase tracking-wider mb-3">By Platform</p>
+                    <div className="space-y-2">
+                      {platformKeys.filter(k => k !== 'all').map(k => {
+                        const info = getPlatformInfo(k);
+                        const p = platformsData[k] || {};
+                        return (
+                          <div key={k} className="flex items-center justify-between gap-3 p-2 rounded-lg bg-bg/40 border border-white/[0.04]">
+                            <div className="flex items-center gap-2 flex-shrink-0 w-32">
+                              <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: info.color }} />
+                              <span className="text-xs font-semibold text-text-primary capitalize">{info.label}</span>
+                            </div>
+                            <div className="flex items-center gap-4 text-xs flex-1 justify-end">
+                              <span className="text-text-secondary"><span className="text-text-primary font-bold">{Number(p.followers || 0).toLocaleString()}</span> followers</span>
+                              <span className="text-text-secondary"><span className="text-text-primary font-bold">{Number(p.reach || 0).toLocaleString()}</span> reach</span>
+                              <span className="text-text-secondary"><span className="text-text-primary font-bold">{Number(p.impressions || p.views || 0).toLocaleString()}</span> impressions</span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        );
+      })()}
 
       {/* ═══ Connect Banner (shown after opening OAuth tab) ═══ */}
       {showConnect && (
