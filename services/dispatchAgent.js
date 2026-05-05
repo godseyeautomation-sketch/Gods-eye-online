@@ -413,10 +413,10 @@ async function getJobStatus(jobIdOrRequestId) {
 // ── Resolve the Upload-Post username for a brand ────────────────────────────
 
 function resolveUploadPostUser(userId, brand) {
-  // 1. Check brand-level config
+  // 1. Check brand-level config — the canonical user-set value
   if (brand?.upload_post_user) return brand.upload_post_user;
 
-  // 2. Check social-profile-owners mapping
+  // 2. Check social-profile-owners mapping (Cloud Run local file fallback)
   try {
     const ownersFile = path.join(SYNC_DIR, 'social-profile-owners.json');
     if (fs.existsSync(ownersFile)) {
@@ -428,10 +428,16 @@ function resolveUploadPostUser(userId, brand) {
     }
   } catch {}
 
-  // 3. Fall back to brand instagram handle or name slug
-  if (brand?.instagram_handle) return brand.instagram_handle;
-  if (brand?.name) return brand.name.toLowerCase().replace(/[^a-z0-9]/g, '_');
-
+  // 3. NO fallback to brand.instagram_handle or name slug. Those names
+  //    are NOT registered as profiles on Upload Post — passing them
+  //    triggers "Username not associated with any profile" 400 errors
+  //    and (worse) makes the Scheduled tab filter reject any successfully
+  //    scheduled posts because the registered ownership doesn't match
+  //    the username Upload Post actually uses.
+  //
+  //    If neither (1) nor (2) returns a value, return null. The caller
+  //    treats that as "needs_connection" and pops the connect modal,
+  //    which is the correct UX.
   return null;
 }
 

@@ -88,17 +88,21 @@ export const SocialAccountsPanel: React.FC<Props> = ({ brandName }) => {
       }
 
       // ── Auto-claim orphan profiles ─────────────────────────────────────
-      // If we got 0 owned profiles back, check whether there are any
-      // unclaimed profiles on the API key (created via earlier failed
-      // attempts, or directly on upload-post.com). Auto-claim them so
-      // the user doesn't have to click "Recover existing" manually.
       if (profs.length === 0 && userId) {
         try {
           const allData = await listAllProfiles(userId);
-          const unclaimed = (allData.profiles || []).filter(p => p.orphan);
-          if (unclaimed.length > 0) {
-            console.log(`[SocialAccounts] Auto-claiming ${unclaimed.length} orphan profile(s):`, unclaimed.map(p => p.username));
-            for (const p of unclaimed) {
+          // Prefer profiles that already have a connected platform — those
+          // are the ones the user actually wants to use. Falls back to any
+          // unclaimed if no connected ones exist.
+          const orphans = (allData.profiles || []).filter(p => p.orphan);
+          const connected = orphans.filter(p => {
+            const accts = p.social_accounts || {};
+            return Object.values(accts).some(v => v && String(v).length > 0);
+          });
+          const toClaim = connected.length > 0 ? connected : orphans;
+          if (toClaim.length > 0) {
+            console.log(`[SocialAccounts] Auto-claiming ${toClaim.length} profile(s) (${connected.length} with connections):`, toClaim.map(p => p.username));
+            for (const p of toClaim) {
               try { await claimProfile(p.username, userId); }
               catch (err) { console.warn('[SocialAccounts] auto-claim failed for', p.username, err); }
             }
@@ -107,6 +111,24 @@ export const SocialAccountsPanel: React.FC<Props> = ({ brandName }) => {
             setProfiles(refreshed);
             if (refreshed.length > 0 && !analyticsProfile) {
               setAnalyticsProfile(refreshed[0].username);
+            }
+
+            // Pin the connected profile on the brand so Dispatch uses
+            // it directly (instead of falling through to the wrong
+            // brand-name slug). Prefer a profile that has connections.
+            const pinTarget = connected[0]?.username || toClaim[0]?.username;
+            if (pinTarget) {
+              try {
+                const { saveBrandProfile, getAllBrandProfiles } = await import('../../services/brandService');
+                const allBrands = await getAllBrandProfiles(userId);
+                const target = allBrands.find((b: any) => b.name === brandName);
+                if (target && target.upload_post_user !== pinTarget) {
+                  await saveBrandProfile(userId, { ...target, upload_post_user: pinTarget });
+                  console.log(`[SocialAccounts] Pinned brand.upload_post_user = ${pinTarget}`);
+                }
+              } catch (err) {
+                console.warn('[SocialAccounts] Failed to pin upload_post_user:', err);
+              }
             }
           }
         } catch (err) {
@@ -128,9 +150,12 @@ export const SocialAccountsPanel: React.FC<Props> = ({ brandName }) => {
     try {
       const data = await getHistory(1, 50, userId);
       const allPosts = data.data || data.history || data || [];
-      // Filter to only show posts from this user's profiles
+      // Filter by every known username field Upload Post might use
       const filtered = ownedUsernames.length > 0
-        ? allPosts.filter((post: any) => ownedUsernames.includes(post.username || post.user || post.profile))
+        ? allPosts.filter((post: any) => {
+            const u = post.profile_username || post.username || post.user || post.profile;
+            return u && ownedUsernames.includes(u);
+          })
         : [];
       setPostHistory(filtered);
     } catch { setPostHistory([]); }
@@ -141,13 +166,24 @@ export const SocialAccountsPanel: React.FC<Props> = ({ brandName }) => {
     setLoadingScheduled(true);
     try {
       const data = await getScheduledPosts(userId);
-      const allScheduled = Array.isArray(data) ? data : [];
-      // Filter to only show scheduled posts from this user's profiles
+      const allScheduled = Array.isArray(data) ? data : (data?.jobs || data?.scheduled || data?.data || []);
+      // Filter to only show scheduled posts from this user's profiles.
+      // Upload Post returns `profile_username` per their docs; older fields
+      // (username/user/profile) are kept for forward-compat. If we have no
+      // owned profiles tracked, show nothing rather than risk leaking other
+      // users' posts.
       const filtered = ownedUsernames.length > 0
-        ? allScheduled.filter((post: any) => ownedUsernames.includes(post.username || post.user || post.profile))
+        ? allScheduled.filter((post: any) => {
+            const u = post.profile_username || post.username || post.user || post.profile;
+            return u && ownedUsernames.includes(u);
+          })
         : [];
+      console.log(`[Scheduled] ${allScheduled.length} jobs from Upload Post, ${filtered.length} match owned [${ownedUsernames.join(', ')}]`);
       setScheduled(filtered);
-    } catch { setScheduled([]); }
+    } catch (err) {
+      console.warn('[Scheduled] load failed:', err);
+      setScheduled([]);
+    }
     finally { setLoadingScheduled(false); }
   };
 
@@ -217,6 +253,21 @@ export const SocialAccountsPanel: React.FC<Props> = ({ brandName }) => {
     setActioningOrphan(username);
     try {
       await claimProfile(username, userId);
+      // Pin this username on the brand so future Dispatch / Approve calls
+      // route through the right Upload Post user. Without this, server-side
+      // resolveUploadPostUser may still pick a different profile.
+      try {
+        const { saveBrandProfile, getAllBrandProfiles } = await import('../../services/brandService');
+        const all = await getAllBrandProfiles(userId);
+        // Match by brandName (passed as prop) — this is per-brand panel
+        const target = all.find((b: any) => b.name === brandName);
+        if (target && target.upload_post_user !== username) {
+          await saveBrandProfile(userId, { ...target, upload_post_user: username });
+          console.log(`[SocialAccounts] Set brand.upload_post_user = ${username} for ${brandName}`);
+        }
+      } catch (err) {
+        console.warn('[SocialAccounts] Failed to pin upload_post_user on brand:', err);
+      }
       await loadProfiles();          // refresh the main list — should now include this profile
       await loadOrphans();           // refresh orphan list — claimed flag flips
     } catch (e: any) {
