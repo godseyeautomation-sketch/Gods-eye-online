@@ -122,6 +122,8 @@ export const AutopilotPage: React.FC<AutopilotPageProps> = ({ onNavigate }) => {
   const [scoutResult, setScoutResult] = useState<{ filename: string; competitors_analyzed: number; opportunities: number; content_pillars: number; hooks_generated: number; generated_at: string } | null>(null);
   const [priyaProgress, setPriyaProgress] = useState<{ created: number; total: number } | null>(null);
   const [reviewResult, setReviewResult] = useState<{ decision: string; approved_count: number; rejected_count: number; total_reviewed: number } | null>(null);
+  // Tracks where the most recent Review run was sent — drives the banner copy.
+  const [lastReviewMode, setLastReviewMode] = useState<'slack' | 'dashboard' | null>(null);
   const [agentError, setAgentError] = useState<string | null>(null);
   const [chainMode, setChainMode] = useState(true); // auto-run next agent after current finishes
   const [scoutApproved, setScoutApproved] = useState(false); // Scout report approval gate
@@ -346,6 +348,7 @@ export const AutopilotPage: React.FC<AutopilotPageProps> = ({ onNavigate }) => {
     setPendingReviewBrandId(null);
     setTimeout(() => {
       console.log(`[Autopilot] Auto-running Review (Slack mode) post-OAuth for ${targetBrandId}`);
+      setLastReviewMode('slack');
       runAgent('reviewer', { reviewMode: 'slack' });
     }, 800);
   }, [pendingReviewBrandId, selectedBrandId, brands, user?.id, runningAgent]);
@@ -1490,20 +1493,35 @@ export const AutopilotPage: React.FC<AutopilotPageProps> = ({ onNavigate }) => {
               </div>
             )}
 
-            {/* Review (Slack HITL) progress / result banner */}
-            {runningAgent === 'reviewer' && (
-              <div className="flex items-center gap-3 p-3 rounded-xl bg-cyan-500/5 border border-cyan-500/20">
-                <div className="w-5 h-5 rounded-full border-2 border-cyan-400 border-t-transparent animate-spin" />
-                <div className="flex-1">
-                  <p className="text-sm font-medium text-text-primary">
-                    {reviewResult?.decision === 'waiting'
-                      ? `Waiting for Slack approval (${reviewResult.approved_count || 0} approved, ${reviewResult.rejected_count || 0} rejected)`
-                      : 'Sending 3 calendar posts to Slack...'}
-                  </p>
-                  <p className="text-xs text-text-secondary">Check #all-godseye — click Approve or Reject on each post</p>
+            {/* Review HITL progress / result banner — copy adapts to the
+                destination the user picked in the Review-mode modal so it
+                doesn't say "Slack" when posts went to the Dashboard. */}
+            {runningAgent === 'reviewer' && (() => {
+              const dest = lastReviewMode === 'dashboard' ? 'dashboard' : 'slack';
+              const approved = reviewResult?.approved_count || 0;
+              const rejected = reviewResult?.rejected_count || 0;
+              const total = reviewResult?.total_reviewed || 0;
+              const waiting = reviewResult?.decision === 'waiting';
+              const headline = waiting
+                ? (dest === 'slack'
+                    ? `Waiting for Slack approval · ${approved} approved, ${rejected} rejected${total ? ` of ${total}` : ''}`
+                    : `Waiting for Approval Queue decisions · ${approved} approved, ${rejected} rejected${total ? ` of ${total}` : ''}`)
+                : (dest === 'slack'
+                    ? 'Generating images and sending posts to Slack…'
+                    : 'Generating images and adding posts to the Approval Queue…');
+              const subline = dest === 'slack'
+                ? 'Check your connected Slack channel — click Approve, Reject, or Regenerate on each post.'
+                : 'Open the Approval Queue tab — click Approve, Reject, or Regenerate on each post.';
+              return (
+                <div className="flex items-center gap-3 p-3 rounded-xl bg-cyan-500/5 border border-cyan-500/20">
+                  <div className="w-5 h-5 rounded-full border-2 border-cyan-400 border-t-transparent animate-spin" />
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-text-primary">{headline}</p>
+                    <p className="text-xs text-text-secondary">{subline}</p>
+                  </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
             {reviewResult && runningAgent !== 'reviewer' && (
               <div className={`flex items-center gap-3 p-3 rounded-xl border ${
                 reviewResult.decision === 'approved' ? 'bg-emerald-500/5 border-emerald-500/20' :
@@ -1919,6 +1937,7 @@ export const AutopilotPage: React.FC<AutopilotPageProps> = ({ onNavigate }) => {
                     return;
                   }
                   setShowReviewModeModal(false);
+                  setLastReviewMode('slack');
                   await runAgent('reviewer', { reviewMode: 'slack' });
                 }}
                 className="w-full p-4 rounded-xl bg-[#4A154B]/30 hover:bg-[#4A154B]/50 border border-[#4A154B]/40 hover:border-[#4A154B]/80 transition text-left flex items-center gap-4"
@@ -1944,6 +1963,7 @@ export const AutopilotPage: React.FC<AutopilotPageProps> = ({ onNavigate }) => {
               <button
                 onClick={async () => {
                   setShowReviewModeModal(false);
+                  setLastReviewMode('dashboard');
                   await runAgent('reviewer', { reviewMode: 'dashboard' });
                 }}
                 className="w-full p-4 rounded-xl bg-brand/10 hover:bg-brand/20 border border-brand/30 hover:border-brand/60 transition text-left flex items-center gap-4"
