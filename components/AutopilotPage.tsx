@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { AppMode } from '../types';
-import { getAllBrandProfiles } from '../services/brandService';
+import { getAllBrandProfiles, saveBrandProfile } from '../services/brandService';
 import ApprovalQueue from './brand/ApprovalQueue';
 import QualityScoreBadge from './brand/QualityScoreBadge';
 import { PriyaQuestionnaire } from './brand/PriyaQuestionnaire';
@@ -285,6 +285,28 @@ export const AutopilotPage: React.FC<AutopilotPageProps> = ({ onNavigate }) => {
       try { setReviewResult(JSON.parse(storedReview)); } catch { setReviewResult(null); }
     } else {
       setReviewResult(null);
+    }
+
+    // ── Sync brand.competitors → config.competitors on every brand change ──
+    // Without this, the Competitors view reads from `config.competitors`
+    // (in-memory only) which gets reset to DEFAULT_CONFIG on every reload.
+    // The persisted source of truth is brand.competitors in IndexedDB.
+    const brand = brands.find(b => b.id === selectedBrandId);
+    if (brand) {
+      const competitors = (brand.competitors || []).map(comp => ({
+        handle: comp.name,
+        platform: 'instagram' as const,
+        instagram: comp.instagram,
+        tiktok: comp.tiktok,
+        facebook: comp.facebook,
+        youtube: comp.youtube,
+        linkedin: comp.linkedin,
+        x: comp.x,
+        pinterest: comp.pinterest,
+        threads: comp.threads,
+        website: comp.website,
+      } as any));
+      setConfig(c => ({ ...c, competitors }));
     }
   }, [selectedBrandId, brands]);
 
@@ -1762,23 +1784,52 @@ export const AutopilotPage: React.FC<AutopilotPageProps> = ({ onNavigate }) => {
                 </div>
               )}
               <button
-                onClick={() => {
-                  if (newCompetitor.handle.trim()) {
-                    setConfig(c => ({ ...c, competitors: [...c.competitors, {
-                      handle: newCompetitor.handle.trim(),
-                      platform: 'instagram',
-                      instagram: newCompetitor.instagram.replace('@', '').trim(),
-                      tiktok: newCompetitor.tiktok.replace('@', '').trim(),
-                      facebook: newCompetitor.facebook.trim(),
-                      youtube: newCompetitor.youtube.trim(),
-                      linkedin: newCompetitor.linkedin.trim(),
-                      x: newCompetitor.x.replace('@', '').trim(),
-                      pinterest: newCompetitor.pinterest.trim(),
-                      threads: newCompetitor.threads.replace('@', '').trim(),
-                      website: newCompetitor.website.trim(),
-                    }] }));
-                    setNewCompetitor({ handle: '', website: '', instagram: '', tiktok: '', facebook: '', youtube: '', linkedin: '', x: '', pinterest: '', threads: '' });
-                    setShowSocialHandles(false);
+                onClick={async () => {
+                  if (!newCompetitor.handle.trim()) return;
+                  const newEntry = {
+                    handle: newCompetitor.handle.trim(),
+                    platform: 'instagram' as const,
+                    instagram: newCompetitor.instagram.replace('@', '').trim(),
+                    tiktok: newCompetitor.tiktok.replace('@', '').trim(),
+                    facebook: newCompetitor.facebook.trim(),
+                    youtube: newCompetitor.youtube.trim(),
+                    linkedin: newCompetitor.linkedin.trim(),
+                    x: newCompetitor.x.replace('@', '').trim(),
+                    pinterest: newCompetitor.pinterest.trim(),
+                    threads: newCompetitor.threads.replace('@', '').trim(),
+                    website: newCompetitor.website.trim(),
+                  };
+                  setConfig(c => ({ ...c, competitors: [...c.competitors, newEntry] }));
+                  setNewCompetitor({ handle: '', website: '', instagram: '', tiktok: '', facebook: '', youtube: '', linkedin: '', x: '', pinterest: '', threads: '' });
+                  setShowSocialHandles(false);
+
+                  // Persist to brand profile so it survives reloads / tab close.
+                  // Read-modify-write to avoid clobbering other brand fields.
+                  if (user?.id && selectedBrandId) {
+                    const existing = brands.find(b => b.id === selectedBrandId);
+                    if (existing) {
+                      const newCompetitorRow = {
+                        id: `comp_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+                        name: newEntry.handle,
+                        instagram: newEntry.instagram,
+                        tiktok: newEntry.tiktok,
+                        facebook: newEntry.facebook,
+                        youtube: newEntry.youtube,
+                        linkedin: newEntry.linkedin,
+                        x: newEntry.x,
+                        pinterest: newEntry.pinterest,
+                        threads: newEntry.threads,
+                        website: newEntry.website,
+                      };
+                      const updated = { ...existing, competitors: [...(existing.competitors || []), newCompetitorRow] };
+                      try {
+                        await saveBrandProfile(user.id, updated);
+                        setBrands(prev => prev.map(b => b.id === selectedBrandId ? updated : b));
+                      } catch (err: any) {
+                        console.error('[Autopilot] Failed to persist competitor:', err);
+                        setAgentError(`Failed to save competitor: ${err?.message || 'unknown'}`);
+                      }
+                    }
                   }
                 }}
                 className="px-5 py-2.5 rounded-xl bg-brand text-bg text-sm font-bold hover:bg-brand-hover transition"
@@ -1819,7 +1870,28 @@ export const AutopilotPage: React.FC<AutopilotPageProps> = ({ onNavigate }) => {
                       </div>
                     </div>
                     <button
-                      onClick={() => setConfig(c => ({ ...c, competitors: c.competitors.filter((_, idx) => idx !== i) }))}
+                      onClick={async () => {
+                        const removed = comp;
+                        setConfig(c => ({ ...c, competitors: c.competitors.filter((_, idx) => idx !== i) }));
+                        // Persist removal to the brand profile so reload doesn't bring it back
+                        if (user?.id && selectedBrandId) {
+                          const existing = brands.find(b => b.id === selectedBrandId);
+                          if (existing) {
+                            const filtered = (existing.competitors || []).filter(c =>
+                              !(c.name === removed.handle &&
+                                (c.instagram || '') === (removed.instagram || '') &&
+                                (c.website || '') === (removed.website || ''))
+                            );
+                            const updated = { ...existing, competitors: filtered };
+                            try {
+                              await saveBrandProfile(user.id, updated);
+                              setBrands(prev => prev.map(b => b.id === selectedBrandId ? updated : b));
+                            } catch (err: any) {
+                              console.error('[Autopilot] Failed to persist competitor removal:', err);
+                            }
+                          }
+                        }
+                      }}
                       className="text-text-secondary hover:text-red-400 transition p-2"
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>

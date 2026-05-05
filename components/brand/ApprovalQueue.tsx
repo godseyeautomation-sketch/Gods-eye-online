@@ -70,11 +70,15 @@ const STATUS_ICONS: Record<ApprovalStatus, string> = {
   expired: '',
 };
 
-// localStorage cache key — per brand, so multi-brand users don't conflict
+// localStorage cache key — per brand, so multi-brand users don't conflict.
+// Guard: never read/write under "approval_queue_cache_null" — that happens if
+// brandId hasn't been resolved yet. A null cache key would silently swap real
+// brand items into a junk slot, making them disappear on the next reload.
 const CACHE_KEY = (brandId: string) => `approval_queue_cache_${brandId}`;
 const CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 7; // 7 days
 
 function loadCachedItems(brandId: string): ApprovalQueueItem[] {
+  if (!brandId) return [];
   try {
     const raw = localStorage.getItem(CACHE_KEY(brandId));
     if (!raw) return [];
@@ -85,6 +89,7 @@ function loadCachedItems(brandId: string): ApprovalQueueItem[] {
   } catch { return []; }
 }
 function saveCachedItems(brandId: string, items: ApprovalQueueItem[]) {
+  if (!brandId) return; // skip write when brandId hasn't been set yet
   // Cache the full items including base64 images / videos. localStorage is
   // the only place generated_image survives a Cloud Run cold start when
   // images were stored inline (no remote URL). If we hit the ~5 MB quota,
