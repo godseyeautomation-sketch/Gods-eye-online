@@ -98,6 +98,14 @@ const Cube3D: React.FC<{ rotation: number; tilt: number }> = ({ rotation, tilt }
   );
 };
 
+// Hard cap on simultaneous character references — beyond this Gemini's
+// payload bloats and quality drops. UI nudges the user with a toast.
+const MAX_CHARACTERS = 3;
+// How many reference images per character we ship to the model. Characters
+// can have up to 12 stored, but the first 3 are usually enough to lock in
+// the look without overwhelming the prompt token budget.
+const REFS_PER_CHARACTER = 3;
+
 interface ControlBarProps {
   config: GenerationConfig;
   setConfig: React.Dispatch<React.SetStateAction<GenerationConfig>>;
@@ -120,6 +128,12 @@ interface ControlBarProps {
   // When true, Generate button is enabled even when the prompt is empty.
   // EditPage sets this while the Eraser tool is active (click-and-done flow).
   allowEmptyPrompt?: boolean;
+
+  // Character context — when selectedCharacterIds changes, ControlBar
+  // resolves the matching characters' first N reference images and calls
+  // this with the merged array. Parent merges these into the generation
+  // payload (does NOT show them in the visible attachment row).
+  onCharacterImagesChange?: (images: string[]) => void;
 }
 
 export const ControlBar: React.FC<ControlBarProps> = ({
@@ -129,6 +143,7 @@ export const ControlBar: React.FC<ControlBarProps> = ({
   objectOrientation = DEFAULT_OBJECT_ORIENTATION, setObjectOrientation,
   brands = [], activeBrandId = null, onSwitchBrand,
   allowEmptyPrompt = false,
+  onCharacterImagesChange,
 }) => {
   const { user } = useAuth();
   const [activePopup, setActivePopup] = useState<string | null>(null);
@@ -138,8 +153,24 @@ export const ControlBar: React.FC<ControlBarProps> = ({
 
   // Smart Entity Selectors
   const [characters, setCharacters] = useState<Character[]>([]);
-  const [selectedCharacterId, setSelectedCharacterId] = useState<string | null>(null);
+  // Multi-select character IDs — capped at MAX_CHARACTERS. Their reference
+  // images are passed to the model invisibly; the visible attachment row
+  // only ever shows manually-added images.
+  const [selectedCharacterIds, setSelectedCharacterIds] = useState<string[]>([]);
+  const [characterCapToast, setCharacterCapToast] = useState<string | null>(null);
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
+
+  // Auto-grow textarea — sized to the prompt content up to a cap (~200px),
+  // then scrolls. Resolves the user complaint that the single-line input
+  // made editing longer prompts hard.
+  const promptTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const autoGrowPrompt = () => {
+    const el = promptTextareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(220, Math.max(48, el.scrollHeight))}px`;
+  };
+  useEffect(() => { autoGrowPrompt(); }, [config.prompt]);
 
   // Fetch characters from IndexedDB on mount + when user changes.
   // (Was Supabase before — the create flow was broken. Local store now.)
@@ -167,17 +198,43 @@ export const ControlBar: React.FC<ControlBarProps> = ({
     ? (brands.find(b => b.id === activeBrandId)?.products || [])
     : [];
 
+  // Toggle character in/out of the multi-selection. Cap at MAX_CHARACTERS.
+  // Does NOT inject images into the visible attachment row — those would
+  // crowd the prompt area. The character's reference images are propagated
+  // to the parent via onCharacterImagesChange below, used only at
+  // generation time.
   const handleSelectCharacter = (char: Character) => {
-    if (selectedCharacterId === char.id) {
-      setSelectedCharacterId(null);
-      // Remove character images from inputImages
-      setInputImages(prev => prev.filter(img => !char.images.slice(0, 3).includes(img)));
-    } else {
-      setSelectedCharacterId(char.id);
-      setInputImages(prev => [...char.images.slice(0, 3), ...prev]);
-    }
-    setActivePopup(null);
+    setSelectedCharacterIds(prev => {
+      const isSelected = prev.includes(char.id);
+      if (isSelected) {
+        return prev.filter(id => id !== char.id);
+      }
+      if (prev.length >= MAX_CHARACTERS) {
+        setCharacterCapToast(`Max ${MAX_CHARACTERS} characters per generation. Remove one to add another.`);
+        setTimeout(() => setCharacterCapToast(null), 3500);
+        return prev;
+      }
+      return [...prev, char.id];
+    });
+    // Don't auto-close — user may want to add a 2nd or 3rd character without
+    // re-opening the popup. Closing happens on outside click.
   };
+
+  // Whenever selection changes, compute the character-image bundle and
+  // surface it to the parent. Each character contributes up to
+  // REFS_PER_CHARACTER images. Order matches selection order.
+  useEffect(() => {
+    if (!onCharacterImagesChange) return;
+    const charById = new Map(characters.map(c => [c.id, c]));
+    const bundle: string[] = [];
+    for (const id of selectedCharacterIds) {
+      const c = charById.get(id);
+      if (!c) continue;
+      bundle.push(...(c.images || []).slice(0, REFS_PER_CHARACTER));
+    }
+    onCharacterImagesChange(bundle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCharacterIds, characters]);
 
   const handleSelectProduct = (product: any) => {
     if (selectedProductId === product.id) {
@@ -394,24 +451,41 @@ export const ControlBar: React.FC<ControlBarProps> = ({
               </div>
             )}
 
-            {/* Character selector popup */}
+            {/* Character selector popup — multi-select up to MAX_CHARACTERS */}
             {activePopup === 'character' && (
               <div className="absolute bottom-0 right-48 bg-white dark:bg-[#1a1a1a] border border-border-base rounded-[20px] w-64 shadow-2xl animate-scale-in origin-bottom-right p-2">
-                <div className="text-[10px] font-bold uppercase text-text-secondary px-3 py-2 tracking-widest flex items-center gap-2">
-                  <Users size={12} /> Select Character
+                <div className="text-[10px] font-bold uppercase text-text-secondary px-3 py-2 tracking-widest flex items-center justify-between gap-2">
+                  <span className="flex items-center gap-2"><Users size={12} /> Select Characters</span>
+                  <span className="text-text-secondary/50 normal-case tracking-normal font-medium">{selectedCharacterIds.length}/{MAX_CHARACTERS}</span>
                 </div>
                 <div className="max-h-60 overflow-y-auto space-y-1 mt-1">
                   {characters.length === 0 ? (
                     <p className="text-[10px] text-text-secondary px-3 py-4 text-center">No characters yet. Create one in Characters.</p>
-                  ) : characters.map(char => (
-                    <button key={char.id} onClick={() => handleSelectCharacter(char)}
-                      className={`w-full text-left px-3 py-2 rounded-lg flex items-center gap-2.5 text-xs font-semibold transition-colors ${selectedCharacterId === char.id ? 'bg-brand/10 text-brand border border-brand/30' : 'text-text-primary hover:bg-surface border border-transparent'}`}>
-                      <img src={char.thumbnail} alt={char.name} className="w-7 h-7 rounded-full object-cover border border-white/10" />
-                      <span className="truncate">{char.name}</span>
-                      {selectedCharacterId === char.id && <Check size={12} className="text-brand ml-auto flex-shrink-0" />}
-                    </button>
-                  ))}
+                  ) : characters.map(char => {
+                    const isSelected = selectedCharacterIds.includes(char.id);
+                    const atCap = !isSelected && selectedCharacterIds.length >= MAX_CHARACTERS;
+                    return (
+                      <button key={char.id} onClick={() => handleSelectCharacter(char)}
+                        disabled={atCap}
+                        className={`w-full text-left px-3 py-2 rounded-lg flex items-center gap-2.5 text-xs font-semibold transition-colors ${
+                          isSelected
+                            ? 'bg-brand/10 text-brand border border-brand/30'
+                            : atCap
+                              ? 'text-text-secondary/40 cursor-not-allowed border border-transparent'
+                              : 'text-text-primary hover:bg-surface border border-transparent'
+                        }`}>
+                        <img src={char.thumbnail} alt={char.name} className="w-7 h-7 rounded-full object-cover border border-white/10" />
+                        <span className="truncate">{char.name}</span>
+                        {isSelected && <Check size={12} className="text-brand ml-auto flex-shrink-0" />}
+                      </button>
+                    );
+                  })}
                 </div>
+                {selectedCharacterIds.length > 0 && (
+                  <p className="text-[9px] text-text-secondary/60 px-3 pt-2 pb-1 leading-relaxed">
+                    Selected characters' reference images are sent to the model invisibly. They won't crowd the attachment row.
+                  </p>
+                )}
               </div>
             )}
 
@@ -667,6 +741,45 @@ export const ControlBar: React.FC<ControlBarProps> = ({
         <div ref={visualBarRef} className="relative bg-white/90 dark:bg-[#111]/90 backdrop-blur-2xl border border-zinc-200 dark:border-white/10 rounded-[28px] p-1.5 shadow-[0_20px_40px_-10px_rgba(0,0,0,0.08)] dark:shadow-[0_20px_40px_-10px_rgba(0,0,0,0.3)]">
           <div className="flex flex-col gap-1.5">
 
+            {/* Character chips row — visible only when characters are selected.
+                Each chip has avatar + name + ✕. Stacks horizontally up to
+                MAX_CHARACTERS. Distinct from the manual attachment row below. */}
+            {selectedCharacterIds.length > 0 && (
+              <div className="flex items-center gap-1.5 px-2 pt-1 flex-wrap">
+                <span className="text-[9px] uppercase tracking-[0.18em] font-bold text-violet-400/80 mr-0.5">Characters</span>
+                {selectedCharacterIds.map(id => {
+                  const c = characters.find(ch => ch.id === id);
+                  if (!c) return null;
+                  return (
+                    <div key={id} className="group flex items-center gap-1.5 pl-1 pr-1.5 py-1 rounded-full bg-violet-500/10 border border-violet-500/30 hover:border-violet-500/60 transition-colors">
+                      <img src={c.thumbnail} alt={c.name} className="w-5 h-5 rounded-full object-cover border border-violet-500/40 flex-shrink-0" />
+                      <span className="text-[11px] font-semibold text-violet-300 max-w-[90px] truncate">{c.name}</span>
+                      <button
+                        onClick={() => setSelectedCharacterIds(prev => prev.filter(x => x !== id))}
+                        className="ml-0.5 w-4 h-4 rounded-full flex items-center justify-center text-violet-300/60 hover:text-violet-100 hover:bg-violet-500/30 transition-colors"
+                        title={`Remove ${c.name}`}
+                      >
+                        <X size={10} />
+                      </button>
+                    </div>
+                  );
+                })}
+                {selectedCharacterIds.length < MAX_CHARACTERS && (
+                  <button
+                    onClick={() => togglePopup('character')}
+                    className="text-[10px] text-violet-400/70 hover:text-violet-300 px-1.5 py-1 transition-colors"
+                  >
+                    + Add another
+                  </button>
+                )}
+              </div>
+            )}
+            {characterCapToast && (
+              <div className="mx-2 px-3 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[11px] font-medium animate-in fade-in slide-in-from-top-1">
+                {characterCapToast}
+              </div>
+            )}
+
             {/* Top row: images + textarea + generate */}
             <div className="flex items-start px-1.5 pt-1 gap-2.5">
               <div className="flex items-center gap-2.5 mt-0.5 overflow-visible scrollbar-hide max-w-[220px] pt-1 pr-1">
@@ -693,8 +806,10 @@ export const ControlBar: React.FC<ControlBarProps> = ({
               </div>
 
               <textarea
+                ref={promptTextareaRef}
                 value={config.prompt}
-                onChange={e => setConfig(prev => ({ ...prev, prompt: e.target.value }))}
+                onChange={e => { setConfig(prev => ({ ...prev, prompt: e.target.value })); /* height syncs via useEffect */ }}
+                onInput={autoGrowPrompt}
                 placeholder={
                   allowEmptyPrompt
                     ? "Eraser ready — click Generate to remove the masked area (no prompt needed)"
@@ -702,7 +817,9 @@ export const ControlBar: React.FC<ControlBarProps> = ({
                       ? "e.g. Combine elements from img 1 and img 2..."
                       : "Imagine something extraordinary..."
                 }
-                className="flex-1 bg-transparent text-text-primary placeholder-text-secondary/50 outline-none px-1 py-1.5 h-12 resize-none text-sm font-medium leading-relaxed"
+                rows={2}
+                style={{ minHeight: '48px', maxHeight: '220px' }}
+                className="flex-1 bg-transparent text-text-primary placeholder-text-secondary/50 outline-none px-1 py-1.5 resize-none text-sm font-medium leading-relaxed"
                 onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); e.stopPropagation(); onGenerate(); } }}
               />
 
@@ -823,45 +940,40 @@ export const ControlBar: React.FC<ControlBarProps> = ({
                 </button>
               )}
 
-              {/* Character selector chip */}
+              {/* Character selector chip — multi-select aware */}
               {characters.length > 0 && (() => {
                 const charSupport = getCharacterSupport(config.model);
-                const charSelected = !!selectedCharacterId;
+                const selectedCount = selectedCharacterIds.length;
+                const charSelected = selectedCount > 0;
+                const firstSelected = charSelected ? characters.find(c => c.id === selectedCharacterIds[0]) : null;
+                const labelName = firstSelected?.name || 'Character';
                 return (
                   <>
                     <button
                       onClick={() => togglePopup('character')}
                       className={`h-8 px-3 rounded-lg text-xs font-bold flex items-center gap-2 transition-all whitespace-nowrap border relative
                         ${activePopup === 'character' ? 'bg-violet-500/20 text-violet-400 border-violet-500/50'
-                          : selectedCharacterId ? 'bg-violet-500/10 text-violet-400 border-violet-500/30 hover:border-violet-500/60'
+                          : charSelected ? 'bg-violet-500/10 text-violet-400 border-violet-500/30 hover:border-violet-500/60'
                             : 'hover:bg-black/5 dark:hover:bg-white/10 text-text-secondary hover:text-text-primary border-transparent'}`}
-                      title="Select Character"
+                      title={charSelected ? `${selectedCount} character${selectedCount > 1 ? 's' : ''} selected — click to manage` : 'Select Character'}
                     >
                       <Users size={14} />
                       <span className="max-w-[80px] truncate">
-                        {selectedCharacterId ? characters.find(c => c.id === selectedCharacterId)?.name || 'Character' : 'Character'}
+                        {charSelected
+                          ? (selectedCount > 1 ? `${labelName} +${selectedCount - 1}` : labelName)
+                          : 'Character'}
                       </span>
-                      {selectedCharacterId && <span className="absolute -top-1 -right-1 w-2 h-2 bg-violet-400 rounded-full shadow-lg shadow-violet-400/50" />}
+                      {charSelected && <span className="absolute -top-1 -right-1 w-2 h-2 bg-violet-400 rounded-full shadow-lg shadow-violet-400/50" />}
                     </button>
 
-                    {/* Compatibility warning — shown only when a character is
-                        actively selected AND the current model has limited /
-                        no support for character-reference. Inline so the user
-                        sees it immediately, not after a failed generation. */}
                     {charSelected && charSupport.support === 'limited' && (
-                      <div
-                        className="h-8 px-3 rounded-lg text-xs font-bold flex items-center gap-1.5 whitespace-nowrap border bg-amber-500/10 text-amber-400 border-amber-500/30"
-                        title={charSupport.warning}
-                      >
+                      <div className="h-8 px-3 rounded-lg text-xs font-bold flex items-center gap-1.5 whitespace-nowrap border bg-amber-500/10 text-amber-400 border-amber-500/30" title={charSupport.warning}>
                         <AlertTriangle size={14} />
                         <span>Limited compatibility</span>
                       </div>
                     )}
                     {charSelected && charSupport.support === 'none' && (
-                      <div
-                        className="h-8 px-3 rounded-lg text-xs font-bold flex items-center gap-1.5 whitespace-nowrap border bg-red-500/10 text-red-400 border-red-500/30"
-                        title="This model doesn't accept reference images. Switch to Gemini, GPT Image 2, or FLUX2 to use a character."
-                      >
+                      <div className="h-8 px-3 rounded-lg text-xs font-bold flex items-center gap-1.5 whitespace-nowrap border bg-red-500/10 text-red-400 border-red-500/30" title="This model doesn't accept reference images. Switch to Gemini, GPT Image 2, or FLUX2 to use a character.">
                         <AlertTriangle size={14} />
                         <span>Not supported by this model</span>
                       </div>

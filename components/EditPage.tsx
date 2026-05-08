@@ -77,6 +77,11 @@ export const EditPage: React.FC<EditPageProps> = ({ initialImage, onAssetGenerat
 
     const [isGenerating, setIsGenerating] = useState(false);
     const [referenceAssets, setReferenceAssets] = useState<string[]>([]);
+    // Character reference images — kept separate from referenceAssets so
+    // they don't crowd the visible attachment row. ControlBar sets these
+    // via onCharacterImagesChange when the user adds/removes a character.
+    // Merged into the generation payload at handleGenerate time.
+    const [characterImages, setCharacterImages] = useState<string[]>([]);
     const [activePopup, setActivePopup] = useState<string | null>(null);
 
     // Perspective & Object Control State
@@ -286,7 +291,12 @@ export const EditPage: React.FC<EditPageProps> = ({ initialImage, onAssetGenerat
             // composite below via onAssetGenerated → handleAssetGeneratedFromEdit
             // → saveToLocalGallery. That way the gallery shows the correct blended
             // image, not the raw masked patch.
-            const resultBase64 = await editImage(imageData, maskData, finalPrompt, config.model, optimalRatio, referenceAssets, config.harmonize || false, false);
+            // Merge character context images with the user's manual
+            // attachments. Character images go FIRST so the model sees them
+            // as authoritative reference (subject identity), with manual
+            // attachments treated as supporting context (pose / scene refs).
+            const effectiveReferences = [...characterImages, ...referenceAssets];
+            const resultBase64 = await editImage(imageData, maskData, finalPrompt, config.model, optimalRatio, effectiveReferences, config.harmonize || false, false);
 
             if (resultBase64 && resultBase64.startsWith('data:image')) {
                 // Perform client-side compositing:
@@ -978,6 +988,7 @@ export const EditPage: React.FC<EditPageProps> = ({ initialImage, onAssetGenerat
                 objectOrientation={objectOrientation}
                 setObjectOrientation={setObjectOrientation}
                 allowEmptyPrompt={tool === 'erase'}
+                onCharacterImagesChange={setCharacterImages}
             />
         </div>
     );
