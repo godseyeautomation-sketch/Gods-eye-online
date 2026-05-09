@@ -669,7 +669,36 @@ export const FalVideoPage: React.FC<FalVideoPageProps> = ({ initialImage }) => {
             return;
           }
         } catch (e: any) {
-          console.warn('[VideoResume] Poll error:', e.message);
+          const msg = String(e?.message || e || '');
+          console.warn('[VideoResume] Poll error:', msg);
+
+          // Permanent / non-recoverable errors — bail out instead of
+          // hammering the same endpoint for 10 minutes. fal.ai returns
+          // 422 with a JSON body when the input is invalid (file too
+          // large, missing field, wrong format, etc.) — none of which
+          // get better with retries.
+          const isPermanent =
+            msg.includes('422') ||
+            /file_too_large|file size|exceeds|maximum allowed|content_type|unsupported/i.test(msg) ||
+            msg.includes('400') ||
+            msg.includes('413');
+
+          if (isPermanent) {
+            // Pull a friendly reason out of the error message
+            let detail = 'Generation failed';
+            if (/file_too_large|file size|exceeds|maximum allowed/i.test(msg)) {
+              detail = 'Image too large. Try a smaller / lower-resolution image.';
+            } else if (msg.includes('422') || msg.includes('400')) {
+              detail = 'Invalid request — check the prompt and image format.';
+            }
+            setJobs(prev => prev.map(j => j.id === pJob.id ? { ...j, status: 'error', detail } : j));
+            removePersistedJob(pJob.id);
+            activePolls.current.delete(pJob.id);
+            // Keep the error visible a bit longer so the user can read it
+            setTimeout(() => setJobs(prev => prev.filter(j => j.id !== pJob.id)), 12000);
+            return;
+          }
+          // Otherwise: transient (network blip, 5xx, etc.) — keep polling
         }
         // Wait before next poll
         await new Promise(r => setTimeout(r, POLL_INTERVAL));

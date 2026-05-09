@@ -1,6 +1,8 @@
 // fal.ai Video Generation Service
 // All requests go through /api/fal/* proxy — FAL_KEY never exposed to client
 
+import { compressForFal } from './imageCompressionService';
+
 export type GenerationStatus = 'idle' | 'submitting' | 'queued' | 'processing' | 'done' | 'error';
 
 export interface FalQueueResult {
@@ -101,10 +103,17 @@ const resolveInputImages = async (input: Record<string, any>): Promise<Record<st
   const resolveUrl = async (url: string): Promise<string> => {
     if (url.startsWith('blob:')) {
       const dataUrl = await blobToDataUrl(url);
-      return uploadToFalStorage(dataUrl);
+      // fal.ai rejects files >10MB with a 422 "file_too_large" error. The
+      // PNG/JPEG straight off the canvas can easily be 12-20MB at full
+      // resolution. compressForFal is a no-op for files already <8MB and
+      // shrinks larger ones to 2048×2048 JPEG — quality stays high enough
+      // for video seed frames.
+      const compressed = await compressForFal(dataUrl);
+      return uploadToFalStorage(compressed);
     }
     if (url.startsWith('data:image/')) {
-      return uploadToFalStorage(url);
+      const compressed = await compressForFal(url);
+      return uploadToFalStorage(compressed);
     }
     return url;
   };

@@ -70,6 +70,55 @@ export const compressImage = async (
  *   PNG (mask): ≤ 6MB  → max 1536×1536
  *   JPEG (source/reference): ≤ 15MB → max 3072×3072
  */
+/**
+ * Compress an image for fal.ai upload (Kling, Veo, Wan, etc.).
+ *
+ * fal.ai's API rejects files larger than 10485760 bytes (10MB) with a 422
+ * "file_too_large" error. We target a hard ceiling of 8MB (raw, not base64-
+ * encoded) to leave headroom — fal.ai's storage layer counts the raw bytes
+ * after they decode our base64 payload, and we want to be safely below
+ * their cutoff.
+ *
+ * Strategy:
+ *   - PNG ≥ 8MB → resize to max 2048×2048, convert to JPEG at 0.92 (PNG is
+ *     lossless and 3-5× larger than JPEG; for a video START FRAME losing
+ *     PNG transparency is fine since video is opaque anyway).
+ *   - JPEG ≥ 8MB → resize to max 2048×2048 at 0.9 quality.
+ *   - Smaller files: return as-is.
+ *
+ * Returns the (possibly recompressed) data URL. Always JPEG when compression
+ * was applied.
+ */
+export const compressForFal = async (base64Str: string): Promise<string> => {
+    const approxSize = (base64Str.length * 3) / 4;
+    const sizeInMB = approxSize / (1024 * 1024);
+    const isPng = base64Str.startsWith('data:image/png');
+
+    if (sizeInMB <= 8) return base64Str;
+
+    console.log(`[FalCompress] Source ${sizeInMB.toFixed(2)}MB ${isPng ? 'PNG' : 'JPEG'} — compressing for fal.ai 10MB cap`);
+
+    // Try progressively smaller dimensions / quality until we're under 8MB
+    const attempts: Array<[number, number, number]> = [
+        [2048, 2048, 0.9],
+        [1920, 1920, 0.85],
+        [1536, 1536, 0.82],
+        [1280, 1280, 0.8],
+    ];
+    let result = base64Str;
+    for (const [w, h, q] of attempts) {
+        result = await compressImage(base64Str, w, h, q, 'image/jpeg');
+        const newSize = (result.length * 3) / 4 / (1024 * 1024);
+        console.log(`[FalCompress]   → ${w}x${h} q=${q}: ${newSize.toFixed(2)}MB`);
+        if (newSize <= 8) return result;
+    }
+    // Last resort: aggressive 1024x1024
+    result = await compressImage(base64Str, 1024, 1024, 0.75, 'image/jpeg');
+    const finalSize = (result.length * 3) / 4 / (1024 * 1024);
+    console.log(`[FalCompress]   → 1024x1024 q=0.75: ${finalSize.toFixed(2)}MB (final fallback)`);
+    return result;
+};
+
 export const smartCompress = async (base64Str: string): Promise<string> => {
     const approxSize = (base64Str.length * 3) / 4;
     const sizeInMB = approxSize / (1024 * 1024);
