@@ -21,7 +21,7 @@ import { SpacesPage } from './components/spaces/SpacesPage';
 import { BrandPage } from './components/brand/BrandPage';
 import { FalVideoPage } from './components/fal-video/FalVideoPage';
 import { VideoProjectProvider } from './context/VideoProjectContext';
-import { AppMode, GeneratedAsset, GenerationConfig, ModelType, PerspectiveConfig, DEFAULT_PERSPECTIVE, buildPerspectiveText } from './types';
+import { AppMode, GeneratedAsset, GenerationConfig, ModelType, PerspectiveConfig, DEFAULT_PERSPECTIVE, buildPerspectiveText, CinemaConfig, DEFAULT_CINEMA, buildCinemaText } from './types';
 import { SAMPLE_IMAGES, MODELS } from './constants';
 import { generateImage } from './services/geminiService';
 import { generateFalImage } from './services/falService';
@@ -200,6 +200,18 @@ const App: React.FC = () => {
 
   const [inputImages, setInputImages] = useState<string[]>([]);
   const [perspective, setPerspective] = useState<PerspectiveConfig>(DEFAULT_PERSPECTIVE);
+  // Cinema controls (lens / focal / aperture / preset) — persisted across
+  // sessions so the user's "house look" sticks.
+  const [cinema, setCinema] = useState<CinemaConfig>(() => {
+    try {
+      const raw = localStorage.getItem('godseye:cinema');
+      if (raw) return { ...DEFAULT_CINEMA, ...JSON.parse(raw) };
+    } catch {}
+    return DEFAULT_CINEMA;
+  });
+  useEffect(() => {
+    try { localStorage.setItem('godseye:cinema', JSON.stringify(cinema)); } catch {}
+  }, [cinema]);
 
   // Auto-reset aspect ratio & batch size when switching models if current selection is unsupported
   useEffect(() => {
@@ -315,9 +327,12 @@ const App: React.FC = () => {
       ? combinedPrompt
       : `${combinedPrompt}${REALISM_SUFFIX}`;
 
-    // Inject perspective text if set
+    // Inject perspective + cinema phrases. Cinema goes after perspective so
+    // it acts as the global camera-language layer on top of any framing.
     const perspText = buildPerspectiveText(perspective);
+    const cinemaText = buildCinemaText(cinema);
     let finalPrompt = perspText ? `${realisticPrompt}, ${perspText}` : realisticPrompt;
+    if (cinemaText) finalPrompt = `${finalPrompt}, ${cinemaText}`;
 
     // Phase 4.5: Global Brand Context Injection
     if (activeBrandId) {
@@ -829,6 +844,8 @@ const App: React.FC = () => {
           setInputImages={setInputImages}
           perspective={perspective}
           setPerspective={setPerspective}
+          cinema={cinema}
+          setCinema={setCinema}
           brands={brands}
           activeBrandId={activeBrandId}
           onSwitchBrand={(id) => {
