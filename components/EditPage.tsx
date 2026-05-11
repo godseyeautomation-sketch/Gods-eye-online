@@ -32,7 +32,7 @@ import {
 import { ControlBar } from './ControlBar';
 import { BrainActions } from './BrainActions';
 import { generateImage, editImage } from '../services/geminiService';
-import { GenerationConfig, ModelType, PerspectiveConfig, DEFAULT_PERSPECTIVE, buildPerspectiveText, ObjectOrientation, DEFAULT_OBJECT_ORIENTATION, buildObjectOrientationText } from '../types';
+import { GenerationConfig, ModelType, PerspectiveConfig, DEFAULT_PERSPECTIVE, buildPerspectiveText, ObjectOrientation, DEFAULT_OBJECT_ORIENTATION, buildObjectOrientationText, CinemaConfig, DEFAULT_CINEMA, buildCinemaText } from '../types';
 import { MODELS, ASPECT_RATIOS } from '../constants';
 
 interface EditPageProps {
@@ -87,6 +87,18 @@ export const EditPage: React.FC<EditPageProps> = ({ initialImage, onAssetGenerat
     // Perspective & Object Control State
     const [perspective, setPerspective] = useState<PerspectiveConfig>(DEFAULT_PERSPECTIVE);
     const [objectOrientation, setObjectOrientation] = useState<ObjectOrientation>(DEFAULT_OBJECT_ORIENTATION);
+    // Cinema controls (lens / focal / aperture / preset) — persisted to
+    // localStorage so the user's "house look" survives reloads.
+    const [cinema, setCinema] = useState<CinemaConfig>(() => {
+        try {
+            const raw = localStorage.getItem('godseye:cinema');
+            if (raw) return { ...DEFAULT_CINEMA, ...JSON.parse(raw) };
+        } catch {}
+        return DEFAULT_CINEMA;
+    });
+    useEffect(() => {
+        try { localStorage.setItem('godseye:cinema', JSON.stringify(cinema)); } catch {}
+    }, [cinema]);
     const [sticker, setSticker] = useState<StickerState | null>(null);
     const [showPerspective, setShowPerspective] = useState(false);
     const [stickerDrag, setStickerDrag] = useState<{
@@ -264,13 +276,18 @@ export const EditPage: React.FC<EditPageProps> = ({ initialImage, onAssetGenerat
 
         setIsGenerating(true);
 
-        // Build final prompt: object orientation first, then user prompt, then perspective suffix
+        // Build final prompt: object orientation first, then user prompt,
+        // then perspective suffix, then cinema (lens / focal / aperture /
+        // style preset). Cinema goes LAST so it acts as the global camera
+        // language layer on top of any specific framing instructions.
         const objText = buildObjectOrientationText(objectOrientation);
         const perspText = buildPerspectiveText(perspective);
+        const cinemaText = buildCinemaText(cinema);
 
         let finalPrompt = effectivePrompt;
         if (objText) finalPrompt = `${objText}, ${finalPrompt}`;
         if (perspText) finalPrompt = `${finalPrompt}, ${perspText}`;
+        if (cinemaText) finalPrompt = `${finalPrompt}, ${cinemaText}`;
 
         console.log("Generating with prompt:", finalPrompt, isEraser ? '(eraser auto-prompt)' : '');
 
@@ -985,6 +1002,8 @@ export const EditPage: React.FC<EditPageProps> = ({ initialImage, onAssetGenerat
                 setInputImages={setReferenceAssets}
                 perspective={perspective}
                 setPerspective={setPerspective}
+                cinema={cinema}
+                setCinema={setCinema}
                 objectOrientation={objectOrientation}
                 setObjectOrientation={setObjectOrientation}
                 allowEmptyPrompt={tool === 'erase'}

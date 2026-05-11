@@ -129,6 +129,40 @@ export function isPerspectiveActive(p: PerspectiveConfig): boolean {
   return !!(p.cameraAngle || p.shotType || p.facingCamera || p.rotation !== 0 || p.tilt !== 0);
 }
 
+// ---- Cinema Controls (Lens / Focal / Aperture / Style preset) ----
+// Compose a "shot on …" phrase that's appended to the prompt at generation
+// time. These cues meaningfully change image-model output (Gemini, Flux,
+// Imagen all respond strongly to camera-language tokens).
+export interface CinemaConfig {
+  lens: string;          // e.g. "anamorphic prime lens"
+  focalLength: string;   // e.g. "85mm"
+  aperture: string;      // e.g. "f/1.4"
+  preset: string;        // e.g. "cinematic film grade"
+}
+
+export const DEFAULT_CINEMA: CinemaConfig = {
+  lens: '',
+  focalLength: '',
+  aperture: '',
+  preset: '',
+};
+
+export function buildCinemaText(c: CinemaConfig): string {
+  const lensBits: string[] = [];
+  if (c.focalLength) lensBits.push(c.focalLength);
+  if (c.lens) lensBits.push(c.lens);
+  const lensPhrase = lensBits.length ? `shot on ${lensBits.join(' ')}` : '';
+  const aperturePhrase = c.aperture ? `at ${c.aperture}` : '';
+  const presetPhrase = c.preset || '';
+  // Compose: "shot on 85mm prime lens at f/1.4, cinematic film grade"
+  const camera = [lensPhrase, aperturePhrase].filter(Boolean).join(' ');
+  return [camera, presetPhrase].filter(Boolean).join(', ');
+}
+
+export function isCinemaActive(c: CinemaConfig): boolean {
+  return !!(c.lens || c.focalLength || c.aperture || c.preset);
+}
+
 // ---- NEW: Object Orientation (For Inpainting) ----
 export interface ObjectOrientation {
   action: string;

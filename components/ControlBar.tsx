@@ -42,7 +42,11 @@ import {
   ObjectOrientation,
   DEFAULT_OBJECT_ORIENTATION,
   isObjectOrientationActive,
-  OBJECT_ORIENTATION_OPTIONS
+  OBJECT_ORIENTATION_OPTIONS,
+  CinemaConfig,
+  DEFAULT_CINEMA,
+  buildCinemaText,
+  isCinemaActive
 } from '../types';
 import { supabase } from '../services/supabaseClient';
 import { useAuth } from '../context/AuthContext';
@@ -63,6 +67,55 @@ export const SHOT_TYPES = [
   { label: 'Medium', value: 'frame shows subject from waist up', icon: '🧍' },
   { label: 'Wide', value: 'full body visible with surrounding environment', icon: '🌅' },
   { label: 'Extreme\nWide', value: 'subject small in frame, vast environment visible all around', icon: '🌍' },
+];
+
+// ── Cinema preset libraries ────────────────────────────────────────────────
+// Each value is the exact phrase appended to the prompt. Labels are what
+// the user sees on the chip — kept short for the popup grid.
+export const CINEMA_LENSES = [
+  { label: 'Standard', value: 'prime lens' },
+  { label: 'Wide-angle', value: 'wide-angle lens' },
+  { label: 'Ultra-wide', value: 'ultra-wide-angle lens' },
+  { label: 'Telephoto', value: 'telephoto lens' },
+  { label: 'Macro', value: 'macro lens, extreme close-up detail' },
+  { label: 'Fisheye', value: 'fisheye lens, curved distortion' },
+  { label: 'Tilt-shift', value: 'tilt-shift lens, selective focus plane' },
+  { label: 'Anamorphic', value: 'anamorphic lens, cinematic widescreen flares' },
+  { label: 'Vintage', value: 'vintage prime lens, soft character' },
+  { label: 'Cinema zoom', value: 'cinema zoom lens' },
+  { label: 'Soft-focus', value: 'soft-focus lens, dreamy diffusion' },
+];
+
+export const CINEMA_FOCAL_LENGTHS = [
+  { label: '14mm', value: '14mm' },
+  { label: '24mm', value: '24mm' },
+  { label: '35mm', value: '35mm' },
+  { label: '50mm', value: '50mm' },
+  { label: '85mm', value: '85mm' },
+  { label: '135mm', value: '135mm' },
+  { label: '200mm', value: '200mm' },
+];
+
+export const CINEMA_APERTURES = [
+  { label: 'f/1.4', value: 'f/1.4 aperture, razor-thin depth of field' },
+  { label: 'f/1.8', value: 'f/1.8 aperture, shallow depth of field' },
+  { label: 'f/2.8', value: 'f/2.8 aperture, soft background blur' },
+  { label: 'f/4', value: 'f/4 aperture, balanced focus' },
+  { label: 'f/5.6', value: 'f/5.6 aperture, moderate depth' },
+  { label: 'f/8', value: 'f/8 aperture, sharp throughout' },
+  { label: 'f/11', value: 'f/11 aperture, deep focus across frame' },
+  { label: 'f/16', value: 'f/16 aperture, hyperfocal sharpness' },
+];
+
+export const CINEMA_PRESETS = [
+  { label: 'Cinematic Film', value: 'cinematic film grade, 35mm celluloid texture, soft highlight roll-off' },
+  { label: '8K Digital', value: 'ultra-sharp 8K digital cinema capture, true-to-life color science' },
+  { label: 'Editorial Magazine', value: 'high-end editorial magazine photography, crisp lighting' },
+  { label: 'Studio Portrait', value: 'studio portrait lighting, three-point setup, soft key and rim light' },
+  { label: 'Vintage 35mm', value: 'vintage 35mm film stock, gentle grain, warm tones' },
+  { label: 'Documentary', value: 'natural documentary look, available light, candid framing' },
+  { label: 'Hyperrealistic', value: 'hyperrealistic photography, fine micro-detail, sharp specular highlights' },
+  { label: 'Soft Glamour', value: 'soft glamour photography, diffused beauty light, polished skin tones' },
 ];
 
 /** CSS 3D cube preview that reflects current rotation/tilt */
@@ -120,6 +173,12 @@ interface ControlBarProps {
   objectOrientation?: ObjectOrientation;
   setObjectOrientation?: React.Dispatch<React.SetStateAction<ObjectOrientation>>;
 
+  // Cinema controls — lens / focal / aperture / preset. Composed into the
+  // prompt at generate time alongside perspective. Lifted to EditPage so
+  // the value survives toolbar mode-switches and gets persisted.
+  cinema?: CinemaConfig;
+  setCinema?: React.Dispatch<React.SetStateAction<CinemaConfig>>;
+
   // Brand Context (Global)
   brands?: any[];
   activeBrandId?: string | null;
@@ -144,6 +203,7 @@ export const ControlBar: React.FC<ControlBarProps> = ({
   brands = [], activeBrandId = null, onSwitchBrand,
   allowEmptyPrompt = false,
   onCharacterImagesChange,
+  cinema = DEFAULT_CINEMA, setCinema,
 }) => {
   const { user } = useAuth();
   const [activePopup, setActivePopup] = useState<string | null>(null);
@@ -203,6 +263,32 @@ export const ControlBar: React.FC<ControlBarProps> = ({
   // crowd the prompt area. The character's reference images are propagated
   // to the parent via onCharacterImagesChange below, used only at
   // generation time.
+  // Cinema state helpers — toggle in/out of each axis, build the smart
+  // toolbar label, and reset everything. We use the *label* of the option
+  // for display ("85mm") but store the full prompt-phrase ("f/1.4 aperture,
+  // razor-thin depth of field") so buildCinemaText composes well.
+  const cinemaActive = isCinemaActive(cinema);
+  const cinemaToolbarLabel = (() => {
+    if (!cinemaActive) return 'Cinema';
+    // Prefer most-distinctive setting first: focal → aperture → preset → lens
+    const focal = CINEMA_FOCAL_LENGTHS.find(o => o.value === cinema.focalLength)?.label;
+    const ap = CINEMA_APERTURES.find(o => o.value === cinema.aperture)?.label;
+    const preset = CINEMA_PRESETS.find(o => o.value === cinema.preset)?.label;
+    const lens = CINEMA_LENSES.find(o => o.value === cinema.lens)?.label;
+    const bits = [focal, ap].filter(Boolean);
+    if (bits.length >= 2) return bits.join(' · ');
+    if (bits.length === 1) return bits[0]!;
+    return preset || lens || 'Cinema';
+  })();
+  const toggleCinema = (field: keyof CinemaConfig, value: string) => {
+    if (!setCinema) return;
+    setCinema(prev => ({
+      ...prev,
+      [field]: prev[field] === value ? '' : value,
+    }));
+  };
+  const resetCinema = () => { if (setCinema) setCinema(DEFAULT_CINEMA); };
+
   const handleSelectCharacter = (char: Character) => {
     setSelectedCharacterIds(prev => {
       const isSelected = prev.includes(char.id);
@@ -734,6 +820,124 @@ export const ControlBar: React.FC<ControlBarProps> = ({
                 </div>
               </div>
             )}
+
+            {/* ── Cinema popup ───────────────────────────────────────────
+                Lens / Focal length / Aperture / Style preset, each as a
+                grid of toggle chips. Amber accent to distinguish from the
+                lime-green Camera Angle popup. Live preview shows the exact
+                phrase appended to the prompt. */}
+            {activePopup === 'cinema' && (
+              <div
+                className="absolute bottom-0 right-0 bg-white dark:bg-[#1a1a1a] border border-brand/30 rounded-[24px] shadow-2xl animate-scale-in origin-bottom-right overflow-hidden flex flex-col"
+                style={{ width: 760, maxHeight: 'calc(100vh - 160px)' }}
+                onMouseDown={e => e.stopPropagation()}
+              >
+                {/* Header — sticky, never clipped */}
+                <div className="flex items-center justify-between px-5 py-4 border-b border-border-base/50 flex-shrink-0 bg-[#1a1a1a]">
+                  <div className="flex items-center gap-2">
+                    <div className="w-7 h-7 rounded-lg bg-brand/20 flex items-center justify-center">
+                      <Camera size={14} className="text-brand" />
+                    </div>
+                    <div>
+                      <div className="text-sm font-bold text-text-primary leading-none">Cinema</div>
+                      <div className="text-[10px] text-text-secondary mt-1">Pro camera language — lens · focal · aperture · style</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {cinemaActive && (
+                      <button onClick={resetCinema}
+                        className="text-[10px] text-text-secondary hover:text-brand flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-brand/10 transition-all font-bold uppercase tracking-wide">
+                        <RotateCcw size={10} /> Reset
+                      </button>
+                    )}
+                    <button onClick={() => setActivePopup(null)} className="p-1.5 hover:bg-surface rounded-lg transition-colors">
+                      <X size={14} className="text-text-secondary" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Body — 2-column landscape layout; scrolls within if needed */}
+                <div className="p-5 overflow-y-auto flex-1">
+                  <div className="grid grid-cols-2 gap-x-6 gap-y-5">
+                    {/* LEFT — Lens */}
+                    <div>
+                      <div className="text-[10px] font-bold uppercase tracking-widest text-text-secondary mb-2.5">Lens</div>
+                      <div className="grid grid-cols-3 gap-1.5">
+                        {CINEMA_LENSES.map(opt => (
+                          <button key={opt.value}
+                            onClick={() => toggleCinema('lens', opt.value)}
+                            className={`px-2 py-2 rounded-xl text-[10px] font-semibold transition-all border
+                              ${cinema.lens === opt.value
+                                ? 'bg-brand/20 border-brand/60 text-brand shadow-sm'
+                                : 'bg-surface/50 border-transparent text-text-secondary hover:border-brand/30 hover:text-text-primary'}`}>
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* RIGHT — Aperture */}
+                    <div>
+                      <div className="text-[10px] font-bold uppercase tracking-widest text-text-secondary mb-2.5">Aperture</div>
+                      <div className="grid grid-cols-4 gap-1.5">
+                        {CINEMA_APERTURES.map(opt => (
+                          <button key={opt.value}
+                            onClick={() => toggleCinema('aperture', opt.value)}
+                            className={`px-1 py-2 rounded-xl text-[10px] font-mono font-bold transition-all border
+                              ${cinema.aperture === opt.value
+                                ? 'bg-brand/20 border-brand/60 text-brand shadow-sm'
+                                : 'bg-surface/50 border-transparent text-text-secondary hover:border-brand/30 hover:text-text-primary'}`}>
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* LEFT — Focal Length */}
+                    <div>
+                      <div className="text-[10px] font-bold uppercase tracking-widest text-text-secondary mb-2.5">Focal Length</div>
+                      <div className="grid grid-cols-4 gap-1.5">
+                        {CINEMA_FOCAL_LENGTHS.map(opt => (
+                          <button key={opt.value}
+                            onClick={() => toggleCinema('focalLength', opt.value)}
+                            className={`px-1 py-2 rounded-xl text-[10px] font-mono font-bold transition-all border
+                              ${cinema.focalLength === opt.value
+                                ? 'bg-brand/20 border-brand/60 text-brand shadow-sm'
+                                : 'bg-surface/50 border-transparent text-text-secondary hover:border-brand/30 hover:text-text-primary'}`}>
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* RIGHT — Style Preset */}
+                    <div>
+                      <div className="text-[10px] font-bold uppercase tracking-widest text-text-secondary mb-2.5">Style Preset</div>
+                      <div className="grid grid-cols-2 gap-1.5">
+                        {CINEMA_PRESETS.map(opt => (
+                          <button key={opt.value}
+                            onClick={() => toggleCinema('preset', opt.value)}
+                            className={`px-2.5 py-2 rounded-xl text-[10px] font-semibold transition-all border text-left
+                              ${cinema.preset === opt.value
+                                ? 'bg-brand/20 border-brand/60 text-brand shadow-sm'
+                                : 'bg-surface/50 border-transparent text-text-secondary hover:border-brand/30 hover:text-text-primary'}`}>
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Injection preview spans full width */}
+                  {cinemaActive && (
+                    <div className="bg-brand/5 border border-brand/20 rounded-xl px-4 py-3 mt-5">
+                      <div className="text-[9px] font-bold uppercase text-brand tracking-widest mb-1">Will be added to prompt →</div>
+                      <div className="text-[10px] text-text-secondary font-mono leading-relaxed italic">"{buildCinemaText(cinema)}"</div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -893,6 +1097,22 @@ export const ControlBar: React.FC<ControlBarProps> = ({
                 <Camera size={14} />
                 Camera Angle
                 {perspActive && <span className="absolute -top-1 -right-1 w-2 h-2 bg-brand rounded-full shadow-lg shadow-brand/50" />}
+              </button>
+
+              {/* Cinema chip — lens / focal / aperture / preset.
+                  Uses the same brand accent as Camera Angle for visual
+                  cohesion (both are camera-related controls). */}
+              <button
+                onClick={() => togglePopup('cinema')}
+                className={`h-8 px-3 rounded-lg text-xs font-medium flex items-center gap-2 transition-all whitespace-nowrap relative border
+                  ${activePopup === 'cinema' ? 'bg-brand/20 text-brand border-brand/50'
+                    : cinemaActive ? 'text-brand border-brand/30 hover:bg-brand/10'
+                      : 'hover:bg-black/5 dark:hover:bg-white/10 text-text-secondary hover:text-text-primary border-transparent'}`}
+                title="Cinema controls — lens, focal length, aperture, style preset"
+              >
+                <Camera size={14} />
+                <span className="max-w-[120px] truncate">{cinemaToolbarLabel}</span>
+                {cinemaActive && <span className="absolute -top-1 -right-1 w-2 h-2 bg-brand rounded-full shadow-lg shadow-brand/50" />}
               </button>
 
               {/* Object Rotation chip */}
