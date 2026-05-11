@@ -1,0 +1,41 @@
+# .gcloudignore — controls what `gcloud builds submit` and `gcloud run deploy
+# --source` upload to Cloud Build storage. Without this file, gcloud falls back
+# to .gitignore — which excludes node_modules/ but NOT the Claude agent
+# worktrees, so every build was uploading 14 full clones of the repo (2+ GiB).
+
+# Local agent worktrees (huge, repo clones)
+.claude/
+
+# Git internals — Cloud Build doesn't need history
+.git/
+.gitignore
+
+# Dependencies (installed inside the Docker build via `npm ci`)
+node_modules/
+
+# Build artifacts (rebuilt inside the Docker container)
+dist/
+build/
+
+# Environment / secrets — never ship .env files
+.env
+.env.*
+
+# Runtime data (Klint/Gods Eye local sync)
+.klint/
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Logs and temporary files
+*.log
+tmp_*
+test_*.js
+*.tmp
+
+# Project-local docs / scratch
+TODO.md
+NOTES.md
