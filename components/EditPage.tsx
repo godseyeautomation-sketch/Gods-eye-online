@@ -386,11 +386,17 @@ export const EditPage: React.FC<EditPageProps> = ({ initialImage, onAssetGenerat
 
     // Drag-and-drop image attach for Edit mode.
     //
-    // Mirrors the IMAGE-tab GlobalImageDropZone behavior but with Edit-tab
-    // semantics: dropping an image REPLACES the base image being edited
-    // (not appended to a reference list — Edit is a single-image workflow).
-    // The canvas redraw + history reset happens automatically via the
-    // existing useEffect that watches `baseImage`.
+    // Edit-tab semantics: dropped images are added as REFERENCE thumbnails
+    // (rendered as IMG 1, IMG 2... tiles next to the + in the prompt bar),
+    // exactly like the Image tab. The canvas image being edited (baseImage)
+    // is intentionally NOT touched — references are extra inputs the user
+    // wants the model to consider while editing, not a replacement for the
+    // subject. To replace the canvas, the user can change the underlying
+    // image via the existing flow (e.g. opening a new asset).
+    //
+    // FileReader runs inside this handler so the success toast fires only
+    // after the data URLs are ready (same pattern as GlobalImageDropZone's
+    // post-fix flow — toast and rendered thumbnails are in lockstep).
     useEffect(() => {
         const hasFiles = (e: DragEvent) => {
             const types = e.dataTransfer?.types;
@@ -405,6 +411,19 @@ export const EditPage: React.FC<EditPageProps> = ({ initialImage, onAssetGenerat
             setDropToast({ text, kind });
             window.setTimeout(() => setDropToast(null), 2200);
         };
+
+        const readAsDataUrl = (file: File) =>
+            new Promise<string>((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = (ev) => {
+                    const result = ev.target?.result;
+                    if (typeof result === 'string' && result.startsWith('data:')) resolve(result);
+                    else reject(new Error(`Unexpected FileReader result for ${file.name}`));
+                };
+                reader.onerror = () => reject(new Error(`Failed to read ${file.name}`));
+                reader.onabort = () => reject(new Error(`Read aborted for ${file.name}`));
+                reader.readAsDataURL(file);
+            });
 
         const onDragEnter = (e: DragEvent) => {
             if (!hasFiles(e)) return;
@@ -426,7 +445,7 @@ export const EditPage: React.FC<EditPageProps> = ({ initialImage, onAssetGenerat
             if (dropDepth.current === 0) setFileDragActive(false);
         };
 
-        const onDrop = (e: DragEvent) => {
+        const onDrop = async (e: DragEvent) => {
             if (!hasFiles(e)) return;
             e.preventDefault();
             dropDepth.current = 0;
@@ -436,29 +455,42 @@ export const EditPage: React.FC<EditPageProps> = ({ initialImage, onAssetGenerat
             if (all.length === 0) return;
 
             const images = all.filter(f => f.type.startsWith('image/'));
+            const rejected = all.length - images.length;
+
             if (images.length === 0) {
                 showDropToast('Only images supported — other files were rejected.', 'error');
                 return;
             }
 
-            // Edit is single-image: take the first dropped image, ignore rest.
-            const file = images[0];
-            const reader = new FileReader();
-            reader.onload = (ev) => {
-                const dataUrl = ev.target?.result as string;
-                if (!dataUrl) return;
-                setBaseImage(dataUrl);
-                setOriginalImage(dataUrl);
-                // Clear sticker / drawing state so the new image starts fresh.
-                setSticker(null);
-                setHistory([]);
-                setHistoryStep(-1);
-                const extras = images.length - 1;
-                const suffix = extras > 0 ? ` (${extras} extra image${extras > 1 ? 's' : ''} ignored — Edit handles one at a time)` : '';
-                showDropToast(`Loaded ${file.name}${suffix}`, extras > 0 ? 'error' : 'ok');
-            };
-            reader.onerror = () => showDropToast(`Failed to read ${file.name}`, 'error');
-            reader.readAsDataURL(file);
+            // Read all to data URLs FIRST, then state update + toast — so the
+            // user sees thumbnails in the prompt bar at the exact moment the
+            // success toast appears.
+            const dataUrls: string[] = [];
+            const failed: string[] = [];
+            for (const file of images) {
+                try {
+                    const dataUrl = await readAsDataUrl(file);
+                    dataUrls.push(dataUrl);
+                } catch (err) {
+                    console.error('[EditDropZone]', err);
+                    failed.push(file.name);
+                }
+            }
+
+            if (dataUrls.length === 0) {
+                showDropToast(`Failed to read ${failed.join(', ')} — try a different image.`, 'error');
+                return;
+            }
+
+            // Append to references — mirror the Image-tab inputImages flow.
+            setReferenceAssets(prev => [...prev, ...dataUrls]);
+
+            const failedSuffix = failed.length > 0 ? ` (${failed.length} failed to read)` : '';
+            const rejectedSuffix = rejected > 0 ? ` (${rejected} non-image file${rejected > 1 ? 's' : ''} rejected)` : '';
+            const suffix = failedSuffix + rejectedSuffix;
+            const noun = dataUrls.length === 1 ? 'reference' : 'references';
+            const kind: 'ok' | 'error' = (failed.length > 0 || rejected > 0) ? 'error' : 'ok';
+            showDropToast(`Attached ${dataUrls.length} ${noun}${suffix}`, kind);
         };
 
         window.addEventListener('dragenter', onDragEnter);
@@ -1136,8 +1168,8 @@ export const EditPage: React.FC<EditPageProps> = ({ initialImage, onAssetGenerat
                             <ImagePlus size={28} strokeWidth={2.5} />
                         </div>
                         <div className="text-center">
-                            <p className="text-lg font-bold text-white tracking-tight">Drop image to edit</p>
-                            <p className="text-xs text-white/60 mt-1">Replaces the current canvas — your edits will reset</p>
+                            <p className="text-lg font-bold text-white tracking-tight">Drop images to attach as reference</p>
+                            <p className="text-xs text-white/60 mt-1">Adds to the prompt bar — your canvas stays untouched</p>
                         </div>
                     </div>
                 </div>
