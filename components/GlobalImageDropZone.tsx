@@ -4,8 +4,16 @@ import { ImagePlus, AlertTriangle } from 'lucide-react';
 interface GlobalImageDropZoneProps {
   /** Disable entirely (e.g. on tabs where dropping doesn't make sense). */
   enabled: boolean;
-  /** Called with the accepted image Files once the user drops. */
-  onDropImages: (files: File[]) => void;
+  /**
+   * Called with the accepted images as data: URLs once they're fully read.
+   *
+   * Reading happens inside this component so the success toast can fire AFTER
+   * the data URLs are ready — not before. Previously this passed File[] and
+   * the parent did the FileReader work async, which meant the toast could
+   * show "Attached 1 image" while the actual setState never landed (silent
+   * FileReader failures, unusual MIME types, etc.).
+   */
+  onDropImages: (dataUrls: string[]) => void;
 }
 
 /**
@@ -71,7 +79,20 @@ export const GlobalImageDropZone: React.FC<GlobalImageDropZoneProps> = ({ enable
       if (dragDepth.current === 0) setIsDragging(false);
     };
 
-    const onDrop = (e: DragEvent) => {
+    const readAsDataUrl = (file: File) =>
+      new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          const result = ev.target?.result;
+          if (typeof result === 'string' && result.startsWith('data:')) resolve(result);
+          else reject(new Error(`Unexpected FileReader result for ${file.name}`));
+        };
+        reader.onerror = () => reject(new Error(`Failed to read ${file.name}`));
+        reader.onabort = () => reject(new Error(`Read aborted for ${file.name}`));
+        reader.readAsDataURL(file);
+      });
+
+    const onDrop = async (e: DragEvent) => {
       if (!hasFiles(e)) return;
       e.preventDefault();
       dragDepth.current = 0;
@@ -88,11 +109,38 @@ export const GlobalImageDropZone: React.FC<GlobalImageDropZoneProps> = ({ enable
         return;
       }
 
-      onDropImages(images);
+      // Read all images to data URLs BEFORE firing the success toast or
+      // calling the parent. This is the critical fix: previously the toast
+      // fired immediately after handing File objects to the parent, so users
+      // saw "Attached 1 image" even when FileReader silently failed and the
+      // image never made it into inputImages.
+      const dataUrls: string[] = [];
+      const failed: string[] = [];
+      for (const file of images) {
+        try {
+          const dataUrl = await readAsDataUrl(file);
+          dataUrls.push(dataUrl);
+        } catch (err) {
+          console.error('[DropZone]', err);
+          failed.push(file.name);
+        }
+      }
 
-      const suffix = rejected > 0 ? ` (${rejected} non-image file${rejected > 1 ? 's' : ''} rejected)` : '';
-      const noun = images.length === 1 ? 'image' : 'images';
-      showToast(`Attached ${images.length} ${noun}${suffix}`, rejected > 0 ? 'error' : 'ok');
+      if (dataUrls.length === 0) {
+        showToast(`Failed to read ${failed.join(', ')} — try a different image.`, 'error');
+        return;
+      }
+
+      // State update first, toast second — so by the time the user sees
+      // "Attached N images", the thumbnails are actually rendered.
+      onDropImages(dataUrls);
+
+      const failedSuffix = failed.length > 0 ? ` (${failed.length} failed to read)` : '';
+      const rejectedSuffix = rejected > 0 ? ` (${rejected} non-image file${rejected > 1 ? 's' : ''} rejected)` : '';
+      const suffix = failedSuffix + rejectedSuffix;
+      const noun = dataUrls.length === 1 ? 'image' : 'images';
+      const kind: 'ok' | 'error' = (failed.length > 0 || rejected > 0) ? 'error' : 'ok';
+      showToast(`Attached ${dataUrls.length} ${noun}${suffix}`, kind);
     };
 
     window.addEventListener('dragenter', onDragEnter);

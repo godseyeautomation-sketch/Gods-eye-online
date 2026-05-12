@@ -649,23 +649,12 @@ const App: React.FC = () => {
     })();
   };
 
-  // Convert dropped image files → base64 data URLs → append to inputImages.
-  // Handles multi-file drops; respects the same pipeline as the + file picker.
-  const handleDroppedImages = async (files: File[]) => {
-    const dataUrls: string[] = [];
-    for (const file of files) {
-      try {
-        const dataUrl = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = (ev) => resolve(ev.target?.result as string);
-          reader.onerror = () => reject(new Error(`Failed to read ${file.name}`));
-          reader.readAsDataURL(file);
-        });
-        dataUrls.push(dataUrl);
-      } catch (err) {
-        console.error('[DropZone] Failed to read file', file.name, err);
-      }
-    }
+  // Append dropped images to the reference list. GlobalImageDropZone has
+  // already converted File → data: URL by the time we get here, so this is
+  // a pure state update with no async work — the toast in the drop zone
+  // fires only after this call, so users see thumbnails the moment the
+  // success toast appears (no more "Attached 1 image" with no thumbnail).
+  const handleDroppedImages = (dataUrls: string[]) => {
     if (dataUrls.length > 0) setInputImages(prev => [...prev, ...dataUrls]);
   };
 
