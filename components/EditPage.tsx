@@ -27,7 +27,8 @@ import {
     ImagePlus,
     RotateCw,
     Wand2,
-    BoxSelect
+    BoxSelect,
+    AlertTriangle
 } from 'lucide-react';
 import { ControlBar } from './ControlBar';
 import { BrainActions } from './BrainActions';
@@ -101,6 +102,13 @@ export const EditPage: React.FC<EditPageProps> = ({ initialImage, onAssetGenerat
     }, [cinema]);
     const [sticker, setSticker] = useState<StickerState | null>(null);
     const [showPerspective, setShowPerspective] = useState(false);
+    // File drag-and-drop overlay state. Distinct from `isDragging` below
+    // (which is the canvas pan/move drag for the Hand tool). `fileDragActive`
+    // controls the full-viewport overlay shown while the user is dragging
+    // an external image file over the window.
+    const [fileDragActive, setFileDragActive] = useState(false);
+    const [dropToast, setDropToast] = useState<{ text: string; kind: 'ok' | 'error' } | null>(null);
+    const dropDepth = useRef(0);
     const [stickerDrag, setStickerDrag] = useState<{
         startX: number,
         startY: number,
@@ -374,6 +382,97 @@ export const EditPage: React.FC<EditPageProps> = ({ initialImage, onAssetGenerat
         };
         document.addEventListener('mousedown', handleClickOutside);
         return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
+    // Drag-and-drop image attach for Edit mode.
+    //
+    // Mirrors the IMAGE-tab GlobalImageDropZone behavior but with Edit-tab
+    // semantics: dropping an image REPLACES the base image being edited
+    // (not appended to a reference list — Edit is a single-image workflow).
+    // The canvas redraw + history reset happens automatically via the
+    // existing useEffect that watches `baseImage`.
+    useEffect(() => {
+        const hasFiles = (e: DragEvent) => {
+            const types = e.dataTransfer?.types;
+            if (!types) return false;
+            for (let i = 0; i < types.length; i++) {
+                if (types[i] === 'Files') return true;
+            }
+            return false;
+        };
+
+        const showDropToast = (text: string, kind: 'ok' | 'error') => {
+            setDropToast({ text, kind });
+            window.setTimeout(() => setDropToast(null), 2200);
+        };
+
+        const onDragEnter = (e: DragEvent) => {
+            if (!hasFiles(e)) return;
+            e.preventDefault();
+            dropDepth.current += 1;
+            setFileDragActive(true);
+        };
+
+        const onDragOver = (e: DragEvent) => {
+            if (!hasFiles(e)) return;
+            e.preventDefault();
+            if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+        };
+
+        const onDragLeave = (e: DragEvent) => {
+            if (!hasFiles(e)) return;
+            e.preventDefault();
+            dropDepth.current = Math.max(0, dropDepth.current - 1);
+            if (dropDepth.current === 0) setFileDragActive(false);
+        };
+
+        const onDrop = (e: DragEvent) => {
+            if (!hasFiles(e)) return;
+            e.preventDefault();
+            dropDepth.current = 0;
+            setFileDragActive(false);
+
+            const all = Array.from(e.dataTransfer?.files || []);
+            if (all.length === 0) return;
+
+            const images = all.filter(f => f.type.startsWith('image/'));
+            if (images.length === 0) {
+                showDropToast('Only images supported — other files were rejected.', 'error');
+                return;
+            }
+
+            // Edit is single-image: take the first dropped image, ignore rest.
+            const file = images[0];
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+                const dataUrl = ev.target?.result as string;
+                if (!dataUrl) return;
+                setBaseImage(dataUrl);
+                setOriginalImage(dataUrl);
+                // Clear sticker / drawing state so the new image starts fresh.
+                setSticker(null);
+                setHistory([]);
+                setHistoryStep(-1);
+                const extras = images.length - 1;
+                const suffix = extras > 0 ? ` (${extras} extra image${extras > 1 ? 's' : ''} ignored — Edit handles one at a time)` : '';
+                showDropToast(`Loaded ${file.name}${suffix}`, extras > 0 ? 'error' : 'ok');
+            };
+            reader.onerror = () => showDropToast(`Failed to read ${file.name}`, 'error');
+            reader.readAsDataURL(file);
+        };
+
+        window.addEventListener('dragenter', onDragEnter);
+        window.addEventListener('dragover', onDragOver);
+        window.addEventListener('dragleave', onDragLeave);
+        window.addEventListener('drop', onDrop);
+
+        return () => {
+            window.removeEventListener('dragenter', onDragEnter);
+            window.removeEventListener('dragover', onDragOver);
+            window.removeEventListener('dragleave', onDragLeave);
+            window.removeEventListener('drop', onDrop);
+            dropDepth.current = 0;
+        };
     }, []);
 
     // Fix for "weird cropping": Set explicit dimensions and ensure flexible scaling
@@ -1009,6 +1108,61 @@ export const EditPage: React.FC<EditPageProps> = ({ initialImage, onAssetGenerat
                 allowEmptyPrompt={tool === 'erase'}
                 onCharacterImagesChange={setCharacterImages}
             />
+
+            {/* ── File drag-and-drop overlay ─────────────────────────────────
+                Full-viewport hint that appears while the user is dragging
+                an image file over the Edit tab. Mirrors the IMAGE-tab
+                GlobalImageDropZone styling so the visual language is the
+                same across tabs — only the wording reflects Edit's
+                "replace the base image" semantics. */}
+            {fileDragActive && (
+                <div
+                    aria-hidden="true"
+                    className="fixed inset-0 z-[90] pointer-events-none flex items-center justify-center animate-in fade-in duration-150"
+                    style={{ background: 'rgba(0, 0, 0, 0.55)', backdropFilter: 'blur(6px)' }}
+                >
+                    <div
+                        className="flex flex-col items-center justify-center gap-3 px-12 py-10 rounded-3xl"
+                        style={{
+                            border: '2px dashed #CCFF00',
+                            background: 'rgba(204, 255, 0, 0.05)',
+                            boxShadow: '0 0 60px rgba(204, 255, 0, 0.2)',
+                        }}
+                    >
+                        <div
+                            className="w-14 h-14 rounded-2xl flex items-center justify-center"
+                            style={{ background: 'rgba(204, 255, 0, 0.15)', color: '#CCFF00' }}
+                        >
+                            <ImagePlus size={28} strokeWidth={2.5} />
+                        </div>
+                        <div className="text-center">
+                            <p className="text-lg font-bold text-white tracking-tight">Drop image to edit</p>
+                            <p className="text-xs text-white/60 mt-1">Replaces the current canvas — your edits will reset</p>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Drop-result toast (success or rejection) */}
+            {dropToast && (
+                <div
+                    role="status"
+                    aria-live="polite"
+                    className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[95] pointer-events-none animate-in fade-in slide-in-from-bottom-2 duration-200"
+                >
+                    <div
+                        className="flex items-center gap-2 px-4 py-2.5 rounded-full text-xs font-semibold shadow-lg"
+                        style={
+                            dropToast.kind === 'ok'
+                                ? { background: '#CCFF00', color: '#000' }
+                                : { background: '#2a0e0e', color: '#ff6b6b', border: '1px solid rgba(255, 107, 107, 0.3)' }
+                        }
+                    >
+                        {dropToast.kind === 'ok' ? <ImagePlus size={14} /> : <AlertTriangle size={14} />}
+                        <span>{dropToast.text}</span>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

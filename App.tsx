@@ -879,9 +879,12 @@ const App: React.FC = () => {
 
       {/* Drag-and-drop image attach — active only on tabs where the prompt
           bar is visible and reference images make sense. Ignored on Home,
-          Explore, Admin, Connectors, etc. to avoid catching accidental drops. */}
+          Explore, Admin, Connectors, etc. to avoid catching accidental drops.
+          EDIT mode is intentionally excluded here — EditPage has its own
+          drop handler that replaces the base image instead of pushing to the
+          reference list (which EditPage doesn't read). */}
       <GlobalImageDropZone
-        enabled={mode === AppMode.IMAGE || mode === AppMode.EDIT || mode === AppMode.CHARACTER}
+        enabled={mode === AppMode.IMAGE || mode === AppMode.CHARACTER}
         onDropImages={handleDroppedImages}
       />
 
